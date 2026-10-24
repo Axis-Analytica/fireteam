@@ -17,6 +17,7 @@
 
 #include "cli.h"
 #include "command.h"
+#include "fieldterminal.h"
 #include "folderpicker.h"
 #include "mcpserver.h"
 #include "notifier.h"
@@ -74,7 +75,12 @@ int main(int argc, char *argv[]) {
         Operations operations;
         Inbox inbox(operations);
         Notifier notifier;
+        FieldTerminal terminal(operations, operations.dataDirectory());
         QObject::connect(&operations, &Operations::alert, &notifier, &Notifier::send);
+        QObject::connect(&operations, &Operations::alert, &terminal,
+                         [&terminal](const QString &, const QString &title, const QString &body) { terminal.push(title, body); });
+        if (terminal.listening())
+            std::fprintf(stderr, "Field terminal at %s\n", qPrintable(terminal.addresses().join(", ")));
         std::fprintf(stderr, "Fireteam serving %s. Stop with Ctrl+C.\n",
                      qPrintable(Operations::defaultDataDirectory()));
         return app.exec();
@@ -95,6 +101,10 @@ int main(int argc, char *argv[]) {
     Theme theme;
     Operations operations;
     Inbox inbox(operations);
+    FieldTerminal terminal(operations, operations.dataDirectory());
+    // Alerts reach the phone too, when an ntfy topic is set.
+    QObject::connect(&operations, &Operations::alert, &terminal,
+                     [&terminal](const QString &, const QString &title, const QString &body) { terminal.push(title, body); });
     FolderPicker folderPicker;
     Notifier notifier;
     operations.checkLink();
@@ -106,6 +116,7 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("ops", &operations);
     engine.rootContext()->setContextProperty("folderPicker", &folderPicker);
     engine.rootContext()->setContextProperty("notifier", &notifier);
+    engine.rootContext()->setContextProperty("terminal", &terminal);
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;

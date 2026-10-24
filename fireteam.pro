@@ -5,6 +5,7 @@ TARGET = fireteam
 TEMPLATE = app
 
 HEADERS += src/notifier.h \
+    src/fieldterminal.h \
     src/gates.h \
     src/fieldlink.h \
     src/mcpserver.h \
@@ -18,6 +19,7 @@ HEADERS += src/notifier.h \
     src/translator.h
 
 SOURCES += src/notifier.cpp \
+    src/fieldterminal.cpp \
     src/gates.cpp \
     src/fieldlink.cpp \
     src/mcpserver.cpp \

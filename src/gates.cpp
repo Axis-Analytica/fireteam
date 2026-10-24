@@ -97,8 +97,10 @@ void Gates::shoot(const QString &url, const QString &path) {
             emit previewed({}, tr("The browser didn't take the screenshot: %1").arg(QString::fromUtf8(shot->readAll()).trimmed().right(300)));
     });
     QTimer::singleShot(60000, shot, [shot] { shot->kill(); });
+    // A fixed wait rather than "until the network is quiet": dev servers keep
+    // live-reload connections open, so it never is.
     shot->start(browser(), {"--headless=new", "--disable-gpu", "--hide-scrollbars", "--window-size=1280,800",
-                            "--virtual-time-budget=4000", "--screenshot=" + path, url});
+                            "--timeout=6000", "--screenshot=" + path, url});
 }
 
 void Gates::stopServer() {

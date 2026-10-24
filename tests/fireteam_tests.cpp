@@ -2,6 +2,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QElapsedTimer>
 #include <QImage>
 #include <QTcpSocket>
 #include <QHostAddress>
@@ -10,6 +11,7 @@
 #include <QtTest>
 
 #include "command.h"
+#include "fieldterminal.h"
 #include "gates.h"
 #include "mcpserver.h"
 #include "operations.h"
@@ -919,6 +921,78 @@ private slots:
         QTcpSocket probe;
         probe.connectToHost(QHostAddress::LocalHost, 8765);
         QVERIFY(!probe.waitForConnected(2000));
+    }
+
+    void servesTheFieldTerminal()
+    {
+        QTemporaryDir data, project;
+        qputenv("FIRETEAM_TERMINAL_PORT", "0");
+        struct Unset { ~Unset() { qunsetenv("FIRETEAM_TERMINAL_PORT"); } } unset;
+        Operations ops(data.path(), "/bin/true");
+        QCOMPARE(ops.create("red fox", project.path(), "Build", 2, "restricted", ""), 0);
+        FieldTerminal terminal(ops, data.path());
+        QVERIFY(!terminal.listening());
+        terminal.setEnabled(true);
+        QVERIFY(terminal.listening());
+        QVERIFY(terminal.pairingUrl().startsWith("http://127.0.0.1:"));
+        QVERIFY(terminal.pairingUrl().endsWith("/#" + terminal.token()));
+        // Raw HTTP, the way a phone's browser speaks it.
+        auto http = [&](const QByteArray &method, const QByteArray &path, const QByteArray &token, const QByteArray &body = {}) {
+            QTcpSocket socket;
+            socket.connectToHost(QHostAddress::LocalHost, terminal.serverPort());
+            if (!socket.waitForConnected(3000))
+                return QByteArray();
+            QByteArray request = method + " " + path + " HTTP/1.1\r\nHost: x\r\n";
+            if (!token.isEmpty())
+                request += "Authorization: Bearer " + token + "\r\n";
+            request += "Content-Length: " + QByteArray::number(body.size()) + "\r\n\r\n" + body;
+            socket.write(request);
+            // The server shares this thread, so its events have to run while
+            // the answer is awaited.
+            QByteArray response;
+            QElapsedTimer clock;
+            clock.start();
+            while (socket.state() != QAbstractSocket::UnconnectedState && clock.elapsed() < 3000) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                response += socket.readAll();
+            }
+            return response + socket.readAll();
+        };
+        const QByteArray token = terminal.token().toUtf8();
+        QVERIFY(http("GET", "/", {}).contains("Field terminal"));
+        QVERIFY(http("GET", "/api/state", {}).startsWith("HTTP/1.1 401"));
+        QVERIFY(http("GET", "/api/state", "wrong").startsWith("HTTP/1.1 401"));
+        QByteArray state = http("GET", "/api/state", token);
+        QVERIFY(state.startsWith("HTTP/1.1 200"));
+        QVERIFY(state.contains("\"codename\":\"RED FOX\""));
+        // The token also works in the query, for the event stream.
+        QVERIFY(http("GET", "/api/state?token=" + token, {}).startsWith("HTTP/1.1 200"));
+
+        const QByteArray id = ops.at(0).id.toUtf8();
+        QVERIFY(http("POST", "/api/op/" + id + "/order", token, "{\"text\":\"Use SQLite.\"}").contains("\"ok\":true"));
+        QCOMPARE(ops.at(0).orders, QStringList{"Use SQLite."});
+        // Only what makes sense now: it isn't deployed, so it can't be held.
+        QVERIFY(http("POST", "/api/op/" + id + "/hold", token).startsWith("HTTP/1.1 409"));
+        QVERIFY(http("POST", "/api/op/nope/order", token, "{\"text\":\"x\"}").startsWith("HTTP/1.1 404"));
+        QVERIFY(http("GET", "/api/op/" + id, token).contains("\"orders\":[\"Use SQLite.\"]"));
+
+        // A live stream hears about changes.
+        QTcpSocket stream;
+        stream.connectToHost(QHostAddress::LocalHost, terminal.serverPort());
+        QVERIFY(stream.waitForConnected(3000));
+        stream.write("GET /api/events?token=" + token + " HTTP/1.1\r\nHost: x\r\n\r\n");
+        QByteArray events;
+        QTRY_VERIFY((events += stream.readAll()).contains("event: update"));
+        QTRY_COMPARE(terminal.clients(), 1);
+        events.clear();
+        ops.sendOrders(0, "Add tests.", false);
+        QTRY_VERIFY_WITH_TIMEOUT((events += stream.readAll()).contains("event: update"), 3000);
+
+        // A new code locks the old one out.
+        terminal.newToken();
+        QVERIFY(http("GET", "/api/state", token).startsWith("HTTP/1.1 401"));
+        terminal.setEnabled(false);
+        QVERIFY(!terminal.listening());
     }
 
     void keepsLoadouts()

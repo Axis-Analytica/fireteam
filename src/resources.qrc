@@ -38,6 +38,8 @@
         <file alias="TacticalButton.qml">TacticalButton.qml</file>
         <file alias="ember.svg">ember.svg</file>
         <file alias="skill/SKILL.md">skill/SKILL.md</file>
+        <file alias="web/index.html">web/index.html</file>
+        <file alias="TerminalPanel.qml">TerminalPanel.qml</file>
         <file alias="i18n/en.json">i18n/en.json</file>
         <file alias="i18n/ar.json">i18n/ar.json</file>
         <file alias="i18n/da.json">i18n/da.json</file>

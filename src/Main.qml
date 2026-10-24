@@ -21,7 +21,7 @@ ApplicationWindow {
     readonly property bool narrow: width < 1100
     readonly property bool overlayOpen: briefing.visible || help.visible || confirm.visible || radio.visible || intel.visible
                                         || insertion.visible || authorisation.visible || serviceRecord.visible
-                                        || waitingPanel.visible || campaignBoard.visible
+                                        || waitingPanel.visible || campaignBoard.visible || terminalPanel.visible
     // The theatre map in place of the roster and detail.
     property bool mapView: false
     readonly property var selected: roster.currentItem
@@ -179,6 +179,7 @@ ApplicationWindow {
     Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.deploySelected() }
     Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: { win.mapView = !win.mapView; Sfx.play("open") } }
     Shortcut { sequence: "Shift+M"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: Sfx.toggle() }
+    Shortcut { sequence: "P"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: terminalPanel.open() }
     Shortcut { sequence: "C"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: campaignBoard.open() }
     Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: serviceRecord.open() }
     Shortcut { sequence: "A"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.authoriseSelected() }
@@ -206,6 +207,7 @@ ApplicationWindow {
             else if (authorisation.visible) authorisation.close()
             else if (waitingPanel.visible) waitingPanel.close()
             else if (campaignBoard.visible) campaignBoard.close()
+            else if (terminalPanel.visible) terminalPanel.close()
             else if (serviceRecord.visible) serviceRecord.close()
             else if (radio.visible) radio.close()
             else briefing.close()
@@ -305,6 +307,31 @@ ApplicationWindow {
                     }
                 }
                 Rectangle { visible: win.width > 820; implicitWidth: 1; implicitHeight: 44; color: Style.line }
+                // The field terminal, while it's on.
+                ColumnLayout {
+                    visible: terminal.enabled && win.width > 900
+                    spacing: 4
+                    Text {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("Terminal")
+                        color: Style.dim
+                        font.family: Style.display
+                        font.pixelSize: 11
+                        font.weight: Font.Bold
+                        font.letterSpacing: 3 * Style.tracking
+                        font.capitalization: Font.AllUppercase
+                    }
+                    Text {
+                        Layout.alignment: Qt.AlignRight
+                        text: terminal.listening ? qsTr("◉ %n on link", "", terminal.clients) : qsTr("Not listening")
+                        color: terminal.listening ? (terminal.clients > 0 ? Style.good : Style.text) : Style.danger
+                        font.family: Style.mono
+                        font.pixelSize: 12
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: terminalPanel.open() }
+                    }
+                }
+                Rectangle { visible: terminal.enabled && win.width > 900; implicitWidth: 1; implicitHeight: 44; color: Style.line }
                 // The plan's usage, from the latest run's report.
                 ColumnLayout {
                     visible: win.width > 980 && ops.usage.windows !== undefined
@@ -571,6 +598,11 @@ ApplicationWindow {
             anchors.fill: parent
             onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
             onResumeRequested: ops.deploy(row)
+        }
+        TerminalPanel {
+            id: terminalPanel
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
         }
         CampaignBoard {
             id: campaignBoard

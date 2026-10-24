@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#05070a">
+<title>Fireteam · Field terminal</title>
+<style>
+:root{--bg:#05070a;--panel:#0b0e12;--line:#1d2329;--text:#ebe9e4;--dim:#858b91;--faint:#3b4248;--accent:#ffd60a;--ink:#05070a;--danger:#ff4f45;--good:#86e07d;--amber:#e9b44c}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-text-size-adjust:100%}
+body{padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom));max-width:720px;margin:0 auto}
+header{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+header .bar{width:5px;height:42px;background:var(--accent)}
+h1{margin:0;font-size:26px;font-weight:900;letter-spacing:.24em}
+.tag{font:12px ui-monospace,monospace;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
+.link{margin-left:auto;text-align:right}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--faint);margin-right:6px}
+.dot.on{background:var(--good)}
+.card{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--faint);color:inherit;padding:12px 14px;margin:0 0 10px;font:inherit;border-radius:4px}
+.card.deployed{border-left-color:var(--accent)}
+.card.waiting{border-left-color:var(--danger);box-shadow:0 0 0 1px var(--danger) inset}
+.card .name{font-weight:900;letter-spacing:.12em;font-size:17px}
+.card .meta{font:12px ui-monospace,monospace;color:var(--dim);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge{font:11px ui-monospace,monospace;font-weight:700;letter-spacing:.08em;padding:2px 6px;border-radius:3px;margin-left:8px;vertical-align:2px}
+.badge.red{background:var(--danger);color:var(--ink)}
+.badge.amber{background:var(--amber);color:var(--ink)}
+.progress{height:4px;background:var(--line);margin-top:8px;border-radius:2px;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--accent)}
+h2{font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--dim);margin:22px 0 8px;border-left:3px solid var(--accent);padding-left:8px}
+.back{background:none;border:0;color:var(--accent);font:600 14px system-ui;letter-spacing:.15em;text-transform:uppercase;padding:6px 0;margin-bottom:6px}
+.big{font-size:30px;font-weight:900;letter-spacing:.14em;margin:0}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:12px 14px;margin-bottom:10px}
+.box.red{border-color:var(--danger)}
+.box.amber{border-color:var(--amber)}
+.comms{font:12px/1.5 ui-monospace,monospace;max-height:340px;overflow:auto}
+.comms div{margin-bottom:4px;word-break:break-word}
+.comms b{display:inline-block;width:62px;color:var(--dim)}
+.k-tool b,.k-report b{color:var(--accent)}.k-error b,.k-ask b{color:var(--danger)}.k-cmd b,.k-denied b{color:var(--amber)}.k-result b,.k-review b{color:var(--good)}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+button.act{flex:1 1 auto;min-height:44px;background:transparent;color:var(--text);border:1px solid #ffffff33;border-radius:4px;font:800 13px system-ui;letter-spacing:.14em;text-transform:uppercase;padding:10px 14px}
+button.act.primary{background:var(--accent);color:var(--ink);border-color:var(--accent)}
+button.act.danger{color:var(--danger);border-color:var(--danger)}
+button.act:disabled{opacity:.35}
+textarea,input{width:100%;background:#000;color:var(--text);border:1px solid var(--line);border-radius:4px;padding:10px;font:15px system-ui}
+textarea{min-height:76px;resize:vertical}
+.mono{font-family:ui-monospace,monospace;font-size:13px}
+.empty{color:var(--faint);text-align:center;padding:40px 0;letter-spacing:.2em;text-transform:uppercase;font-size:13px}
+.criteria div{margin:4px 0}.met{color:var(--good)}.unmet{color:var(--danger)}.claimed{color:var(--amber)}
+.toast{position:fixed;left:16px;right:16px;bottom:max(16px,env(safe-area-inset-bottom));background:var(--panel);border:1px solid var(--accent);padding:12px;border-radius:4px;display:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar"></div>
+  <div><h1>FIRETEAM</h1><div class="tag">Field terminal</div></div>
+  <div class="link tag"><span class="dot" id="live"></span><span id="squad"></span></div>
+</header>
+<main id="main"><div class="empty">Connecting…</div></main>
+<div class="toast" id="toast"></div>
+<script>
+"use strict";
+// The token arrives in the address's fragment when pairing, which browsers
+// never send to the server; it's kept for next time.
+const fromHash = location.hash.slice(1);
+if (fromHash) { try { localStorage.setItem("fireteam-token", fromHash) } catch (e) {} history.replaceState(null, "", location.pathname) }
+let token = fromHash; try { token = token || localStorage.getItem("fireteam-token") || "" } catch (e) {}
+let current = null;
+const main = document.getElementById("main");
+
+function el(tag, props, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props || {})) {
+    if (key === "class") node.className = value;
+    else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+    else if (key === "disabled") node.disabled = value;
+    else node.setAttribute(key, value);
+  }
+  for (const child of children.flat()) if (child !== null && child !== undefined && child !== false)
+    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  return node;
+}
+async function api(path, body) {
+  const response = await fetch(path, { method: body ? "POST" : "GET", headers: { "Authorization": "Bearer " + token,
+    "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 401) throw new Error("unpaired");
+  if (!response.ok) toast(data.error || "That didn't work.");
+  return data;
+}
+function toast(text) {
+  const t = document.getElementById("toast"); t.textContent = text; t.style.display = "block";
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.style.display = "none", 3000);
+}
+const label = s => ({ deployed: "Deployed", complete: "Complete", failed: "Failed", aborted: "Aborted", held: "Holding",
+  staged: "Staged", pinned: "Pinned down", interrupted: "Interrupted" })[s] || "Standby";
+
+async function render() {
+  if (!token) { main.replaceChildren(el("div", { class: "empty" }, "Scan the pairing code in Fireteam (P) to connect.")); return }
+  try { current ? await renderOp(current) : await renderList() }
+  catch (e) { main.replaceChildren(el("div", { class: "empty" }, e.message === "unpaired" ? "Not paired, or the code changed. Scan it again in Fireteam." : "Can't reach Fireteam.")) }
+}
+async function renderList() {
+  const state = await api("/api/state");
+  document.getElementById("squad").textContent = state.deployed + " / " + (state.maxDeployed || "∞") + " deployed";
+  if (!state.operations.length) { main.replaceChildren(el("div", { class: "empty" }, "No operations on the board")); return }
+  main.replaceChildren(...state.operations.map(op => {
+    const waiting = op.waiting > 0;
+    return el("button", { class: "card " + op.status + (waiting ? " waiting" : ""), onclick: () => { current = op.id; render() } },
+      el("div", { class: "name" }, op.codename,
+        waiting ? el("span", { class: "badge red" }, "WAITING ON YOU") : null,
+        op.requests ? el("span", { class: "badge amber" }, op.requests + " TO APPROVE") : null),
+      el("div", { class: "meta" }, op.status === "deployed" && op.activity ? "▸ " + op.activity
+        : label(op.status).toUpperCase() + " · cycle " + op.cyclesDone + "/" + op.cycles + " · ≈$" + op.cost.toFixed(2)),
+      op.status === "deployed" && op.progress >= 0 ? el("div", { class: "progress" }, el("i", { style: "width:" + op.progress + "%" })) : null);
+  }));
+}
+async function renderOp(id) {
+  const op = await api("/api/op/" + id);
+  if (!op.id) { current = null; return renderList() }
+  const act = async (action, body) => { await api("/api/op/" + id + "/" + action, body || {}); render() };
+  const parts = [
+    el("button", { class: "back", onclick: () => { current = null; render() } }, "‹ Board"),
+    el("div", { class: "tag" }, label(op.status) + " · cycle " + op.cyclesDone + "/" + op.cycles + " · " + (op.model || "default model") + " · ROE " + op.roe),
+    el("p", { class: "big" }, op.codename),
+  ];
+  if (op.status === "deployed") parts.push(el("div", { class: "mono", style: "color:var(--accent)" }, "▸ " + (op.activity || "Awaiting contact…")),
+    op.progress >= 0 ? el("div", { class: "progress" }, el("i", { style: "width:" + op.progress + "%" })) : null);
+  for (const q of op.questions) {
+    const answer = el("input", { placeholder: "Or answer in your own words" });
+    parts.push(el("h2", {}, "Question"), el("div", { class: "box red" }, q.question,
+      el("div", { class: "row" }, ...(q.options || []).map((o, i) => el("button", { class: "act" + (i === 0 ? " primary" : ""), onclick: () => act("answer", { id: q.id, text: o }) }, o))),
+      el("div", { class: "row" }, answer, el("button", { class: "act", onclick: () => answer.value.trim() && act("answer", { id: q.id, text: answer.value }) }, "Send"))));
+  }
+  for (const p of op.prompts) parts.push(el("h2", {}, "Permission"), el("div", { class: "box red" }, el("div", { class: "mono" }, p.summary),
+    el("div", { class: "row" }, el("button", { class: "act danger", onclick: () => act("decide", { id: p.id, decision: "deny" }) }, "Deny"),
+      el("button", { class: "act", onclick: () => act("decide", { id: p.id, decision: "always" }) }, "Always"),
+      el("button", { class: "act primary", onclick: () => act("decide", { id: p.id, decision: "once" }) }, "Approve once"))));
+  op.requests.forEach((r, i) => parts.push(el("h2", {}, "Refused, to approve"), el("div", { class: "box amber" }, el("div", { class: "mono" }, r.summary),
+    el("div", { class: "row" }, el("button", { class: "act danger", onclick: () => act("deny", { request: i }) }, "Deny"),
+      el("button", { class: "act primary", onclick: () => act("approve", { request: i, rule: 0 }) }, "Approve " + (r.choices[0] || []).join(" + "))))));
+  parts.push(el("h2", {}, "Objective"), el("div", { class: "box" }, op.objective));
+  if (op.criteria.length) parts.push(el("h2", {}, "Criteria"), el("div", { class: "box criteria" }, ...op.criteria.map(c =>
+    el("div", { class: c.state }, (c.state === "met" ? "● " : c.state === "unmet" ? "✕ " : c.state === "claimed" ? "◐ " : "○ ") + c.text))));
+  if (op.gates) parts.push(el("h2", {}, "Gates"), el("div", { class: "box mono" }, ...op.gates.map(g => el("div", { class: g.passed ? "met" : "unmet" }, (g.passed ? "✓ " : "✕ ") + g.name + "  " + g.command))));
+  if (op.sitrep) parts.push(el("h2", {}, "Sitrep"), el("div", { class: "box" }, op.sitrep));
+  if (op.review) parts.push(el("h2", {}, "Overwatch"), el("div", { class: "box" }, String(op.review.grade).toUpperCase() + " · " + op.review.summary));
+  const order = el("textarea", { placeholder: "Orders for the next cycle" });
+  parts.push(el("h2", {}, "Orders"), order, el("div", { class: "row" },
+    el("button", { class: "act primary", onclick: async () => { if (order.value.trim()) { await act("order", { text: order.value }); toast("Orders queued.") } } }, "Send orders"),
+    op.status === "deployed" ? el("button", { class: "act", onclick: () => act("hold") }, op.hold ? "Lift hold" : "Hold") : null,
+    op.status === "held" ? el("button", { class: "act primary", onclick: () => act("resume") }, "Resume") : null,
+    ["deployed", "staged", "pinned"].includes(op.status) ? el("button", { class: "act danger", onclick: () => confirm("Abort " + op.codename + "?") && act("abort") }, "Abort") : null));
+  parts.push(el("h2", {}, "Comms"), el("div", { class: "box comms" }, ...op.comms.map(c => el("div", { class: "k-" + c.kind }, el("b", {}, c.kind.toUpperCase()), c.text))));
+  main.replaceChildren(...parts);
+  const comms = main.querySelector(".comms"); if (comms) comms.scrollTop = comms.scrollHeight;
+}
+
+// Live: re-fetch whenever Fireteam says something changed, unless typing.
+function listen() {
+  if (!token) return;
+  const events = new EventSource("/api/events?token=" + encodeURIComponent(token));
+  const live = document.getElementById("live");
+  events.onopen = () => live.classList.add("on");
+  events.onerror = () => live.classList.remove("on");
+  events.addEventListener("update", () => {
+    const active = document.activeElement;
+    if (!active || !["INPUT", "TEXTAREA"].includes(active.tagName) || !active.value) render();
+  });
+}
+render(); listen();
+</script>
+</body>
+</html>

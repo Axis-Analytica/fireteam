@@ -191,6 +191,7 @@ own.
 | `V` | Intel: the latest cycle's changes, file by file |
 | `[` `]` / `J` `K` | In intel: previous or next cycle, and file |
 | `/` | Search the comms |
+| `P` | Field terminal (phone dashboard) |
 | `C` | Campaigns |
 | `S` | Service record |
 | `M` | Switch between the board and the theatre map |
@@ -274,6 +275,26 @@ Fireteam checks the work itself rather than taking the agent's word for it.
   address. After each cycle Fireteam starts it, waits for the page, takes a
   screenshot with headless Chromium, then stops the server and everything it
   started. The screenshot goes on the cycle card and in the intel view.
+
+## Field terminal
+
+`P` turns on a small web dashboard for checking on operations from a phone:
+the roster, each operation's comms, progress, gates and criteria; answering
+questions; approving or denying commands (live or refused); sending orders;
+and holding, resuming, or aborting. Planning and deploying new work stays on
+the desktop.
+
+- **Off** until you switch it on. Then it listens on this machine only, or,
+  if you choose, on your local network (Tailscale included). It's plain HTTP,
+  so use the network option on networks you trust.
+- **Pairing**: scan the QR code (needs `qrencode`) or open the address shown.
+  The pairing token rides in the address's fragment, which browsers never send
+  to a server. The phone keeps it, and every API call needs it. **New code**
+  unpairs every device.
+- **Push alerts** (optional): give an ntfy topic URL, and alerts (an agent
+  waiting on you, a failure, a finished operation) go there too. Use a
+  hard-to-guess topic, or your own ntfy server.
+- `fireteam serve` runs the terminal without the window.
 
 ## Overwatch
 

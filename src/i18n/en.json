@@ -62,5 +62,17 @@
   "%n operation(s) ready for your review.": {
     "one": "%n operation ready for your review.",
     "other": "%n operations ready for your review."
+  },
+  "On · %n device(s) connected": {
+    "one": "On · %n device connected",
+    "other": "On · %n devices connected"
+  },
+  "◉ %n on link": {
+    "one": "◉ %n on link",
+    "other": "◉ %n on link"
+  },
+  "Running %n gate(s).": {
+    "one": "Running %n gate.",
+    "other": "Running %n gates."
   }
 }
