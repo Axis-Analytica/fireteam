@@ -1,0 +1,22 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="qmldir">qmldir</file>
+        <file alias="Chip.qml">Chip.qml</file>
+        <file alias="ConfirmPanel.qml">ConfirmPanel.qml</file>
+        <file alias="Crosshair.qml">Crosshair.qml</file>
+        <file alias="CycleTrack.qml">CycleTrack.qml</file>
+        <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
+        <file alias="KeyHint.qml">KeyHint.qml</file>
+        <file alias="Main.qml">Main.qml</file>
+        <file alias="NewOperationPanel.qml">NewOperationPanel.qml</file>
+        <file alias="OperationDetail.qml">OperationDetail.qml</file>
+        <file alias="RosterEntry.qml">RosterEntry.qml</file>
+        <file alias="Scanlines.qml">Scanlines.qml</file>
+        <file alias="SectionLabel.qml">SectionLabel.qml</file>
+        <file alias="Style.qml">Style.qml</file>
+        <file alias="TacticalBackdrop.qml">TacticalBackdrop.qml</file>
+        <file alias="TacticalButton.qml">TacticalButton.qml</file>
+        <file alias="ember.svg">ember.svg</file>
+        <file alias="i18n/en.json">i18n/en.json</file>
+    </qresource>
+</RCC>

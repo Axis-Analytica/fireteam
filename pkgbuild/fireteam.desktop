@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Fireteam
+Comment=Run Claude Code agents through development cycles
+Exec=fireteam
+Icon=fireteam
+Terminal=false
+Categories=Development;
+StartupWMClass=fireteam

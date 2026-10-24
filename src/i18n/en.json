@@ -1,0 +1,6 @@
+{
+  "%n agent(s) still deployed. Quitting stops them mid-cycle; you can resume later.": {
+    "one": "%n agent is still deployed. Quitting stops it mid-cycle; you can resume later.",
+    "other": "%n agents are still deployed. Quitting stops them mid-cycle; you can resume later."
+  }
+}

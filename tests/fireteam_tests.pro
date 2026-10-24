@@ -1,0 +1,9 @@
+QT += core gui quick quickcontrols2 testlib dbus
+CONFIG += c++17 testcase
+TARGET = fireteam_tests
+TEMPLATE = app
+
+INCLUDEPATH += ../src
+
+HEADERS += ../src/operations.h ../src/stream.h ../src/theme.h ../src/translator.h
+SOURCES += fireteam_tests.cpp ../src/operations.cpp ../src/stream.cpp ../src/theme.cpp ../src/translator.cpp
