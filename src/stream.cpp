@@ -229,6 +229,8 @@ QString systemBrief() {
            "information), ask with the fireteam request_orders tool and wait for the answer; otherwise decide "
            "yourself. "
            "Each cycle should leave the project working and a little closer to the objective. "
+           "Work in your current directory: it is the project, or a git worktree of it on a branch of its own. "
+           "Don't change files elsewhere, even if a path in your orders points at another copy of the project. "
            "Run shell commands one at a time rather than chained with ; && or |, so each can be approved on its "
            "own. If a command is refused for want of approval, don't retry it or look for a way around it: carry on "
            "without it and list it in the debrief. Fireteam passes refusals to the operator, and approved "

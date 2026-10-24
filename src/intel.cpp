@@ -2,6 +2,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QProcess>
 #include <QTemporaryDir>
 #include <QThread>
@@ -163,6 +164,8 @@ QString addWorktree(const QString &directory, const QString &path, const QString
         *error = QStringLiteral("not a git repository");
         return {};
     }
+    // A worktree whose folder has gone is forgotten before it's made again.
+    git(top, {"worktree", "prune"});
     // A shelved operation picks its branch back up; a new one starts it.
     const bool exists = git(top, {"rev-parse", "--verify", "-q", "refs/heads/" + branch}).ok;
     const Git added = git(top, exists ? QStringList{"worktree", "add", path, branch}
@@ -193,7 +196,13 @@ QString addWorktree(const QString &directory, const QString &path, const QString
         if (!existing.split('\n').contains(line) && exclude.open(QIODevice::Append))
             exclude.write((existing.isEmpty() || existing.endsWith('\n') ? QByteArray() : QByteArray("\n")) + line + "\n");
     }
-    const QString relative = QDir(top).relativeFilePath(directory);
+    // Where the directory sits inside the repository. Both sides are resolved
+    // first: git reports the real path, and the directory may be reached
+    // through a symlink (~/Work -> /mnt/mac).
+    const QString real = QFileInfo(directory).canonicalFilePath();
+    const QString relative = QDir(QFileInfo(top).canonicalFilePath()).relativeFilePath(real.isEmpty() ? directory : real);
+    if (relative.startsWith(".."))
+        return path;
     return relative == "." ? path : QDir(path).filePath(relative);
 }
 

@@ -714,6 +714,7 @@ void Operations::schedulePinned() {
 bool Operations::prepareWorktree(Operation &op) {
     if (!op.worktree || (!op.workdir.isEmpty() && QFileInfo(op.workdir).isDir()))
         return true;
+    op.workdir.clear();
     const QVariantMap repo = Intel::repository(op.directory);
     if (!repo.value("commits").toBool()) {
         log(op, "error", tr("A worktree needs a repository with at least one commit. Commit once, or amend the operation to run in place."));
@@ -979,6 +980,14 @@ void Operations::launch(const QString &id, const QString &prompt, bool handoff, 
     if (!op.sessionId.isEmpty() && !review)
         arguments << "--resume" << op.sessionId;
 
+    // A working directory that's gone is said plainly, not as a failed claude.
+    if (!QFileInfo(workdir(op)).isDir()) {
+        log(op, "error", tr("The working directory %1 doesn't exist.").arg(workdir(op)));
+        QTimer::singleShot(0, this, [this, id] { finishCycle(id, -2); });
+        m_runs.insert(id, Run{});
+        changed(row);
+        return;
+    }
     auto *process = new QProcess(this);
     process->setWorkingDirectory(workdir(op));
     // The agent signs in with the same Claude Code login as the terminal. Only

@@ -1078,6 +1078,32 @@ private slots:
         QCOMPARE(ops.at(0).history.first().toMap().value("gates").toList().size(), 1);
     }
 
+    void makesWorktreesThroughSymlinks()
+    {
+        // ~/Work -> /mnt/mac: git reports the real path, the operation the link.
+        QTemporaryDir data, real, links, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        QDir(real.path()).mkpath("logbook");
+        const QString repo = real.filePath("logbook");
+        QVERIFY(gitIn(repo, {"init", "-q", "-b", "main"}));
+        write(repo + "/README.md", "# logbook\n");
+        QVERIFY(gitIn(repo, {"add", "-A"}));
+        QVERIFY(gitIn(repo, {"-c", "user.name=T", "-c", "user.email=t@x", "commit", "-q", "-m", "start"}));
+        QVERIFY(QFile::link(real.path(), links.filePath("Work")));
+        const QString viaLink = links.filePath("Work/logbook");
+
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", viaLink, "Build", 1, "restricted", "", 250000, true), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        QCOMPARE(ops.at(0).status, QString("complete"));
+        QVERIFY(QFileInfo(ops.at(0).workdir).isDir());
+        QVERIFY(!ops.at(0).workdir.contains(".."));
+        QVERIFY(QFile::exists(ops.at(0).workdir + "/notes.txt"));
+    }
+
     void keepsLoadouts()
     {
         QTemporaryDir data;
