@@ -20,7 +20,7 @@ ApplicationWindow {
     // Hyprland tiles windows, so the board has to read in a narrow column too.
     readonly property bool narrow: width < 1100
     readonly property bool overlayOpen: briefing.visible || help.visible || confirm.visible || radio.visible || intel.visible
-                                        || insertion.visible
+                                        || insertion.visible || authorisation.visible
     // The theatre map in place of the roster and detail.
     property bool mapView: false
     readonly property var selected: roster.currentItem
@@ -43,6 +43,7 @@ ApplicationWindow {
                     qsTr("Every file in the repository goes back to how it was when cycle %1 started, including changes made since by you. The current state is snapshotted first, so Undo rollback puts it all back.").arg(entry.cycle),
                     qsTr("Roll back"), () => ops.rollback(row, run))
     }
+    function authoriseSelected() { if (selected) authorisation.open(selected, roster.currentIndex) }
     function holdSelected() { if (selected && selected.status === "deployed") ops.setHold(roster.currentIndex, !selected.hold) }
     function abortSelected() {
         if (!selected || selected.status !== "deployed")
@@ -140,6 +141,7 @@ ApplicationWindow {
     Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.deploySelected() }
     Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: { win.mapView = !win.mapView; Sfx.play("open") } }
     Shortcut { sequence: "Shift+M"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: Sfx.toggle() }
+    Shortcut { sequence: "A"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.authoriseSelected() }
     Shortcut { sequence: "T"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.ordersSelected() }
     Shortcut { sequence: "H"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.holdSelected() }
     Shortcut { sequence: "E"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.editSelected() }
@@ -161,6 +163,7 @@ ApplicationWindow {
             else if (confirm.visible) confirm.visible = false
             else if (help.visible) help.visible = false
             else if (intel.visible) intel.close()
+            else if (authorisation.visible) authorisation.close()
             else if (radio.visible) radio.close()
             else briefing.close()
         }
@@ -358,6 +361,7 @@ ApplicationWindow {
                     onOrdersRequested: win.ordersSelected()
                     onEditRequested: win.editSelected()
                     onDiffRequested: (run) => win.diffSelected(run)
+                    onAuthorisationRequested: win.authoriseSelected()
                 }
             }
 
@@ -422,6 +426,12 @@ ApplicationWindow {
             anchors.fill: parent
             onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
             onRollbackRequested: (run) => win.rollback(run)
+        }
+        AuthorisationPanel {
+            id: authorisation
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
+            onResumeRequested: ops.deploy(row)
         }
         HelpOverlay { id: help; anchors.fill: parent; onVisibleChanged: if (visible) Sfx.play("open") }
         ConfirmPanel { id: confirm; anchors.fill: parent }

@@ -26,6 +26,12 @@ brief=$(printf '%s\n' "$prompt" | grep '^/.*/handoffs/session-..\.md$')
 echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"test-model"}'
 if [ -n "$brief" ]; then echo '# brief' > "$brief"; echo '{"type":"result","subtype":"success","is_error":false,"result":"Brief written.","session_id":"sess-1","total_cost_usd":0.01}'; exit 0; fi
 if [ -n "$FIRETEAM_TEST_STALL" ] && [ -f "$FIRETEAM_TEST_STALL" ]; then rm "$FIRETEAM_TEST_STALL"; echo '{"type":"assistant","message":{"usage":{"input_tokens":900000,"output_tokens":0},"content":[]}}'; exec sleep 20; fi
+if [ -n "$FIRETEAM_TEST_DENY" ] && ! printf '%s\n' "$@" | grep -qx 'Bash(npm test:\*)'; then
+echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npm test"}}]}}'
+echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"This command requires approval"}]}}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"Blocked on npm test.","session_id":"sess-1","permission_denials":[{"tool_name":"Bash","tool_use_id":"t1","tool_input":{"command":"npm test"}}]}'
+exit 0
+fi
 echo '{"type":"assistant","message":{"usage":{"input_tokens":'${FIRETEAM_TEST_CONTEXT:-1000}',"output_tokens":0},"content":[{"type":"text","text":"Moving out."},{"type":"tool_use","name":"Edit","input":{"file_path":"/x/src/main.cpp"}}]}}'
 echo "line" >> notes.txt
 case "$report" in *cycle-01.html) echo '<html>agent debrief</html>' > "$report";; esac
@@ -390,6 +396,82 @@ private slots:
         for (const QVariant &line : reloaded.at(0).comms)
             says += line.toMap().value("kind") == "say";
         QCOMPARE(says, 0);
+    }
+
+    void suggestsRulesForRefusals()
+    {
+        auto events = Stream::parseLine(R"({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t9","is_error":true,"content":"This command requires approval"}]}})");
+        QCOMPARE(events.size(), 1);
+        QCOMPARE(events.first().kind, StreamEvent::Denied);
+        QCOMPARE(events.first().toolId, QString("t9"));
+        events = Stream::parseLine(R"({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t9","is_error":true,"content":"exit code 1"}]}})");
+        QVERIFY(events.isEmpty());
+        events = Stream::parseLine(R"({"type":"result","subtype":"success","result":"x","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"make"}}]})");
+        QCOMPARE(events.first().denials.size(), 1);
+
+        using Choices = QList<QStringList>;
+        auto bash = [](const QString &command) { return Stream::rulesFor("Bash", {{"command", command}}); };
+        QCOMPARE(bash("npm test"), (Choices{{"Bash(npm test:*)"}}));
+        QCOMPARE(bash("npm test -- --watch"), (Choices{{"Bash(npm test:*)"}, {"Bash(npm test -- --watch)"}}));
+        QCOMPARE(bash("node src/cli.js Ada"), (Choices{{"Bash(node src/cli.js:*)"}, {"Bash(node src/cli.js Ada)"}}));
+        QCOMPARE(bash("git -C . rev-parse HEAD"), (Choices{{"Bash(git -C . rev-parse:*)"}, {"Bash(git -C . rev-parse HEAD)"}}));
+        QCOMPARE(bash("CI=1 make check"), (Choices{{"Bash(make check:*)"}, {"Bash(CI=1 make check)"}}));
+        // A chain is approved part by part, without the parts that only read.
+        QCOMPARE(bash("npm test; echo \"exit=$?\"; cat log.txt; git -C . rev-parse | head -1"), (Choices{{"Bash(npm test:*)"}}));
+        QCOMPARE(bash("cd app && npm install && npm run build"), (Choices{{"Bash(npm install:*)", "Bash(npm run build:*)"}}));
+        QCOMPARE(Stream::rulesFor("WebFetch", {{"url", "https://docs.example.com/a"}}), (Choices{{"WebFetch(domain:docs.example.com)"}}));
+        QCOMPARE(Stream::ruleFromText("npm test"), QString("Bash(npm test:*)"));
+        QCOMPARE(Stream::ruleFromText("Bash(make)"), QString("Bash(make)"));
+        QCOMPARE(Stream::ruleFromText("WebSearch"), QString("WebSearch"));
+        QCOMPARE(Stream::describeRule("Bash(npm test:*)"), QString("npm test …"));
+    }
+
+    void holdsForAuthorisationAndPassesApprovals()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin), log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        qputenv("FIRETEAM_TEST_DENY", "1");
+
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Test it", 3, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        QSignalSpy alerts(&ops, &Operations::alert);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+
+        // Seen live and in the result, but asked about once; and the op holds
+        // rather than running into it again.
+        QCOMPARE(ops.at(0).requests.size(), 1);
+        QCOMPARE(ops.at(0).requests.first().toMap().value("summary").toString(), QString("Bash  npm test"));
+        QCOMPARE(ops.at(0).status, QString("held"));
+        QCOMPARE(ops.at(0).cyclesDone, 1);
+        QVERIFY(alerts.size() >= 2);
+
+        QVERIFY(ops.approve(0, 0, 0, true));
+        QVERIFY(ops.at(0).requests.isEmpty());
+        QCOMPARE(ops.at(0).allowed, QStringList{"Bash(npm test:*)"});
+        QCOMPARE(ops.at(0).orders.size(), 1);
+        QVERIFY(ops.at(0).orders.first().contains("`npm test …`"));
+        const QJsonObject settings = QJsonDocument::fromJson(read(project.filePath(".claude/settings.local.json"))).object();
+        QCOMPARE(settings.value("permissions").toObject().value("allow").toArray().first().toString(), QString("Bash(npm test:*)"));
+
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        qunsetenv("FIRETEAM_TEST_DENY");
+        QCOMPARE(ops.at(0).status, QString("complete"));
+        const QStringList runs = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts);
+        QVERIFY(runs.at(1).contains("--allowedTools\nBash(npm test:*)\n"));
+        QVERIFY(runs.at(1).contains("authorised `npm test …`"));
+        // Refused again although approved: reported, not asked again.
+        QVERIFY(ops.at(0).requests.isEmpty());
+
+        // Denying queues an order instead; a typed command becomes a rule;
+        // and a rule can be withdrawn.
+        ops.revoke(0, "Bash(npm test:*)");
+        QVERIFY(ops.at(0).allowed.isEmpty());
+        QVERIFY(ops.allow(0, "make check", false));
+        QCOMPARE(ops.at(0).allowed, QStringList{"Bash(make check:*)"});
     }
 
     void readsContextUsage()

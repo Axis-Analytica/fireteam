@@ -5,8 +5,110 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
+#include <QUrl>
 
 namespace Stream {
+
+// Commands whose first word is a tool and second its subcommand, so approving
+// "npm test" doesn't approve "npm publish".
+static const QStringList Runners{"npm", "pnpm", "yarn", "bun", "npx", "bunx", "cargo", "go", "git", "make", "just",
+                                 "python", "python3", "uv", "pip", "pip3", "poetry", "docker", "podman", "deno",
+                                 "dotnet", "mix", "bundle", "rails", "rake", "gradle", "mvn", "composer", "php",
+                                 "swift", "zig", "kubectl", "gh", "pytest", "node", "ruby", "bin/rails"};
+
+// Commands that only read, which Claude Code lets through on its own, so a
+// chained command's approval doesn't need them.
+static const QStringList ReadOnly{"echo", "printf", "cat", "head", "tail", "ls", "pwd", "wc", "grep", "rg", "find",
+                                  "sort", "uniq", "which", "type", "true", "false", "test", "[", "date", "whoami",
+                                  "basename", "dirname", "realpath", "readlink", "stat", "file", "diff", "cut", "tr",
+                                  "cd", "tree", "du", "df", "less", "more", "column", "jq"};
+static const QStringList GitReadOnly{"status", "log", "diff", "show", "rev-parse", "ls-files", "describe", "blame",
+                                     "branch", "remote", "config", "shortlog", "reflog"};
+
+// The rule prefix for one simple command: the program, plus its subcommand
+// for runners like npm or git ("git -C . rev-parse"), so approving
+// "npm test" doesn't approve "npm publish". Empty for a read-only command.
+static QString prefixFor(const QString &command, bool *readOnly = nullptr) {
+    QStringList words = command.simplified().split(' ', Qt::SkipEmptyParts);
+    // Leading VAR=value assignments aren't the command.
+    while (!words.isEmpty() && words.first().contains('=') && !words.first().startsWith('-'))
+        words.removeFirst();
+    if (readOnly)
+        *readOnly = false;
+    if (words.isEmpty())
+        return {};
+    int keep = 1;
+    if (Runners.contains(words.first()) && words.size() > 1) {
+        int i = 1;
+        while (i < words.size() && words.at(i).startsWith('-'))
+            i += QStringList{"-C", "-c", "--prefix", "--cwd", "-m"}.contains(words.at(i)) ? 2 : 1;
+        keep = qMin(i + 1, int(words.size()));
+        // "npm run build", not every script.
+        if (i + 1 < words.size() && QStringList{"run", "exec", "run-script", "x", "dlx"}.contains(words.at(i)))
+            keep = i + 2;
+        if (readOnly && words.first() == "git" && i < words.size() && GitReadOnly.contains(words.at(i)))
+            *readOnly = true;
+    } else if (readOnly && ReadOnly.contains(words.first())) {
+        *readOnly = true;
+    }
+    return words.mid(0, keep).join(' ');
+}
+
+QList<QStringList> rulesFor(const QString &tool, const QVariantMap &input) {
+    if (tool == "Bash") {
+        const QString command = input.value("command").toString().simplified();
+        if (command.isEmpty())
+            return {{tool}};
+        // Claude Code checks each part of a chained command on its own, so a
+        // chain is approved part by part, leaving out the parts that only read.
+        static const QRegularExpression separators(R"(\s*(?:&&|\|\||;|\|)\s*)");
+        const QStringList parts = command.split(separators, Qt::SkipEmptyParts);
+        if (parts.size() > 1) {
+            QStringList rules;
+            for (const QString &part : parts) {
+                bool readOnly = false;
+                const QString prefix = prefixFor(part, &readOnly);
+                const QString rule = QString("Bash(%1:*)").arg(prefix);
+                if (!prefix.isEmpty() && !readOnly && !rules.contains(rule))
+                    rules << rule;
+            }
+            return {rules.isEmpty() ? QStringList{QString("Bash(%1)").arg(command)} : rules};
+        }
+        const QString prefix = prefixFor(command);
+        const QString broad = QString("Bash(%1:*)").arg(prefix);
+        if (prefix == command)
+            return {{broad}};
+        return {{broad}, {QString("Bash(%1)").arg(command)}};
+    }
+    if (tool == "WebFetch") {
+        const QString host = QUrl(input.value("url").toString()).host();
+        if (!host.isEmpty())
+            return {{QString("WebFetch(domain:%1)").arg(host)}};
+    }
+    return {{tool}};
+}
+
+QString ruleFromText(const QString &text) {
+    const QString rule = text.simplified();
+    static const QRegularExpression full(R"(^[A-Za-z_][\w-]*(\(.*\))?$)");
+    if (rule.isEmpty())
+        return {};
+    // "Bash(make)" or "WebFetch" are rules already; anything else is a command.
+    if (rule.contains('(') && full.match(rule).hasMatch())
+        return rule;
+    if (QStringList{"Bash", "Edit", "Write", "WebFetch", "WebSearch", "NotebookEdit"}.contains(rule))
+        return rule;
+    return rule.endsWith(":*") ? QString("Bash(%1)").arg(rule) : QString("Bash(%1:*)").arg(rule);
+}
+
+QString describeRule(const QString &rule) {
+    static const QRegularExpression bash(R"(^Bash\((.*?)(:\*)?\)$)");
+    const auto match = bash.match(rule);
+    if (match.hasMatch())
+        return match.captured(1) + (match.captured(2).isEmpty() ? QString() : QString(" …"));
+    return rule;
+}
 
 QString describeTool(const QString &name, const QJsonObject &input) {
     // The most telling argument for each tool, so the comms feed reads like
@@ -57,8 +159,30 @@ QList<StreamEvent> parseLine(const QByteArray &line) {
                 if (!text.isEmpty())
                     events.append({StreamEvent::Say, text});
             } else if (kind == "tool_use") {
-                events.append({StreamEvent::Tool, describeTool(block.value("name").toString(),
-                                                               block.value("input").toObject())});
+                StreamEvent event{StreamEvent::Tool, describeTool(block.value("name").toString(),
+                                                                  block.value("input").toObject())};
+                event.toolId = block.value("id").toString();
+                event.tool = block.value("name").toString();
+                event.input = block.value("input").toObject().toVariantMap();
+                events.append(event);
+            }
+        }
+    } else if (type == "user") {
+        // A tool result that's a refusal for want of approval, as it happens.
+        for (const auto &value : object.value("message").toObject().value("content").toArray()) {
+            const QJsonObject block = value.toObject();
+            if (block.value("type").toString() != "tool_result" || !block.value("is_error").toBool())
+                continue;
+            QString text = block.value("content").toString();
+            if (text.isEmpty())
+                for (const auto &part : block.value("content").toArray())
+                    text += part.toObject().value("text").toString();
+            static const QRegularExpression refusal(R"(requires approval|haven't granted|permission to use|was blocked)",
+                                                    QRegularExpression::CaseInsensitiveOption);
+            if (text.contains(refusal)) {
+                StreamEvent event{StreamEvent::Denied, text.trimmed().left(300)};
+                event.toolId = block.value("tool_use_id").toString();
+                events.append(event);
             }
         }
     } else if (type == "result") {
@@ -73,6 +197,11 @@ QList<StreamEvent> parseLine(const QByteArray &line) {
         event.isError = object.value("is_error").toBool() || object.value("subtype").toString() != "success";
         if (event.text.isEmpty() && event.isError)
             event.text = object.value("subtype").toString();
+        for (const auto &value : object.value("permission_denials").toArray()) {
+            const QJsonObject denial = value.toObject();
+            event.denials.append(QVariantMap{{"tool", denial.value("tool_name").toString()},
+                                             {"input", denial.value("tool_input").toObject().toVariantMap()}});
+        }
         events.append(event);
     }
     return events;
@@ -81,7 +210,11 @@ QList<StreamEvent> parseLine(const QByteArray &line) {
 QString systemBrief() {
     return "You are one agent on a fireteam, working unattended through a series of development cycles. "
            "No one will answer questions mid-cycle, so make sensible decisions, note them, and keep moving. "
-           "Each cycle should leave the project working and a little closer to the objective.";
+           "Each cycle should leave the project working and a little closer to the objective. "
+           "Run shell commands one at a time rather than chained with ; && or |, so each can be approved on its "
+           "own. If a command is refused for want of approval, don't retry it or look for a way around it: carry on "
+           "without it and list it in the debrief. Fireteam passes refusals to the operator, and approved "
+           "commands work from the next cycle.";
 }
 
 QString cyclePrompt(const QString &codename, const QString &objective, int cycle, int cycles,

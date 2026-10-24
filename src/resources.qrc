@@ -2,6 +2,7 @@
     <qresource prefix="/">
         <file alias="qmldir">qmldir</file>
         <file alias="ActivityPulse.qml">ActivityPulse.qml</file>
+        <file alias="AuthorisationPanel.qml">AuthorisationPanel.qml</file>
         <file alias="Chip.qml">Chip.qml</file>
         <file alias="DeploySequence.qml">DeploySequence.qml</file>
         <file alias="Sfx.qml">Sfx.qml</file>

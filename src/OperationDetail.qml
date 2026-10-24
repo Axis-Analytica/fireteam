@@ -12,6 +12,9 @@ Item {
     readonly property bool live: op !== null && op.status === "deployed"
     // Below this width the side column moves under the comms.
     readonly property bool compact: width < 760
+    // Short of height (a short window, or the authorisation banner showing),
+    // the larger pieces shrink.
+    readonly property bool tight: height < 720
 
     signal deployRequested()
     signal abortRequested()
@@ -19,6 +22,7 @@ Item {
     signal ordersRequested()
     signal editRequested()
     signal diffRequested(int run)
+    signal authorisationRequested()
 
     // Comms filter: all, agent, tools, command, or errors, plus a search.
     property string commsFilter: "all"
@@ -29,7 +33,7 @@ Item {
         case "agent": if (entry.kind !== "say" && entry.kind !== "result") return false; break
         case "tools": if (entry.kind !== "tool") return false; break
         case "command": if (entry.kind !== "cmd" && entry.kind !== "sys") return false; break
-        case "errors": if (entry.kind !== "error") return false; break
+        case "errors": if (entry.kind !== "error" && entry.kind !== "denied") return false; break
         }
         return search.text.length === 0 || entry.text.toLowerCase().indexOf(search.text.toLowerCase()) >= 0
     }
@@ -80,6 +84,7 @@ Item {
                 // The less frequent actions, as links, so the main row fits.
                 Repeater {
                     model: [
+                        { label: qsTr("Authorised"), key: "A", action: "authorise" },
                         { label: qsTr("Dossier"), key: "D", action: "dossier" },
                         { label: qsTr("Project"), key: "O", action: "project" },
                         { label: qsTr("Stand down"), key: qsTr("Del"), action: "remove" }
@@ -103,7 +108,8 @@ Item {
                         TapHandler {
                             enabled: link.usable
                             onTapped: {
-                                if (link.modelData.action === "dossier") ops.openDossier(detail.row)
+                                if (link.modelData.action === "authorise") detail.authorisationRequested()
+                                else if (link.modelData.action === "dossier") ops.openDossier(detail.row)
                                 else if (link.modelData.action === "project") ops.openProject(detail.row)
                                 else detail.removeRequested()
                             }
@@ -130,7 +136,7 @@ Item {
                     elide: Text.ElideRight
                     color: Style.text
                     font.family: Style.display
-                    font.pixelSize: detail.compact ? 34 : 52
+                    font.pixelSize: detail.compact || detail.tight ? 34 : 52
                     font.weight: Font.Black
                     font.letterSpacing: 6
                 }
@@ -181,7 +187,7 @@ Item {
             CycleTrack {
                 Layout.fillWidth: true
                 // Short of room, the cards stand in for the track.
-                visible: !(detail.compact && timeline.count > 0)
+                visible: !((detail.compact || detail.tight) && timeline.count > 0)
                 cycles: detail.op ? detail.op.cycles : 1
                 done: detail.op ? detail.op.cyclesDone : 0
                 live: detail.live
@@ -237,6 +243,49 @@ Item {
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: ops.openReport(detail.op.handoffBrief) }
                 }
+            }
+            // Refused commands waiting on the operator, impossible to miss.
+            Rectangle {
+                id: authBanner
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                visible: detail.op !== null && detail.op.requests.length > 0
+                implicitHeight: 44
+                color: Qt.rgba(Style.amber.r, Style.amber.g, Style.amber.b, bannerHover.hovered ? 0.2 : 0.12)
+                border.color: Style.amber
+                radius: Math.min(4, theme.radius)
+                SequentialAnimation on border.width {
+                    running: authBanner.visible
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 2; duration: 500 }
+                    NumberAnimation { to: 1; duration: 500 }
+                }
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 10
+                    spacing: 12
+                    Text {
+                        text: "⚠"
+                        color: Style.amber
+                        font.pixelSize: 18
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: !detail.op || detail.op.requests.length === 0 ? ""
+                            : qsTr("%n request(s) for authorisation", "", detail.op.requests.length) + "  ·  "
+                              + detail.op.requests.map(r => r.summary).join("   ")
+                        elide: Text.ElideRight
+                        color: Style.text
+                        font.family: Style.mono
+                        font.pixelSize: 12
+                        font.bold: true
+                        textFormat: Text.PlainText
+                    }
+                    KeyHint { key: "A"; label: qsTr("Review"); accent: Style.amber }
+                }
+                HoverHandler { id: bannerHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: detail.authorisationRequested() }
             }
             Text {
                 Layout.fillWidth: true
@@ -310,7 +359,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.minimumHeight: 120
+                    Layout.minimumHeight: detail.tight ? 80 : 120
                     color: Qt.rgba(0, 0, 0, 0.45)
                     border.color: Style.line
                     radius: theme.radius
@@ -337,6 +386,7 @@ Item {
                                 case "tool": return theme.accent
                                 case "result": return Style.good
                                 case "cmd": return Style.amber
+                                case "denied": return Style.amber
                                 case "sys": return Style.dim
                                 }
                                 return Style.text
@@ -357,6 +407,7 @@ Item {
                                     case "tool": return qsTr("ACT")
                                     case "result": return qsTr("SITREP")
                                     case "cmd": return qsTr("CMD")
+                                    case "denied": return qsTr("BLOCK")
                                     case "sys": return qsTr("HQ")
                                     }
                                     return qsTr("AGENT")
@@ -401,6 +452,10 @@ Item {
                 Layout.fillWidth: detail.compact
                 Layout.fillHeight: !detail.compact
                 Layout.maximumHeight: detail.compact ? 190 : Infinity
+                // Short of room, the side column gives way (and clips) rather
+                // than pushing the actions off the bottom.
+                Layout.minimumHeight: 0
+                clip: true
                 spacing: 8
 
                 SectionLabel { Layout.fillWidth: true; text: qsTr("Objective") }

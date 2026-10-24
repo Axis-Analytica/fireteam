@@ -35,6 +35,8 @@ Item {
     required property var history
     required property bool canUndoRollback
     required property int events
+    required property var requests
+    required property var allowed
 
     readonly property bool selected: ListView.isCurrentItem
     readonly property color ink: selected ? theme.accentForeground : Style.text
@@ -125,13 +127,16 @@ Item {
         Text {
             Layout.fillWidth: true
             elide: Text.ElideRight
-            text: entry.status === "deployed" && entry.activity.length > 0
+            text: entry.requests.length > 0
+                  ? qsTr("⚠ Awaiting authorisation · %1").arg(entry.requests.length)
+                  : entry.status === "deployed" && entry.activity.length > 0
                   ? entry.activity
                   : qsTr("%1 · cycle %2/%3 · ctx %4 · ≈$%5").arg((entry.hold && entry.status === "deployed" ? qsTr("Holding next") : Style.statusLabel(entry.status)).toUpperCase())
                         .arg(entry.cyclesDone).arg(entry.cycles).arg(Style.tokens(entry.context))
                         .arg(entry.cost.toLocaleString(Qt.locale(), 'f', 2))
-            color: entry.selected ? entry.ink : Style.dim
+            color: entry.selected ? entry.ink : entry.requests.length > 0 ? Style.amber : Style.dim
             opacity: entry.selected ? 0.8 : 1
+            font.bold: entry.requests.length > 0
             font.family: Style.mono
             font.pixelSize: 11
         }

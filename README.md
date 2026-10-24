@@ -98,6 +98,31 @@ When Fireteam isn't the focused window, it sends a desktop notification as
 cycles finish, operations complete or fail, and sessions hand off. Clicking
 one brings Fireteam up on that operation.
 
+## Authorisation
+
+Under restricted ROE, Claude Code refuses any command your permission settings
+don't already allow. Fireteam catches each refusal as it happens:
+
+- The comms show a `BLOCK` line, the operation gets an amber "requests for
+  authorisation" banner and a roster badge, and a desktop notification goes
+  out if you're elsewhere.
+- If cycles remain, the operation **holds** after the cycle instead of running
+  into the same refusal again.
+- `A` opens the requests. Approve each with a suggested rule: the command
+  family (`npm test …`, `git -C . rev-parse …`) or exactly that command.
+  Chained commands are approved part by part, leaving out the parts that only
+  read, since Claude Code checks each part on its own. Deny tells the agent
+  to work without it.
+- Approved rules are passed to every later run of that operation
+  (`--allowedTools`), and the agent is told they're cleared. Tick "Also allow
+  in this project" to add them to the project's `.claude/settings.local.json`
+  as well, for every Claude session there. Rules can be added ahead of time
+  and withdrawn from the same panel.
+- **Approve all and resume** (`Ctrl+Enter`) sends a held operation back in.
+
+Agents are asked to run one command at a time, so each can be approved on its
+own.
+
 ## Rules of engagement
 
 | ROE | `claude` permission mode | Meaning |
@@ -113,6 +138,7 @@ one brings Fireteam up on that operation.
 | `Space` | Deploy, resume, or redeploy (+1 cycle) the selected operation |
 | `T` | Send orders to the selected operation |
 | `H` | Hold after the current cycle, or lift the hold |
+| `A` | Approve or deny commands the agent was refused |
 | `E` | Amend the briefing of an operation that isn't deployed |
 | `X` | Abort the selected operation |
 | `↑` `↓` / `J` `K` | Move through the roster |

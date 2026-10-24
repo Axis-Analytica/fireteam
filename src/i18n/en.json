@@ -18,5 +18,13 @@
   "%n file(s)": {
     "one": "%n file",
     "other": "%n files"
+  },
+  "%n request(s) for authorisation": {
+    "one": "%n request for authorisation",
+    "other": "%n requests for authorisation"
+  },
+  "%n request(s) to approve or deny before cycle %1.": {
+    "one": "A request to approve or deny before cycle %1.",
+    "other": "%n requests to approve or deny before cycle %1."
   }
 }

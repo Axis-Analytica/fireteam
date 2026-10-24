@@ -5,12 +5,16 @@
 #include <QList>
 #include <QString>
 #include <QStringList>
+#include <QVariantList>
+#include <QVariantMap>
 
 // One thing worth showing from a line of `claude -p --output-format
 // stream-json`: something the agent said, a tool it used, or the result that
 // ends a cycle.
 struct StreamEvent {
-    enum Kind { Session, Say, Tool, Usage, Result, Error };
+    // Denied: Claude Code refused a tool call because it needs the operator's
+    // approval.
+    enum Kind { Session, Say, Tool, Usage, Result, Error, Denied };
     StreamEvent(Kind k = Say, const QString &t = {}) : kind(k), text(t) {}
     Kind kind = Say;
     QString text;
@@ -21,11 +25,26 @@ struct StreamEvent {
     qint64 contextTokens = 0;
     qint64 contextWindow = 0;
     bool isError = false;
+    // Tool and Denied: which call it was. Tool also carries the call itself.
+    QString toolId;
+    QString tool;
+    QVariantMap input;
+    // Result: every call refused this run, each {tool, input}.
+    QVariantList denials;
 };
 
 namespace Stream {
 QList<StreamEvent> parseLine(const QByteArray &line);
 QString describeTool(const QString &name, const QJsonObject &input);
+// The ways to allow a refused call, broadest sensible first, each a set of
+// rules granted together: for `npm test --watch`, {"Bash(npm test:*)"} or
+// the exact command; for a chain, one rule per part that needs approval.
+QList<QStringList> rulesFor(const QString &tool, const QVariantMap &input);
+// The rule a person types: a full rule passes through, a bare command becomes
+// a prefix rule for it.
+QString ruleFromText(const QString &text);
+// "npm test" for Bash(npm test:*), for showing a rule.
+QString describeRule(const QString &rule);
 
 QString cyclePrompt(const QString &codename, const QString &objective, int cycle, int cycles,
                     const QString &reportPath, const QString &handoffBrief = {}, const QString &debriefs = {},

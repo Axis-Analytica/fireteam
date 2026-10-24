@@ -43,6 +43,11 @@ struct Operation {
     // Snapshots taken just before each rollback, newest last, so one can be
     // undone.
     QStringList rollbacks;
+    // Permission rules the operator approved for this operation, passed to
+    // every run, and refused calls waiting for a decision: each {choices
+    // (lists of rules granted together), tool, summary, cycle, time}.
+    QStringList allowed;
+    QVariantList requests;
     // Comms lines this session, which the board turns into an activity pulse.
     // Not saved.
     int events = 0;
@@ -72,7 +77,7 @@ public:
         CyclesRole, CyclesDoneRole, StatusRole, CostRole, SitrepRole, ActivityRole, IntelRole,
         ReportsRole, CommsRole, DossierRole, CreatedRole, ContextRole, ContextWindowRole, HandoffAtRole,
         SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole, HistoryRole, CanUndoRollbackRole,
-        EventsRole
+        EventsRole, RequestsRole, AllowedRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -104,6 +109,14 @@ public:
     Q_INVOKABLE QString cycleDiff(int row, int run, const QString &path) const;
     Q_INVOKABLE bool rollback(int row, int run);
     Q_INVOKABLE bool undoRollback(int row);
+    // Approves a refused call with one of its suggested rules, for this
+    // operation or (projectWide) every Claude session in the project.
+    Q_INVOKABLE bool approve(int row, int request, int rule, bool projectWide);
+    Q_INVOKABLE void deny(int row, int request);
+    // Approves a rule typed by the operator: a command or a full rule.
+    Q_INVOKABLE bool allow(int row, const QString &text, bool projectWide);
+    Q_INVOKABLE void revoke(int row, const QString &rule);
+    Q_INVOKABLE QString describeRule(const QString &rule) const;
     Q_INVOKABLE void abort(int row);
     Q_INVOKABLE void remove(int row);
     Q_INVOKABLE void abortAll();
@@ -146,6 +159,8 @@ private:
         QString before;
         QDateTime started;
         double costAtStart = 0;
+        // Tool calls this run by id, to name the call behind a refusal.
+        QHash<QString, QVariantMap> tools;
     };
 
     int rowOf(const QString &id) const;
@@ -160,6 +175,8 @@ private:
     void writeReports(Operation &op, const QStringList &actions);
     void record(Operation &op, const Run &run, int cycle, const QString &outcome);
     QString snapshotRef(const Operation &op, const QString &name) const;
+    void request(Operation &op, const QString &tool, const QVariantMap &input);
+    bool grant(Operation &op, const QStringList &rules, bool projectWide);
     void collectIntel(const QString &id);
     void log(Operation &op, const QString &kind, const QString &text);
     void changed(int row);

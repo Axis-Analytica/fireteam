@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonValue>
 #include <QRandomGenerator>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -38,7 +39,8 @@ QJsonObject Operation::toJson() const {
             {"contextTokens", contextTokens}, {"contextWindow", contextWindow}, {"handoffAt", handoffAt},
             {"session", session}, {"handoffBrief", handoffBrief}, {"handoffs", QJsonArray::fromStringList(handoffs)},
             {"orders", QJsonArray::fromStringList(orders)}, {"hold", hold},
-            {"history", QJsonArray::fromVariantList(history)}, {"rollbacks", QJsonArray::fromStringList(rollbacks)}};
+            {"history", QJsonArray::fromVariantList(history)}, {"rollbacks", QJsonArray::fromStringList(rollbacks)},
+            {"allowed", QJsonArray::fromStringList(allowed)}, {"requests", QJsonArray::fromVariantList(requests)}};
 }
 
 Operation Operation::fromJson(const QJsonObject &o) {
@@ -75,6 +77,8 @@ Operation Operation::fromJson(const QJsonObject &o) {
     op.hold = o.value("hold").toBool();
     op.history = o.value("history").toArray().toVariantList();
     op.rollbacks = strings(o.value("rollbacks"));
+    op.allowed = strings(o.value("allowed"));
+    op.requests = o.value("requests").toArray().toVariantList();
     return op;
 }
 
@@ -129,7 +133,7 @@ QHash<int, QByteArray> Operations::roleNames() const {
             {ContextWindowRole, "contextWindow"}, {HandoffAtRole, "handoffAt"}, {SessionRole, "session"},
             {HandoffBriefRole, "handoffBrief"}, {OrdersRole, "orders"}, {HoldRole, "hold"},
             {CeilingRole, "ceiling"}, {HistoryRole, "history"}, {CanUndoRollbackRole, "canUndoRollback"},
-            {EventsRole, "events"}};
+            {EventsRole, "events"}, {RequestsRole, "requests"}, {AllowedRole, "allowed"}};
 }
 
 QVariant Operations::data(const QModelIndex &index, int role) const {
@@ -165,6 +169,8 @@ QVariant Operations::data(const QModelIndex &index, int role) const {
     case HistoryRole: return op.history;
     case CanUndoRollbackRole: return !op.rollbacks.isEmpty();
     case EventsRole: return op.events;
+    case RequestsRole: return op.requests;
+    case AllowedRole: return op.allowed;
     }
     return {};
 }
@@ -422,6 +428,9 @@ void Operations::launch(const QString &id, const QString &prompt, bool handoff) 
                           "--permission-mode", op.roe == "free" ? "bypassPermissions" : "acceptEdits",
                           "--add-dir", m_dataDirectory + "/ops/" + op.id,
                           "--append-system-prompt", Stream::systemBrief()};
+    // Each approved rule is its own argument, since rules contain spaces.
+    if (!op.allowed.isEmpty())
+        arguments << "--allowedTools" << op.allowed;
     if (!op.model.isEmpty())
         arguments << "--model" << op.model;
     if (!op.sessionId.isEmpty())
@@ -489,8 +498,16 @@ void Operations::readOutput(const QString &id) {
             case StreamEvent::Tool:
                 op.activity = event.text;
                 it->actions << event.text;
+                if (!event.toolId.isEmpty())
+                    it->tools.insert(event.toolId, {{"tool", event.tool}, {"input", event.input}});
                 log(op, "tool", event.text);
                 break;
+            case StreamEvent::Denied: {
+                const QVariantMap call = it->tools.value(event.toolId);
+                if (!call.isEmpty())
+                    request(op, call.value("tool").toString(), call.value("input").toMap());
+                break;
+            }
             case StreamEvent::Usage:
                 op.contextTokens = event.contextTokens;
                 if (!it->handoff && !it->pastLine && op.handoffAt > 0 && op.contextTokens >= op.handoffAt) {
@@ -514,6 +531,10 @@ void Operations::readOutput(const QString &id) {
             case StreamEvent::Result:
                 it->resultSeen = true;
                 op.costUsd += event.costUsd;
+                // The full list, in case a refusal wasn't recognised as it
+                // happened.
+                for (const QVariant &denial : event.denials)
+                    request(op, denial.toMap().value("tool").toString(), denial.toMap().value("input").toMap());
                 if (event.contextWindow > 0)
                     op.contextWindow = event.contextWindow;
                 if (!event.sessionId.isEmpty())
@@ -598,6 +619,13 @@ void Operations::finishCycle(const QString &id, int exitCode) {
     } else if (op.status == "failed") {
         emit alert(op.id, tr("%1 failed in cycle %2").arg(op.codename).arg(cycle),
                    tr("Check the comms, then retry the cycle."));
+    } else if (more && !op.requests.isEmpty()) {
+        // Another cycle would only run into the same refusals.
+        log(op, "sys", tr("Holding at cycle %1 of %2 for authorisation.").arg(op.cyclesDone).arg(op.cycles));
+        emit alert(op.id, tr("%1 is waiting for authorisation").arg(op.codename),
+                   tr("%n request(s) to approve or deny before cycle %1.", "", op.requests.size()).arg(op.cyclesDone + 1));
+        stand(id, "held");
+        return;
     } else if (more && op.hold) {
         log(op, "sys", tr("Holding at cycle %1 of %2, as ordered.").arg(op.cyclesDone).arg(op.cycles));
         emit alert(op.id, tr("%1 is holding").arg(op.codename),
@@ -735,6 +763,127 @@ bool Operations::undoRollback(int row) {
     collectIntel(op.id);
     return true;
 }
+
+void Operations::request(Operation &op, const QString &tool, const QVariantMap &input) {
+    const QList<QStringList> choices = Stream::rulesFor(tool, input);
+    const QString summary = Stream::describeTool(tool, QJsonObject::fromVariantMap(input));
+    QVariantList options;
+    for (const QStringList &rules : choices) {
+        bool covered = true;
+        for (const QString &rule : rules)
+            covered = covered && op.allowed.contains(rule);
+        // Refused although approved: say so rather than ask again for what
+        // was already given.
+        if (covered) {
+            log(op, "error", tr("Claude Code refused this although %1 is approved: %2").arg(rules.join(", "), summary));
+            return;
+        }
+        options.append(rules);
+    }
+    for (const QVariant &pending : op.requests)
+        if (pending.toMap().value("choices").toList() == options)
+            return;
+    op.requests.append(QVariantMap{{"choices", options}, {"tool", tool}, {"summary", summary},
+                                   {"cycle", op.cyclesDone + 1}, {"time", QDateTime::currentDateTime().toString("HH:mm")}});
+    log(op, "denied", tr("Needs authorisation: %1").arg(summary));
+    emit alert(op.id, tr("%1 needs authorisation").arg(op.codename), summary);
+    save();
+}
+
+bool Operations::grant(Operation &op, const QStringList &rules, bool projectWide) {
+    if (rules.isEmpty() || rules.first().isEmpty())
+        return false;
+    QStringList described;
+    for (const QString &rule : rules) {
+        if (!op.allowed.contains(rule))
+            op.allowed << rule;
+        described << "`" + Stream::describeRule(rule) + "`";
+    }
+    // The agent gets told, so it uses the command where it needed it.
+    op.orders << tr("The operator has now authorised %1. Use it where it was refused before, as a separate "
+                    "command rather than part of a chain.").arg(described.join(", "));
+    log(op, "cmd", tr("Authorised: %1").arg(rules.join(", ")));
+    if (projectWide) {
+        // Claude Code's personal settings for the project, read by every
+        // session there (Fireteam's or the user's own).
+        const QString path = op.directory + "/.claude/settings.local.json";
+        QFile file(path);
+        QJsonObject settings;
+        if (file.open(QIODevice::ReadOnly)) {
+            const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+            file.close();
+            if (!document.isObject() && file.size() > 0) {
+                log(op, "error", tr("%1 isn't valid JSON, so the rule was only approved for this operation.").arg(path));
+                return true;
+            }
+            settings = document.object();
+        }
+        QJsonObject permissions = settings.value("permissions").toObject();
+        QJsonArray allow = permissions.value("allow").toArray();
+        for (const QString &rule : rules)
+            if (!allow.contains(QJsonValue(rule)))
+                allow.append(rule);
+        permissions.insert("allow", allow);
+        settings.insert("permissions", permissions);
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        QSaveFile out(path);
+        if (out.open(QIODevice::WriteOnly)) {
+            out.write(QJsonDocument(settings).toJson());
+            out.commit();
+            log(op, "sys", tr("Also allowed for every Claude session in this project, in %1.").arg(path));
+        }
+    }
+    return true;
+}
+
+bool Operations::approve(int row, int request, int rule, bool projectWide) {
+    if (row < 0 || row >= m_ops.size() || request < 0 || request >= m_ops.at(row).requests.size())
+        return false;
+    Operation &op = m_ops[row];
+    const QVariantList choices = op.requests.at(request).toMap().value("choices").toList();
+    if (rule < 0 || rule >= choices.size())
+        return false;
+    op.requests.removeAt(request);
+    grant(op, choices.at(rule).toStringList(), projectWide);
+    changed(row);
+    save();
+    return true;
+}
+
+void Operations::deny(int row, int request) {
+    if (row < 0 || row >= m_ops.size() || request < 0 || request >= m_ops.at(row).requests.size())
+        return;
+    Operation &op = m_ops[row];
+    const QString summary = op.requests.at(request).toMap().value("summary").toString();
+    op.requests.removeAt(request);
+    op.orders << tr("The operator denied this, so don't use it; work without it: %1").arg(summary);
+    log(op, "cmd", tr("Denied: %1").arg(summary));
+    changed(row);
+    save();
+}
+
+bool Operations::allow(int row, const QString &text, bool projectWide) {
+    if (row < 0 || row >= m_ops.size())
+        return false;
+    Operation &op = m_ops[row];
+    if (!grant(op, {Stream::ruleFromText(text)}, projectWide))
+        return false;
+    changed(row);
+    save();
+    return true;
+}
+
+void Operations::revoke(int row, const QString &rule) {
+    if (row < 0 || row >= m_ops.size() || !m_ops.at(row).allowed.contains(rule))
+        return;
+    Operation &op = m_ops[row];
+    op.allowed.removeAll(rule);
+    log(op, "cmd", tr("Authorisation withdrawn: %1").arg(rule));
+    changed(row);
+    save();
+}
+
+QString Operations::describeRule(const QString &rule) const { return Stream::describeRule(rule); }
 
 void Operations::writeReports(Operation &op, const QStringList &actions) {
     const QString report = reportPath(op, op.cyclesDone);
