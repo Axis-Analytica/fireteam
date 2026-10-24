@@ -55,6 +55,10 @@ Item {
             font.capitalization: Font.AllUppercase
         }
     }
-    HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
+    HoverHandler {
+        id: hover
+        cursorShape: Qt.PointingHandCursor
+        onHoveredChanged: if (hovered && button.enabled) Sfx.play("tick")
+    }
     TapHandler { onTapped: if (button.enabled) button.clicked() }
 }

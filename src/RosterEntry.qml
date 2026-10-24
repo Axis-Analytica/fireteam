@@ -34,6 +34,7 @@ Item {
     required property real ceiling
     required property var history
     required property bool canUndoRollback
+    required property int events
 
     readonly property bool selected: ListView.isCurrentItem
     readonly property color ink: selected ? theme.accentForeground : Style.text
@@ -112,6 +113,14 @@ Item {
                 font.weight: Font.Black
                 font.letterSpacing: 3
             }
+            ActivityPulse {
+                visible: entry.status === "deployed"
+                Layout.preferredWidth: 64
+                Layout.preferredHeight: 16
+                events: entry.events
+                live: entry.status === "deployed"
+                tone: entry.selected ? entry.ink : theme.accent
+            }
         }
         Text {
             Layout.fillWidth: true
@@ -138,6 +147,10 @@ Item {
         }
     }
 
-    HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
+    HoverHandler {
+        id: hover
+        cursorShape: Qt.PointingHandCursor
+        onHoveredChanged: if (hovered && !entry.selected) Sfx.play("tick")
+    }
     TapHandler { onTapped: entry.activated() }
 }

@@ -43,6 +43,9 @@ struct Operation {
     // Snapshots taken just before each rollback, newest last, so one can be
     // undone.
     QStringList rollbacks;
+    // Comms lines this session, which the board turns into an activity pulse.
+    // Not saved.
+    int events = 0;
     QString sitrep;
     QString activity;
     QStringList intel;
@@ -68,7 +71,8 @@ public:
         IdRole = Qt::UserRole + 1, CodenameRole, DirectoryRole, ObjectiveRole, ModelRole, RoeRole,
         CyclesRole, CyclesDoneRole, StatusRole, CostRole, SitrepRole, ActivityRole, IntelRole,
         ReportsRole, CommsRole, DossierRole, CreatedRole, ContextRole, ContextWindowRole, HandoffAtRole,
-        SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole, HistoryRole, CanUndoRollbackRole
+        SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole, HistoryRole, CanUndoRollbackRole,
+        EventsRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -122,6 +126,8 @@ signals:
     void accountChanged();
     void cycleFinished(int row, int cycle);
     void operationFinished(int row);
+    // The operator sent an operation in (not each cycle that follows).
+    void deployed(int row);
     // Something worth telling someone who isn't looking at the board.
     void alert(const QString &opId, const QString &title, const QString &body);
 

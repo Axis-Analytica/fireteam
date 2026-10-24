@@ -63,8 +63,9 @@ Item {
             }
         }
         Text {
-            text: card.modelData.before ? qsTr("%1 files · <font color=\"%2\">+%3</font> <font color=\"%4\">−%5</font>")
-                                              .arg(card.modelData.files).arg(Style.good).arg(card.modelData.added)
+            text: card.modelData.before ? qsTr("%n file(s)", "", card.modelData.files)
+                                          + qsTr(" · <font color=\"%1\">+%2</font> <font color=\"%3\">−%4</font>")
+                                              .arg(Style.good).arg(card.modelData.added)
                                               .arg(Style.danger).arg(card.modelData.removed)
                                         : qsTr("No git intel")
             textFormat: Text.StyledText

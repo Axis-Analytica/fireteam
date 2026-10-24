@@ -46,6 +46,12 @@ Item {
             NumberAnimation { target: title; property: "opacity"; from: 0; to: 1; duration: 260 }
             NumberAnimation { target: title; property: "x"; from: -24; to: 0; duration: 320; easing.type: Easing.OutCubic }
             NumberAnimation { target: ghost; property: "opacity"; from: 0.8; to: 0; duration: 420 }
+            NumberAnimation { target: wipe; property: "x"; from: -wipe.width; to: detail.width; duration: 420; easing.type: Easing.OutQuad }
+            SequentialAnimation {
+                NumberAnimation { target: wipe; property: "opacity"; from: 0; to: 0.6; duration: 60 }
+                PauseAnimation { duration: 240 }
+                NumberAnimation { target: wipe; property: "opacity"; to: 0; duration: 120 }
+            }
         }
     }
 
@@ -593,5 +599,21 @@ Item {
             font.pixelSize: 14
         }
         KeyHint { Layout.alignment: Qt.AlignHCenter; Layout.topMargin: 8; key: "N"; label: qsTr("Plan operation") }
+    }
+
+    // A scan line that crosses the panel when the selection changes.
+    Rectangle {
+        id: wipe
+        y: 0
+        x: -width
+        width: 140
+        height: parent.height
+        opacity: 0
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0; color: "transparent" }
+            GradientStop { position: 0.96; color: Qt.rgba(theme.accent.r, theme.accent.g, theme.accent.b, 0.25) }
+            GradientStop { position: 1; color: theme.accent }
+        }
     }
 }

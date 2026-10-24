@@ -2,11 +2,32 @@ import QtQuick
 import QtQuick.Particles
 
 // The living background: drifting dust, rising embers in the accent, slow
-// out-of-focus bokeh, faint topographic contours, and a sweep line.
+// out-of-focus bokeh, faint topographic contours, and a sweep line. It reacts
+// to the board: embers rise faster the more agents are deployed, and events
+// throw sparks where they happen.
 Item {
     id: root
     property color accent: "#FFD60A"
     property bool active: true
+    // How many agents are deployed.
+    property int heat: 0
+
+    // "spark" for a finished cycle, "victory" for a finished operation, and
+    // "flare" for a failure, centred on (x, y).
+    function burst(kind, x, y) {
+        if (!active)
+            return
+        if (kind === "flare") {
+            flares.burst(70, x, y)
+            flash.color = Style.danger
+        } else {
+            sparks.burst(kind === "victory" ? 160 : 60, x, y)
+            if (kind === "victory")
+                rising.burst(80)
+            flash.color = root.accent
+        }
+        flashing.restart()
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -73,6 +94,24 @@ Item {
     }
     ImageParticle {
         system: particles
+        groups: ["sparks"]
+        source: "qrc:/ember.svg"
+        color: root.accent
+        colorVariation: 0.15
+        alpha: 1
+        entryEffect: ImageParticle.Scale
+    }
+    ImageParticle {
+        system: particles
+        groups: ["flares"]
+        source: "qrc:/ember.svg"
+        color: Style.danger
+        colorVariation: 0.1
+        alpha: 1
+        entryEffect: ImageParticle.Scale
+    }
+    ImageParticle {
+        system: particles
         groups: ["embers"]
         source: "qrc:/ember.svg"
         color: root.accent
@@ -111,7 +150,8 @@ Item {
         width: parent.width
         height: 20
         anchors.bottom: parent.bottom
-        emitRate: 14
+        emitRate: 14 + Math.min(4, root.heat) * 9
+        Behavior on emitRate { NumberAnimation { duration: 2000 } }
         lifeSpan: 6500
         lifeSpanVariation: 2500
         size: 5
@@ -120,6 +160,52 @@ Item {
         velocity: AngleDirection { angle: 275; angleVariation: 22; magnitude: 70; magnitudeVariation: 45 }
         acceleration: AngleDirection { angle: 270; magnitude: 6 }
     }
+    // Bursts: sparks thrown out and falling, a red flare, and a wave of embers
+    // up from the bottom for a finished operation.
+    Emitter {
+        id: sparks
+        system: particles
+        group: "sparks"
+        anchors.fill: parent
+        enabled: false
+        lifeSpan: 1400
+        lifeSpanVariation: 600
+        size: 7
+        sizeVariation: 4
+        endSize: 1
+        velocity: AngleDirection { angle: 0; angleVariation: 180; magnitude: 260; magnitudeVariation: 160 }
+        acceleration: AngleDirection { angle: 90; magnitude: 260 }
+    }
+    Emitter {
+        id: flares
+        system: particles
+        group: "flares"
+        anchors.fill: parent
+        enabled: false
+        lifeSpan: 2200
+        lifeSpanVariation: 800
+        size: 10
+        sizeVariation: 6
+        endSize: 2
+        velocity: AngleDirection { angle: 270; angleVariation: 70; magnitude: 120; magnitudeVariation: 90 }
+        acceleration: AngleDirection { angle: 90; magnitude: 60 }
+    }
+    Emitter {
+        id: rising
+        system: particles
+        group: "embers"
+        width: parent.width
+        height: 20
+        anchors.bottom: parent.bottom
+        enabled: false
+        lifeSpan: 4000
+        lifeSpanVariation: 1500
+        size: 7
+        sizeVariation: 4
+        endSize: 1
+        velocity: AngleDirection { angle: 270; angleVariation: 15; magnitude: 200; magnitudeVariation: 80 }
+    }
+
     Wander {
         system: particles
         groups: ["dust", "embers"]
@@ -132,6 +218,19 @@ Item {
         groups: ["embers"]
         anchors.fill: parent
         strength: 28
+    }
+
+    // A brief wash of colour behind a burst.
+    Rectangle {
+        id: flash
+        anchors.fill: parent
+        opacity: 0
+        color: root.accent
+        SequentialAnimation {
+            id: flashing
+            NumberAnimation { target: flash; property: "opacity"; to: 0.07; duration: 60 }
+            NumberAnimation { target: flash; property: "opacity"; to: 0; duration: 700; easing.type: Easing.OutCubic }
+        }
     }
 
     // A slow scan band rolling down the screen.

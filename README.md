@@ -63,6 +63,23 @@ session finishes the same cycle.
 
 Briefs are kept in `~/.local/share/fireteam/ops/<id>/handoffs/`.
 
+## The board
+
+- **Insertion**: deploying an operation plays a short insertion screen (the
+  codename, a radio call, a sweep). The agent is already on its way; any key
+  or click skips it.
+- **Activity pulse**: each deployed operation shows a small oscilloscope of
+  how much its agent is saying and doing, a quarter second per bar.
+- **Reactive backdrop**: embers rise faster the more agents are deployed. A
+  finished cycle throws sparks from its operation, a finished operation sends
+  a wave up the screen, and a failure flares red.
+- **Theatre map** (`M`): base camp in the middle and each project as a site at
+  its own bearing, with every operation marked there. Deployed operations
+  pulse and are linked to camp; click one to select it.
+- **Sound** (`Shift+M`): short synthesized interface sounds for hovering,
+  selecting, deploying, finishing, and failing. Off until switched on, and the
+  choice is remembered. `bin/sounds` regenerates them.
+
 ## Steering a deployed operation
 
 - **Orders** (`T`): a message from command. A deployed agent gets it at the
@@ -102,6 +119,8 @@ one brings Fireteam up on that operation.
 | `V` | Intel: the latest cycle's changes, file by file |
 | `[` `]` / `J` `K` | In intel: previous or next cycle, and file |
 | `/` | Search the comms |
+| `M` | Switch between the board and the theatre map |
+| `Shift+M` | Turn interface sounds on or off (off by default) |
 | `R` | Open the latest debrief |
 | `D` | Open the dossier |
 | `O` | Open the project directory |

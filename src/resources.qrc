@@ -1,7 +1,18 @@
 <RCC>
     <qresource prefix="/">
         <file alias="qmldir">qmldir</file>
+        <file alias="ActivityPulse.qml">ActivityPulse.qml</file>
         <file alias="Chip.qml">Chip.qml</file>
+        <file alias="DeploySequence.qml">DeploySequence.qml</file>
+        <file alias="Sfx.qml">Sfx.qml</file>
+        <file alias="TacticalMap.qml">TacticalMap.qml</file>
+        <file alias="sounds/tick.wav">sounds/tick.wav</file>
+        <file alias="sounds/select.wav">sounds/select.wav</file>
+        <file alias="sounds/open.wav">sounds/open.wav</file>
+        <file alias="sounds/deploy.wav">sounds/deploy.wav</file>
+        <file alias="sounds/done.wav">sounds/done.wav</file>
+        <file alias="sounds/complete.wav">sounds/complete.wav</file>
+        <file alias="sounds/fail.wav">sounds/fail.wav</file>
         <file alias="ConfirmPanel.qml">ConfirmPanel.qml</file>
         <file alias="Crosshair.qml">Crosshair.qml</file>
         <file alias="ContextGauge.qml">ContextGauge.qml</file>

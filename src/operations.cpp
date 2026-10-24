@@ -18,6 +18,17 @@
 // Comms kept per operation; older lines stay in comms.jsonl on disk.
 static constexpr int CommsLimit = 400;
 
+// claude reports a cycle's closing words twice, as a message and as the
+// result, so the result replaces the message instead of repeating it.
+static void appendComms(QVariantList &comms, const QVariantMap &entry) {
+    if (entry.value("kind") == "result" && !comms.isEmpty()) {
+        const QVariantMap last = comms.last().toMap();
+        if (last.value("kind") == "say" && last.value("text").toString().trimmed() == entry.value("text").toString().trimmed())
+            comms.removeLast();
+    }
+    comms.append(entry);
+}
+
 QJsonObject Operation::toJson() const {
     return {{"id", id}, {"codename", codename}, {"directory", directory}, {"objective", objective},
             {"model", model}, {"roe", roe}, {"cycles", cycles}, {"cyclesDone", cyclesDone},
@@ -117,7 +128,8 @@ QHash<int, QByteArray> Operations::roleNames() const {
             {DossierRole, "dossier"}, {CreatedRole, "created"}, {ContextRole, "context"},
             {ContextWindowRole, "contextWindow"}, {HandoffAtRole, "handoffAt"}, {SessionRole, "session"},
             {HandoffBriefRole, "handoffBrief"}, {OrdersRole, "orders"}, {HoldRole, "hold"},
-            {CeilingRole, "ceiling"}, {HistoryRole, "history"}, {CanUndoRollbackRole, "canUndoRollback"}};
+            {CeilingRole, "ceiling"}, {HistoryRole, "history"}, {CanUndoRollbackRole, "canUndoRollback"},
+            {EventsRole, "events"}};
 }
 
 QVariant Operations::data(const QModelIndex &index, int role) const {
@@ -152,6 +164,7 @@ QVariant Operations::data(const QModelIndex &index, int role) const {
     case CeilingRole: return double(ceiling(op));
     case HistoryRole: return op.history;
     case CanUndoRollbackRole: return !op.rollbacks.isEmpty();
+    case EventsRole: return op.events;
     }
     return {};
 }
@@ -296,6 +309,7 @@ void Operations::deploy(int row) {
     op.hold = false;
     changed(row);
     emit deployedCountChanged();
+    emit deployed(row);
     save();
     advance(op.id);
 }
@@ -854,7 +868,8 @@ void Operations::checkLink() {
 void Operations::log(Operation &op, const QString &kind, const QString &text) {
     const QVariantMap entry{{"time", QDateTime::currentDateTime().toString("HH:mm:ss")}, {"kind", kind},
                             {"text", text}};
-    op.comms.append(entry);
+    appendComms(op.comms, entry);
+    op.events += 1;
     if (op.comms.size() > CommsLimit)
         op.comms.erase(op.comms.begin(), op.comms.begin() + (op.comms.size() - CommsLimit));
     QFile file(m_dataDirectory + "/ops/" + op.id + "/comms.jsonl");
@@ -892,7 +907,7 @@ void Operations::load() {
             for (qsizetype i = qMax<qsizetype>(0, lines.size() - CommsLimit); i < lines.size(); ++i) {
                 const QJsonObject entry = QJsonDocument::fromJson(lines.at(i)).object();
                 if (!entry.isEmpty())
-                    op.comms.append(entry.toVariantMap());
+                    appendComms(op.comms, entry.toVariantMap());
             }
         }
         m_ops.append(op);

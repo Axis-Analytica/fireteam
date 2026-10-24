@@ -14,5 +14,9 @@
   "Run %1 of %2 · session %3 · %n file(s)": {
     "one": "Run %1 of %2 · session %3 · %n file",
     "other": "Run %1 of %2 · session %3 · %n files"
+  },
+  "%n file(s)": {
+    "one": "%n file",
+    "other": "%n files"
   }
 }

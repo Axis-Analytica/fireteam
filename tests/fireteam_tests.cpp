@@ -361,6 +361,37 @@ private slots:
         QCOMPARE(ops.at(0).status, QString("standby"));
     }
 
+    void foldsTheClosingMessageIntoTheSitrep()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = bin.filePath("claude");
+        write(claude, "#!/bin/sh\n"
+                      "echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"All done.\"}]}}'\n"
+                      "echo '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"All done.\"}'\n");
+        QFile::setPermissions(claude, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        {
+            Operations ops(data.path(), claude);
+            QCOMPARE(ops.create("", project.path(), "Build", 1, "restricted", ""), 0);
+            QSignalSpy finished(&ops, &Operations::operationFinished);
+            ops.deploy(0);
+            QVERIFY(finished.wait(10000));
+            int says = 0, results = 0;
+            for (const QVariant &line : ops.at(0).comms) {
+                says += line.toMap().value("kind") == "say";
+                results += line.toMap().value("kind") == "result";
+            }
+            QCOMPARE(says, 0);
+            QCOMPARE(results, 1);
+            QVERIFY(ops.at(0).events > 0);
+        }
+        // The same holds when the comms are read back from disk.
+        Operations reloaded(data.path(), claude);
+        int says = 0;
+        for (const QVariant &line : reloaded.at(0).comms)
+            says += line.toMap().value("kind") == "say";
+        QCOMPARE(says, 0);
+    }
+
     void readsContextUsage()
     {
         auto events = Stream::parseLine(R"({"type":"assistant","message":{"usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":5},"content":[]}})");
