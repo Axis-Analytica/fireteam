@@ -198,6 +198,68 @@ void Operations::saveLoadout(const QVariantMap &loadout) {
     emit loadoutsChanged();
 }
 
+QVariantMap Operations::serviceRecord() const {
+    int runs = 0, completed = 0, failed = 0, files = 0, added = 0, removed = 0, handoffs = 0;
+    qint64 seconds = 0;
+    double cost = 0;
+    QHash<QString, QString> gradeKeys;
+    QVariantMap grades{{"pass", 0}, {"needs-work", 0}, {"fail", 0}};
+    // Weeks start on Monday; the last eight, oldest first.
+    const QDate thisWeek = QDate::currentDate().addDays(1 - QDate::currentDate().dayOfWeek());
+    QList<double> weekCost(8, 0);
+    QList<int> weekCycles(8, 0);
+    QHash<QString, QVariantMap> projects;
+    for (const auto &op : m_ops) {
+        cost += op.costUsd;
+        handoffs += op.handoffs.size();
+        QVariantMap project = projects.value(op.directory, {{"path", op.directory},
+                                                            {"name", QFileInfo(op.directory).fileName()},
+                                                            {"runs", 0}, {"cost", 0.0}, {"operations", 0}});
+        project["operations"] = project["operations"].toInt() + 1;
+        project["cost"] = project["cost"].toDouble() + op.costUsd;
+        for (const QVariant &value : op.history) {
+            const QVariantMap entry = value.toMap();
+            const QString outcome = entry.value("outcome").toString();
+            if (outcome == "pinned")
+                continue;
+            runs += 1;
+            completed += outcome == "complete";
+            failed += outcome == "failed" || outcome == "aborted";
+            files += entry.value("files").toInt();
+            added += entry.value("added").toInt();
+            removed += entry.value("removed").toInt();
+            seconds += entry.value("seconds").toLongLong();
+            project["runs"] = project["runs"].toInt() + 1;
+            const QDate day = QDateTime::fromString(entry.value("started").toString(), Qt::ISODate).date();
+            const qint64 weeksAgo = day.isValid() ? day.addDays(1 - day.dayOfWeek()).daysTo(thisWeek) / 7 : -1;
+            if (weeksAgo >= 0 && weeksAgo < 8) {
+                weekCost[7 - weeksAgo] += entry.value("cost").toDouble();
+                weekCycles[7 - weeksAgo] += outcome == "complete";
+            }
+        }
+        projects.insert(op.directory, project);
+        for (const QVariant &review : op.reviews) {
+            const QString grade = review.toMap().value("grade").toString();
+            if (grades.contains(grade))
+                grades[grade] = grades[grade].toInt() + 1;
+        }
+    }
+    QVariantList weeks;
+    for (int i = 0; i < 8; ++i)
+        weeks.append(QVariantMap{{"start", thisWeek.addDays(-7 * (7 - i)).toString(Qt::ISODate)},
+                                 {"cost", weekCost.at(i)}, {"cycles", weekCycles.at(i)}});
+    QVariantList busiest;
+    for (const QVariantMap &project : std::as_const(projects))
+        busiest.append(project);
+    std::sort(busiest.begin(), busiest.end(), [](const QVariant &a, const QVariant &b) {
+        return a.toMap().value("runs").toInt() > b.toMap().value("runs").toInt();
+    });
+    return {{"operations", m_ops.size()}, {"deployed", deployedCount()}, {"runs", runs}, {"completed", completed},
+            {"failed", failed}, {"successRate", completed + failed > 0 ? double(completed) / (completed + failed) : 0.0},
+            {"files", files}, {"added", added}, {"removed", removed}, {"seconds", double(seconds)}, {"cost", cost},
+            {"handoffs", handoffs}, {"weeks", weeks}, {"projects", busiest.mid(0, 5)}, {"grades", grades}};
+}
+
 void Operations::removeLoadout(const QString &name) {
     for (int i = 0; i < m_loadouts.size(); ++i)
         if (m_loadouts.at(i).toMap().value("name").toString() == name) {

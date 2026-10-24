@@ -51,6 +51,7 @@ Item {
                     ["V", qsTr("Intel: what the latest cycle changed, file by file")],
                     ["[ ]  J K", qsTr("In intel: previous or next cycle, and file")],
                     ["/", qsTr("Search the comms")],
+                    ["S", qsTr("Service record: totals across every operation")],
                     ["M", qsTr("Switch between the board and the theatre map")],
                     ["Shift+M", qsTr("Turn interface sounds on or off")],
                     ["R", qsTr("Open the latest debrief")],

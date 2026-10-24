@@ -6,6 +6,7 @@
         <file alias="Chip.qml">Chip.qml</file>
         <file alias="DeploySequence.qml">DeploySequence.qml</file>
         <file alias="Sfx.qml">Sfx.qml</file>
+        <file alias="ServiceRecord.qml">ServiceRecord.qml</file>
         <file alias="TacticalMap.qml">TacticalMap.qml</file>
         <file alias="sounds/tick.wav">sounds/tick.wav</file>
         <file alias="sounds/select.wav">sounds/select.wav</file>

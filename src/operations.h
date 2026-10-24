@@ -148,6 +148,10 @@ public:
     Q_INVOKABLE bool extract(int row);
     Q_INVOKABLE bool discard(int row);
     Q_INVOKABLE void saveLoadout(const QVariantMap &loadout);
+    // Totals across every operation, for the service record: counts, lines,
+    // time, API value, the last eight weeks, the busiest projects, and
+    // overwatch's verdicts.
+    Q_INVOKABLE QVariantMap serviceRecord() const;
     Q_INVOKABLE void removeLoadout(const QString &name);
     Q_INVOKABLE void deploy(int row);
     Q_INVOKABLE void sendOrders(int row, const QString &text, bool deployNow);

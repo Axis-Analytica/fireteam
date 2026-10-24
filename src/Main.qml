@@ -20,7 +20,7 @@ ApplicationWindow {
     // Hyprland tiles windows, so the board has to read in a narrow column too.
     readonly property bool narrow: width < 1100
     readonly property bool overlayOpen: briefing.visible || help.visible || confirm.visible || radio.visible || intel.visible
-                                        || insertion.visible || authorisation.visible
+                                        || insertion.visible || authorisation.visible || serviceRecord.visible
     // The theatre map in place of the roster and detail.
     property bool mapView: false
     readonly property var selected: roster.currentItem
@@ -166,6 +166,7 @@ ApplicationWindow {
     Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.deploySelected() }
     Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: { win.mapView = !win.mapView; Sfx.play("open") } }
     Shortcut { sequence: "Shift+M"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: Sfx.toggle() }
+    Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: serviceRecord.open() }
     Shortcut { sequence: "A"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.authoriseSelected() }
     Shortcut { sequence: "T"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.ordersSelected() }
     Shortcut { sequence: "H"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.holdSelected() }
@@ -189,6 +190,7 @@ ApplicationWindow {
             else if (help.visible) help.visible = false
             else if (intel.visible) intel.close()
             else if (authorisation.visible) authorisation.close()
+            else if (serviceRecord.visible) serviceRecord.close()
             else if (radio.visible) radio.close()
             else briefing.close()
         }
@@ -494,6 +496,7 @@ ApplicationWindow {
                 KeyHint { visible: !win.narrow; key: "V"; label: qsTr("Intel") }
                 KeyHint { visible: !win.narrow; key: "R"; label: qsTr("Debrief") }
                 KeyHint { visible: !win.narrow; key: "M"; label: win.mapView ? qsTr("Board") : qsTr("Map") }
+                KeyHint { visible: !win.narrow; key: "S"; label: qsTr("Record") }
                 KeyHint { key: "?"; label: qsTr("Controls") }
                 KeyHint { key: "Q"; label: qsTr("Quit") }
                 Item { Layout.fillWidth: true }
@@ -539,6 +542,11 @@ ApplicationWindow {
             anchors.fill: parent
             onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
             onResumeRequested: ops.deploy(row)
+        }
+        ServiceRecord {
+            id: serviceRecord
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
         }
         HelpOverlay { id: help; anchors.fill: parent; onVisibleChanged: if (visible) Sfx.play("open") }
         ConfirmPanel { id: confirm; anchors.fill: parent }

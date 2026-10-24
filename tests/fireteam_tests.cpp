@@ -607,6 +607,30 @@ private slots:
         QCOMPARE(ops.at(0).history.first().toMap().value("outcome").toString(), QString("pinned"));
     }
 
+    void keepsAServiceRecord()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        QVERIFY(gitIn(project.path(), {"init", "-q"}));
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 2, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(15000));
+        const QVariantMap record = ops.serviceRecord();
+        QCOMPARE(record.value("operations").toInt(), 1);
+        QCOMPARE(record.value("runs").toInt(), 2);
+        QCOMPARE(record.value("successRate").toDouble(), 1.0);
+        QCOMPARE(record.value("added").toInt(), 2);
+        QCOMPARE(record.value("cost").toDouble(), 0.5);
+        const QVariantList weeks = record.value("weeks").toList();
+        QCOMPARE(weeks.size(), 8);
+        QCOMPARE(weeks.last().toMap().value("cycles").toInt(), 2);
+        QCOMPARE(weeks.last().toMap().value("cost").toDouble(), 0.5);
+        QCOMPARE(record.value("projects").toList().first().toMap().value("runs").toInt(), 2);
+    }
+
     void keepsLoadouts()
     {
         QTemporaryDir data;
