@@ -2492,6 +2492,21 @@ void Operations::onObjective(const QString &opId, int index, bool done, const QS
 void Operations::proveCycle(const QString &id, int cycle) {
     const int row = rowOf(id);
     Operation &op = m_ops[row];
+    // A project built from nothing gets its checks partway through: look for
+    // them while there are none.
+    if (op.gates.isEmpty()) {
+        for (const QVariant &gate : Gates::detect(workdir(op))) {
+            QVariantMap entry = gate.toMap();
+            entry.insert("enabled", true);
+            op.gates.append(entry);
+        }
+        if (!op.gates.isEmpty()) {
+            QStringList commands;
+            for (const QVariant &gate : op.gates)
+                commands << gate.toMap().value("command").toString();
+            log(op, "sys", tr("The project has checks now; gates from here on: %1").arg(commands.join(", ")));
+        }
+    }
     QVariantList enabled;
     for (const QVariant &gate : op.gates)
         if (gate.toMap().value("enabled", true).toBool())

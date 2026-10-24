@@ -1061,6 +1061,23 @@ private slots:
         QVERIFY(html.startsWith(home.path()) && md.startsWith(home.path()));
     }
 
+    void findsGatesThatAppearMidOperation()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build from nothing", 1, "restricted", ""), 0);
+        QVERIFY(ops.at(0).gates.isEmpty());
+        // As if the agent had just written the project's test script.
+        write(project.filePath("Makefile"), "test:\n\ttrue\n");
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        QCOMPARE(ops.at(0).gates.size(), 1);
+        QCOMPARE(ops.at(0).history.first().toMap().value("gates").toList().size(), 1);
+    }
+
     void keepsLoadouts()
     {
         QTemporaryDir data;
