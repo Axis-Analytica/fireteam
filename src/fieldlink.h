@@ -24,6 +24,7 @@ public:
 
 signals:
     void sitrep(const QString &opId, const QString &status, int progress);
+    void objective(const QString &opId, int index, bool done, const QString &evidence);
     void question(const QString &opId, const QString &requestId, const QString &text, const QStringList &options);
     void authorise(const QString &opId, const QString &requestId, const QString &tool, const QVariantMap &input);
 

@@ -51,6 +51,14 @@ static QJsonArray tools() {
                                             {"progress", QJsonObject{{"type", "integer"}, {"minimum", 0}, {"maximum", 100},
                                                                      {"description", "Percent of this cycle's work done."}}}},
                                            {"status"})}},
+        QJsonObject{{"name", "mark_objective"},
+                    {"description", "Mark one of the operation's acceptance criteria as met (or not), by its number, "
+                                    "once you've verified it. Say how you know. Overwatch checks your claims."},
+                    {"inputSchema", schema({{"index", QJsonObject{{"type", "integer"}, {"minimum", 1},
+                                                                  {"description", "The criterion's number."}}},
+                                            {"done", QJsonObject{{"type", "boolean"}}},
+                                            {"evidence", QJsonObject{{"type", "string"}, {"description", "How you verified it."}}}},
+                                           {"index", "done", "evidence"})}},
         QJsonObject{{"name", "request_orders"},
                     {"description", "Ask the operator a question and wait for the answer. Only for decisions that are "
                                     "genuinely theirs to make (a direction, a trade-off, missing information), not for "
@@ -103,6 +111,13 @@ void McpServer::callTool(const QJsonValue &id, const QString &name, const QJsonO
             deliver({{"type", "sitrep"}, {"op", m_op}, {"status", arguments.value("status").toString()},
                      {"progress", arguments.value("progress").toInt(-1)}});
         respond(id, textResult(linked ? "Logged on the board." : "The board isn't reachable; carry on."));
+        return;
+    }
+    if (name == "mark_objective") {
+        if (linked)
+            deliver({{"type", "objective"}, {"op", m_op}, {"index", arguments.value("index").toInt()},
+                     {"done", arguments.value("done").toBool(true)}, {"evidence", arguments.value("evidence").toString()}});
+        respond(id, textResult(linked ? "Recorded. Overwatch will check it." : "The board isn't reachable; note it in your debrief."));
         return;
     }
     if (name == "request_orders" || name == "authorise") {

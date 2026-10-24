@@ -2,11 +2,15 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QImage>
+#include <QTcpSocket>
+#include <QHostAddress>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
 
 #include "command.h"
+#include "gates.h"
 #include "mcpserver.h"
 #include "operations.h"
 #include "stream.h"
@@ -675,7 +679,7 @@ private slots:
         call(1, "initialize", {{"protocolVersion", "2025-06-18"}});
         QCOMPARE(sent.last().value("result").toObject().value("protocolVersion").toString(), QString("2025-06-18"));
         call(2, "tools/list");
-        QCOMPARE(sent.last().value("result").toObject().value("tools").toArray().size(), 3);
+        QCOMPARE(sent.last().value("result").toObject().value("tools").toArray().size(), 4);
 
         // Progress reaches the board.
         QJsonObject progress;
@@ -809,6 +813,112 @@ private slots:
         QVERIFY(runs.filter("OPERATION PALE MOON").first().contains("Build the UI, with tests."));
         QCOMPARE(gitOut(project.path(), {"status", "--porcelain"}), QString());
         QVERIFY(QFile::exists(data.filePath("campaigns/" + id + "/dossier.html")));
+    }
+
+    void detectsGates()
+    {
+        QTemporaryDir js, rust, make, python, none;
+        write(js.filePath("package.json"), "{\"scripts\":{\"build\":\"vite build\",\"lint\":\"eslint .\",\"test\":\"vitest run\"}}");
+        write(js.filePath("yarn.lock"), "");
+        auto commands = [](const QVariantList &gates) {
+            QStringList list;
+            for (const QVariant &gate : gates)
+                list << gate.toMap().value("command").toString();
+            return list;
+        };
+        QCOMPARE(commands(Gates::detect(js.path())), (QStringList{"yarn run build", "yarn run lint", "yarn test"}));
+        write(rust.filePath("Cargo.toml"), "[package]\n");
+        QCOMPARE(commands(Gates::detect(rust.path())), (QStringList{"cargo build --quiet", "cargo test --quiet"}));
+        write(make.filePath("Makefile"), "all:\n\tcc x.c\ntest:\n\t./t\nlint: x\n\tcheck\n");
+        QCOMPARE(commands(Gates::detect(make.path())), (QStringList{"make test", "make lint"}));
+        write(python.filePath("test_calc.py"), "assert 1\n");
+        QCOMPARE(commands(Gates::detect(python.path())), QStringList{"python3 -m unittest discover -q"});
+        QVERIFY(Gates::detect(none.path()).isEmpty());
+        // npm's placeholder test script isn't a gate.
+        write(none.filePath("package.json"), "{\"scripts\":{\"test\":\"echo \\\"Error: no test specified\\\" && exit 1\"}}");
+        QVERIFY(Gates::detect(none.path()).isEmpty());
+    }
+
+    void gatesMustGoGreenBeforeDone()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin), log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Write three lines", 1, "restricted", ""), 0);
+        // Green once the agent has written three lines: two fix cycles.
+        QVERIFY(ops.setProof(0, {QVariantMap{{"name", "lines"}, {"command", "test $(wc -l < notes.txt) -ge 3"}}},
+                             "- Notes exist\n2) Notes have three lines\n", "", ""));
+        QCOMPARE(ops.at(0).criteria.size(), 2);
+        QCOMPARE(ops.at(0).criteria.at(1).toMap().value("text").toString(), QString("Notes have three lines"));
+        // Handing an operation its own gates back keeps them.
+        QVERIFY(ops.setProof(0, ops.at(0).gates, "- Notes exist\n2) Notes have three lines\n", "", ""));
+        QCOMPARE(ops.at(0).gates.size(), 1);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(20000));
+        const Operation &op = ops.at(0);
+        QCOMPARE(op.status, QString("complete"));
+        QCOMPARE(op.cyclesDone, 3);
+        QCOMPARE(op.history.at(0).toMap().value("gates").toList().first().toMap().value("passed").toBool(), false);
+        QCOMPARE(op.history.at(2).toMap().value("gates").toList().first().toMap().value("passed").toBool(), true);
+        const QStringList runs = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts);
+        QVERIFY(runs.at(0).contains("ACCEPTANCE CRITERIA") && runs.at(0).contains("2. Notes have three lines"));
+        QVERIFY(runs.at(1).contains("GATES FAILED") && runs.at(1).contains("test $(wc -l < notes.txt) -ge 3"));
+        QVERIFY(!runs.at(0).contains("GATES FAILED"));
+
+        // A gate that never passes fails the operation after two fix cycles.
+        QCOMPARE(ops.create("", project.path(), "Never", 1, "restricted", ""), 0);
+        QVERIFY(ops.setProof(0, {QVariantMap{{"name", "never"}, {"command", "false"}}}, "", "", ""));
+        ops.deploy(0);
+        QVERIFY(finished.wait(20000));
+        QCOMPARE(ops.at(0).status, QString("failed"));
+        QCOMPARE(ops.at(0).cyclesDone, 3);
+    }
+
+    void claimsAndVerifiesCriteria()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 1, "restricted", "", 250000, false, "", "review"), 0);
+        QVERIFY(ops.setProof(0, {}, "Has notes\nHas tests", "", ""));
+        // The agent claims the first over the field link.
+        McpServer agent(ops.at(0).id, ops.fieldLinkName());
+        QJsonObject claim;
+        claim.insert("index", 1);
+        claim.insert("done", true);
+        claim.insert("evidence", "notes.txt exists");
+        agent.receive(QJsonDocument(QJsonObject{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "tools/call"},
+                                                {"params", QJsonObject{{"name", "mark_objective"}, {"arguments", claim}}}})
+                          .toJson(QJsonDocument::Compact));
+        QTRY_COMPARE(ops.at(0).criteria.first().toMap().value("state").toString(), QString("claimed"));
+        // Overwatch then rules on both.
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(20000));
+        QCOMPARE(ops.at(0).criteria.at(0).toMap().value("state").toString(), QString("met"));
+        QCOMPARE(ops.at(0).criteria.at(1).toMap().value("state").toString(), QString("unmet"));
+    }
+
+    void screenshotsThePreview()
+    {
+        if (Gates::browser().isEmpty())
+            QSKIP("No Chromium-based browser installed.");
+        QTemporaryDir site, out;
+        write(site.filePath("index.html"), "<body style='background:#f97316'><h1>Preview</h1></body>");
+        Gates gates;
+        QSignalSpy shot(&gates, &Gates::previewed);
+        gates.preview(site.path(), "exec python3 -m http.server 8765 --bind 127.0.0.1", "http://127.0.0.1:8765/",
+                      out.filePath("shot.png"));
+        QVERIFY(shot.wait(60000));
+        QCOMPARE(shot.first().at(1).toString(), QString());
+        QVERIFY(QImage(out.filePath("shot.png")).width() >= 1280);
+        // The server and its children are gone.
+        QTcpSocket probe;
+        probe.connectToHost(QHostAddress::LocalHost, 8765);
+        QVERIFY(!probe.waitForConnected(2000));
     }
 
     void keepsLoadouts()

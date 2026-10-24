@@ -28,6 +28,8 @@ void FieldLink::read(QLocalSocket *socket) {
         const QString id = message.value("id").toString();
         if (type == "sitrep") {
             emit sitrep(op, message.value("status").toString(), message.value("progress").toInt(-1));
+        } else if (type == "objective") {
+            emit objective(op, message.value("index").toInt(), message.value("done").toBool(), message.value("evidence").toString());
         } else if (type == "question" && !id.isEmpty()) {
             m_pending.insert(id, socket);
             QStringList options;

@@ -32,9 +32,28 @@ Item {
     readonly property bool worktreeAvailable: repo.commits === true
     property bool savingLoadout: false
 
+    // Proof: the project's checks (toggled), what "done" means, and what to
+    // screenshot.
+    property var gates: []
+    property bool previewOn: false
     function refreshRepo() {
         repo = directory.text.trim().length > 0 ? ops.repository(directory.text) : ({})
         sharing = directory.text.trim().length > 0 ? ops.sharing(directory.text, editing) : []
+        if (editing < 0)
+            gates = directory.text.trim().length > 0 ? ops.detectGates(directory.text) : []
+    }
+    function toggleGate(index) {
+        const next = gates.map(g => Object.assign({}, g))
+        next[index].enabled = !next[index].enabled
+        gates = next
+    }
+    function addGate(command) {
+        if (command.trim().length === 0)
+            return
+        gates = gates.concat([{ name: command.trim().split(" ").slice(0, 2).join(" "), command: command.trim(), enabled: true }])
+    }
+    function saveProof(row) {
+        ops.setProof(row, gates, criteriaField.text, previewOn ? previewCommand.text : "", previewOn ? previewUrl.text : "")
     }
     function applyLoadout(loadout) {
         model.currentIndex = Math.max(0, model.find(loadout.model || ""))
@@ -68,6 +87,10 @@ Item {
         worktreeLocked = false
         savingLoadout = false
         standingField.text = ""
+        criteriaField.text = ""
+        previewOn = false
+        previewCommand.text = ""
+        previewUrl.text = ""
         overwatchBox.currentIndex = 0
         refreshRepo()
         visible = true
@@ -94,6 +117,11 @@ Item {
         worktreeLocked = op.branch.length > 0
         savingLoadout = false
         standingField.text = op.standing
+        gates = op.gates
+        criteriaField.text = op.criteria.map(c => c.text).join("\n")
+        previewOn = op.preview.url !== undefined && op.preview.url.length > 0
+        previewCommand.text = op.preview.command || ""
+        previewUrl.text = op.preview.url || ""
         overwatchBox.currentIndex = Math.max(0, overwatchBox.keys.indexOf(op.overwatch))
         refreshRepo()
         visible = true
@@ -110,6 +138,7 @@ Item {
             ops.update(editing, codename.text, objective.text, cycles, roe,
                        model.currentIndex === 0 ? "" : model.currentText, handoff.limits[handoff.currentIndex],
                        useWorktree && worktreeAvailable, standingField.text, overwatchBox.keys[overwatchBox.currentIndex])
+            saveProof(editing)
             visible = false
             amended(editing, deployNow)
             return
@@ -120,6 +149,7 @@ Item {
         ops.create(codename.text, directory.text, objective.text, cycles, roe,
                    model.currentIndex === 0 ? "" : model.currentText, handoff.limits[handoff.currentIndex],
                    useWorktree && worktreeAvailable, standingField.text, overwatchBox.keys[overwatchBox.currentIndex])
+        saveProof(0)
         visible = false
         planned(deployNow)
     }
@@ -531,6 +561,107 @@ Item {
                     placeholderText: qsTr("Standing orders for every cycle (optional), e.g. Run the tests before finishing.")
                     font.family: Style.display
                     font.pixelSize: 13
+                }
+
+                SectionLabel { Layout.fillWidth: true; text: qsTr("Proof"); detail: qsTr("checked by Fireteam, not the agent") }
+                // Gates: found in the project, toggled, or added.
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Text {
+                        height: 28
+                        verticalAlignment: Text.AlignVCenter
+                        text: qsTr("Gates")
+                        color: Style.dim
+                        font.family: Style.display
+                        font.pixelSize: 12
+                        font.weight: Font.Bold
+                        font.letterSpacing: 3 * Style.tracking
+                        font.capitalization: Font.AllUppercase
+                    }
+                    Repeater {
+                        model: panel.gates
+                        delegate: Rectangle {
+                            id: gateChip
+                            required property var modelData
+                            required property int index
+                            readonly property bool on: modelData.enabled !== false
+                            width: gateText.implicitWidth + 20
+                            height: 28
+                            color: on ? Qt.rgba(Style.good.r, Style.good.g, Style.good.b, 0.1) : "transparent"
+                            border.color: on ? Qt.rgba(Style.good.r, Style.good.g, Style.good.b, 0.6) : Style.line
+                            radius: Math.min(4, theme.radius)
+                            Text {
+                                id: gateText
+                                anchors.centerIn: parent
+                                text: (gateChip.on ? "✓ " : "○ ") + gateChip.modelData.command
+                                color: gateChip.on ? Style.text : Style.faint
+                                font.family: Style.mono
+                                font.pixelSize: 11
+                            }
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: panel.toggleGate(gateChip.index) }
+                        }
+                    }
+                    TextField {
+                        id: newGate
+                        width: 220
+                        height: 34
+                        topPadding: 4
+                        bottomPadding: 4
+                        placeholderText: panel.gates.length === 0 ? qsTr("None found; add one, e.g. make test") : qsTr("+ Add a gate")
+                        font.family: Style.mono
+                        font.pixelSize: 11
+                        onAccepted: { panel.addGate(text); text = "" }
+                    }
+                }
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 70
+                    TextArea {
+                        id: criteriaField
+                        placeholderText: qsTr("Acceptance criteria, one per line (optional), e.g. Exports open in Excel")
+                        wrapMode: TextArea.Wrap
+                        font.family: Style.display
+                        font.pixelSize: 13
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+                    Switch {
+                        checked: panel.previewOn
+                        enabled: ops.browserAvailable
+                        onToggled: panel.previewOn = checked
+                    }
+                    Text {
+                        text: ops.browserAvailable ? qsTr("Preview screenshot") : qsTr("Preview screenshot (needs Chromium)")
+                        color: Style.dim
+                        font.family: Style.display
+                        font.pixelSize: 12
+                        font.weight: Font.Bold
+                        font.letterSpacing: 2 * Style.tracking
+                        font.capitalization: Font.AllUppercase
+                    }
+                    TextField {
+                        id: previewCommand
+                        visible: panel.previewOn
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 2
+                        placeholderText: qsTr("Start command, e.g. npm run dev")
+                        font.family: Style.mono
+                        font.pixelSize: 11
+                    }
+                    TextField {
+                        id: previewUrl
+                        visible: panel.previewOn
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 2
+                        placeholderText: qsTr("Address, e.g. http://localhost:5173")
+                        font.family: Style.mono
+                        font.pixelSize: 11
+                    }
+                    Item { visible: !panel.previewOn; Layout.fillWidth: true }
                 }
 
                 Text {

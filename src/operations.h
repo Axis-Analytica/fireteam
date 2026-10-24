@@ -10,6 +10,7 @@
 #include <QTimer>
 
 class FieldLink;
+class Gates;
 #include <QVariantList>
 
 // One development effort handed to a Claude Code agent: a project directory,
@@ -74,6 +75,16 @@ struct Operation {
     // (stopped by the plan's usage limit) resumes, in seconds since the epoch.
     qint64 stagedAt = 0;
     qint64 resumeAt = 0;
+    // Proof. Gates are the project's checks Fireteam runs after each cycle
+    // ({name, command, enabled}); criteria are what "done" means ({text,
+    // state: open, claimed, met or unmet, evidence, note}); preview is a
+    // command and address to screenshot ({command, url}). gateFixes counts
+    // the extra cycles given to turn failing gates green since the last
+    // deploy.
+    QVariantList gates;
+    QVariantList criteria;
+    QVariantMap preview;
+    int gateFixes = 0;
     // The campaign this operation belongs to, its key in the campaign's plan,
     // and the operations (by id) it waits for.
     QString campaign;
@@ -117,6 +128,8 @@ class Operations : public QAbstractListModel {
     Q_PROPERTY(QVariantList loadouts READ loadouts NOTIFY loadoutsChanged)
     // Every campaign with its plan or its operations' live state.
     Q_PROPERTY(QVariantList campaigns READ campaigns NOTIFY campaignsChanged)
+    // Whether a Chromium-based browser is installed for preview screenshots.
+    Q_PROPERTY(bool browserAvailable READ browserAvailable CONSTANT)
 
 public:
     enum Role {
@@ -126,7 +139,7 @@ public:
         SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole, HistoryRole, CanUndoRollbackRole,
         EventsRole, RequestsRole, AllowedRole, StandingRole, WorktreeRole, WorkdirRole, BranchRole,
         BaseBranchRole, ResumeAtRole, QueueRole, OverwatchRole, ReviewsRole, ProgressRole, ProgressNoteRole,
-        QuestionsRole, PromptsRole, CampaignRole
+        QuestionsRole, PromptsRole, CampaignRole, GatesRole, CriteriaRole, PreviewRole, LastGatesRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -148,6 +161,7 @@ public:
     QVariantMap usage() const { return m_usage; }
     QVariantList loadouts() const { return m_loadouts; }
     QVariantList campaigns() const;
+    bool browserAvailable() const;
 
     // Campaigns: plan with a read-only session, review and edit the plan,
     // approve it into operations, and let them deploy as their dependencies
@@ -173,6 +187,11 @@ public:
     // in place in the same directory.
     Q_INVOKABLE QVariantMap repository(const QString &directory) const;
     Q_INVOKABLE QStringList sharing(const QString &directory, int exceptRow = -1) const;
+    // Proof: the checks a directory's project declares, and setting an
+    // operation's gates, acceptance criteria (one per line), and preview.
+    Q_INVOKABLE QVariantList detectGates(const QString &directory) const;
+    Q_INVOKABLE bool setProof(int row, const QVariantList &gates, const QString &criteria,
+                              const QString &previewCommand, const QString &previewUrl);
     // Worktree operations: what the branch holds against where it started,
     // merging it back, and throwing it away.
     Q_INVOKABLE QVariantMap worktreeSummary(int row);
@@ -285,6 +304,11 @@ private:
     bool prepareWorktree(Operation &op);
     void shelveWorktree(Operation &op);
     void onSitrep(const QString &opId, const QString &status, int progress);
+    void onObjective(const QString &opId, int index, bool done, const QString &evidence);
+    // After a cycle completes: the gates, the preview, then on to the next
+    // cycle, overwatch, or done.
+    void proveCycle(const QString &id, int cycle);
+    void afterCycle(const QString &id, int cycle);
     void onQuestion(const QString &opId, const QString &requestId, const QString &text, const QStringList &options);
     void onAuthorise(const QString &opId, const QString &requestId, const QString &tool, const QVariantMap &input);
     struct Campaign {
@@ -343,4 +367,5 @@ private:
     QList<Campaign> m_campaigns;
     QHash<QString, QPointer<QProcess>> m_planners;
     QTimer *m_campaignNotice = nullptr;
+    QHash<QString, QPointer<Gates>> m_gateRunners;
 };

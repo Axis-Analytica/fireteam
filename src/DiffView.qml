@@ -14,6 +14,13 @@ Item {
     property var files: []
     property int fileIndex: 0
     property var lines: []
+    // The gate whose output replaces the diff, by name, or "".
+    property string gateOutput: ""
+    readonly property var gateLines: {
+        if (!entry || gateOutput === "") return []
+        const gate = (entry.gates || []).find(g => g.name === gateOutput)
+        return gate ? ("$ " + gate.command + "\n" + gate.output).split("\n") : []
+    }
     readonly property var entry: op && run >= 0 && run < op.history.length ? op.history[run] : null
     readonly property bool hasIntel: entry !== null && entry.before.length > 0 && entry.after.length > 0
     // Long diffs are cut here; the full diff is a git command away.
@@ -36,6 +43,7 @@ Item {
         if (!op || targetRun < 0 || targetRun >= op.history.length)
             return
         run = targetRun
+        gateOutput = ""
         files = ops.cycleChanges(row, run)
         pick(0)
     }
@@ -126,6 +134,41 @@ Item {
                 }
             }
 
+            // Proof for this run: each gate (click for its output) and the
+            // preview screenshot.
+            Flow {
+                Layout.fillWidth: true
+                spacing: 8
+                visible: view.entry !== null && ((view.entry.gates || []).length > 0 || view.entry.screenshot !== undefined)
+                Repeater {
+                    model: view.entry ? (view.entry.gates || []) : []
+                    delegate: Rectangle {
+                        id: gatePill
+                        required property var modelData
+                        readonly property bool shown: view.gateOutput === modelData.name
+                        width: gateLabel.implicitWidth + 20
+                        height: 26
+                        color: shown ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                        border.color: modelData.passed ? Qt.rgba(Style.good.r, Style.good.g, Style.good.b, 0.7) : Style.danger
+                        radius: Math.min(4, theme.radius)
+                        Text {
+                            id: gateLabel
+                            anchors.centerIn: parent
+                            text: (gatePill.modelData.passed ? "✓ " : "✕ ") + gatePill.modelData.name + "  " + gatePill.modelData.seconds + "s"
+                            color: gatePill.modelData.passed ? Style.good : Style.danger
+                            font.family: Style.mono
+                            font.pixelSize: 11
+                        }
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: view.gateOutput = gatePill.shown ? "" : gatePill.modelData.name }
+                    }
+                }
+                TacticalButton {
+                    visible: view.entry !== null && view.entry.screenshot !== undefined
+                    text: qsTr("Screenshot ↗")
+                    onClicked: ops.openReport(view.entry.screenshot)
+                }
+            }
             Text {
                 Layout.fillWidth: true
                 visible: view.entry !== null && view.entry.sitrep.length > 0
@@ -143,7 +186,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 spacing: 14
-                visible: view.hasIntel && view.files.length > 0
+                visible: (view.hasIntel && view.files.length > 0) || view.gateOutput !== ""
 
                 ListView {
                     id: fileList
@@ -214,7 +257,7 @@ Item {
                         anchors.fill: parent
                         anchors.margins: 10
                         clip: true
-                        model: view.lines
+                        model: view.gateOutput !== "" ? view.gateLines : view.lines
                         boundsBehavior: Flickable.StopAtBounds
                         ScrollBar.vertical: ScrollBar {}
                         delegate: Rectangle {
@@ -254,7 +297,7 @@ Item {
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: !(view.hasIntel && view.files.length > 0)
+                visible: !(view.hasIntel && view.files.length > 0) && view.gateOutput === ""
                 ColumnLayout {
                     anchors.centerIn: parent
                     spacing: 10

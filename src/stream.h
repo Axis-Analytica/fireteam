@@ -81,14 +81,19 @@ QString dossier(const QString &codename, const QString &objective, const QString
 // Overwatch: an independent, read-only review of an operation's work against
 // its objective, ending in a graded JSON verdict.
 QString reviewPrompt(const QString &codename, const QString &objective, int cycles, const QString &diffPath,
-                     const QString &debriefs);
+                     const QString &debriefs, const QVariantList &criteria = {}, const QVariantList &gates = {});
 // {grade: pass | needs-work | fail | unknown, summary, findings: [{severity,
-// file, issue}]} from the reviewer's reply.
+// file, issue}], criteria: [{index, met, note}]} from the reviewer's reply.
 QVariantMap parseReview(const QString &reply);
 QString reviewReport(const QString &codename, const QString &objective, int cycle, const QVariantMap &review,
                      const QString &reply);
 // The findings as orders for a fix cycle.
 QString reviewOrders(const QVariantMap &review);
+
+// Proof. Acceptance criteria ({text, state}) as a block for the cycle prompt,
+// and failed gates ({name, command, passed, output}) as orders to fix them.
+QString criteriaBlock(const QVariantList &criteria);
+QString gateOrders(const QVariantList &results);
 
 // Campaigns: a read-only planning session breaks a large objective into
 // operations with dependencies, as JSON.

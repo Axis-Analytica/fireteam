@@ -178,6 +178,16 @@ Item {
                 tone: Style.amber
                 solid: true
             }
+            // The latest gates: all green, or how many failed.
+            Chip {
+                readonly property var gates: detail.op ? detail.op.lastGates : []
+                readonly property int passed: gates.filter(g => g.passed).length
+                visible: gates.length > 0
+                text: passed === gates.length ? qsTr("Gates ✓ %1/%2").arg(passed).arg(gates.length)
+                                              : qsTr("Gates ✕ %1/%2").arg(passed).arg(gates.length)
+                tone: passed === gates.length ? Style.good : Style.danger
+                solid: passed < gates.length
+            }
             // The latest overwatch verdict; opens the review.
             Chip {
                 id: verdict
@@ -600,6 +610,47 @@ Item {
                     font.pixelSize: 13
                     lineHeight: 1.25
                     textFormat: Text.PlainText
+                }
+
+                // Acceptance criteria: open, claimed by the agent, or ruled on
+                // by overwatch.
+                SectionLabel {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 8
+                    visible: detail.op !== null && detail.op.criteria.length > 0
+                    text: qsTr("Criteria")
+                    detail: detail.op ? qsTr("%1 of %2 met").arg(detail.op.criteria.filter(c => c.state === "met").length).arg(detail.op.criteria.length) : ""
+                }
+                Repeater {
+                    model: detail.op ? detail.op.criteria : []
+                    delegate: RowLayout {
+                        id: criterion
+                        required property var modelData
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Text {
+                            Layout.alignment: Qt.AlignTop
+                            text: criterion.modelData.state === "met" ? "●" : criterion.modelData.state === "unmet" ? "✕"
+                                : criterion.modelData.state === "claimed" ? "◐" : "○"
+                            color: criterion.modelData.state === "met" ? Style.good : criterion.modelData.state === "unmet" ? Style.danger
+                                 : criterion.modelData.state === "claimed" ? Style.amber : Style.faint
+                            font.pixelSize: 12
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: criterion.modelData.text
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                            color: criterion.modelData.state === "met" ? Style.text : Style.dim
+                            font.family: Style.display
+                            font.pixelSize: 12
+                            textFormat: Text.PlainText
+                            ToolTip.visible: criterionHover.hovered && (criterion.modelData.note || criterion.modelData.evidence)
+                            ToolTip.text: criterion.modelData.note || criterion.modelData.evidence || ""
+                            HoverHandler { id: criterionHover }
+                        }
+                    }
                 }
 
                 SectionLabel { Layout.fillWidth: true; Layout.topMargin: 8; text: qsTr("Sitrep") }

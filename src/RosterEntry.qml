@@ -51,6 +51,10 @@ Item {
     required property var questions
     required property var prompts
     required property string campaign
+    required property var gates
+    required property var criteria
+    required property var preview
+    required property var lastGates
     readonly property int waitingOn: questions.length + prompts.length
 
     readonly property bool selected: ListView.isCurrentItem

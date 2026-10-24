@@ -372,8 +372,55 @@ QString codename(quint32 seed) {
     return QString("%1 %2").arg(first[seed % 16], second[(seed / 16) % 16]);
 }
 
+QString criteriaBlock(const QVariantList &criteria) {
+    if (criteria.isEmpty())
+        return {};
+    QStringList lines{"ACCEPTANCE CRITERIA: the operation is done when all of these are met. When you've met and "
+                      "verified one, mark it with the fireteam mark_objective tool (by number), with your evidence."};
+    for (int i = 0; i < criteria.size(); ++i) {
+        const QVariantMap criterion = criteria.at(i).toMap();
+        const QString state = criterion.value("state").toString();
+        lines << QString("%1. %2%3").arg(i + 1).arg(criterion.value("text").toString(),
+                                                    state == "met" ? " (verified)" : state == "claimed" ? " (you marked this met)"
+                                                    : state == "unmet" ? " (overwatch found this NOT met)" : "");
+    }
+    return lines.join('\n');
+}
+
+QString gateOrders(const QVariantList &results) {
+    QStringList lines;
+    for (const QVariant &value : results) {
+        const QVariantMap gate = value.toMap();
+        if (gate.value("passed").toBool())
+            continue;
+        lines << QString("- %1 (`%2`) failed. The end of its output:\n%3")
+                     .arg(gate.value("name").toString(), gate.value("command").toString(),
+                          gate.value("output").toString().right(1500));
+    }
+    if (lines.isEmpty())
+        return {};
+    return "GATES FAILED: Fireteam ran the project's checks after the last cycle, and these failed. Fix them first "
+           "this cycle; the operation isn't done until they pass.\n" + lines.join('\n');
+}
+
 QString reviewPrompt(const QString &codename, const QString &objective, int cycles, const QString &diffPath,
-                     const QString &debriefs) {
+                     const QString &debriefs, const QVariantList &criteria, const QVariantList &gates) {
+    // Criteria to check one by one, and what Fireteam's own checks found.
+    QString extra;
+    if (!criteria.isEmpty()) {
+        extra += "\n\nACCEPTANCE CRITERIA to check one by one (the agent's own claims don't count):";
+        for (int i = 0; i < criteria.size(); ++i)
+            extra += QString("\n%1. %2").arg(i + 1).arg(criteria.at(i).toMap().value("text").toString());
+        extra += "\nAdd to your json a \"criteria\" list: [{\"index\": 1, \"met\": true, \"note\": \"how you know\"}], one per "
+                 "criterion. Grade pass only if every criterion is met.";
+    }
+    if (!gates.isEmpty()) {
+        extra += "\n\nFireteam ran the project's checks after the last cycle:";
+        for (const QVariant &value : gates)
+            extra += QString("\n- %1 (`%2`): %3").arg(value.toMap().value("name").toString(),
+                                                     value.toMap().value("command").toString(),
+                                                     value.toMap().value("passed").toBool() ? "passed" : "FAILED");
+    }
     const QString evidence = diffPath.isEmpty()
         ? QString("The project isn't a git repository, so there's no diff: inspect the project files directly.")
         : QString("Everything the operation changed is in this diff (read it first, then open the files it touches "
@@ -391,7 +438,7 @@ QString reviewPrompt(const QString &codename, const QString &objective, int cycl
                    "\"findings\": [{\"severity\": \"high\" | \"medium\" | \"low\", \"file\": \"path or empty\", "
                    "\"issue\": \"what's wrong and what to do\"}]}\n```\n"
                    "Grade pass only if the objective is met with no high-severity findings.")
-        .arg(codename, objective).arg(cycles).arg(evidence, debriefs);
+        .arg(codename, objective).arg(cycles).arg(evidence, debriefs) + extra;
 }
 
 QVariantMap parseReview(const QString &reply) {
@@ -417,7 +464,14 @@ QVariantMap parseReview(const QString &reply) {
     QString summary = verdict.value("summary").toString().trimmed();
     if (summary.isEmpty())
         summary = reply.section("```", 0, 0).trimmed().left(400);
-    return {{"grade", grade}, {"summary", summary}, {"findings", findings}};
+    QVariantList criteria;
+    for (const auto &value : verdict.value("criteria").toArray()) {
+        const QJsonObject criterion = value.toObject();
+        if (criterion.value("index").toInt() > 0)
+            criteria.append(QVariantMap{{"index", criterion.value("index").toInt()}, {"met", criterion.value("met").toBool()},
+                                        {"note", criterion.value("note").toString()}});
+    }
+    return {{"grade", grade}, {"summary", summary}, {"findings", findings}, {"criteria", criteria}};
 }
 
 QString reviewReport(const QString &codename, const QString &objective, int cycle, const QVariantMap &review,
@@ -478,7 +532,10 @@ QString campaignPrompt(const QString &name, const QString &objective) {
                    "Explain the plan briefly in prose, then end your reply with exactly one fenced json block:\n"
                    "```json\n{\"summary\": \"two sentences on the approach\", \"operations\": [{\"key\": \"short-id\", "
                    "\"codename\": \"TWO WORDS\", \"objective\": \"what this operation must deliver, and how to verify it\", "
-                   "\"cycles\": 2, \"model\": \"sonnet\", \"depends\": [\"other-key\"]}]}\n```")
+                   "\"cycles\": 2, \"model\": \"sonnet\", \"depends\": [\"other-key\"], "
+                   "\"criteria\": [\"a checkable statement of done\"]}]}\n```\n"
+                   "Give each operation 2 to 4 acceptance criteria that someone could check by reading the code or "
+                   "running it.")
         .arg(name, objective);
 }
 
@@ -547,7 +604,13 @@ QVariantMap parseCampaignPlan(const QString &reply) {
         operations.append(QVariantMap{{"key", key}, {"codename", op.value("codename").toString().trimmed().toUpper()},
                                       {"objective", objective}, {"cycles", qBound(1, op.value("cycles").toInt(2), 8)},
                                       {"model", QStringList{"opus", "sonnet", "haiku"}.contains(model) ? model : QString()},
-                                      {"depends", depends}});
+                                      {"depends", depends}, {"criteria", [&] {
+                                          QStringList criteria;
+                                          for (const auto &item : op.value("criteria").toArray())
+                                              if (!item.toString().trimmed().isEmpty())
+                                                  criteria << item.toString().trimmed();
+                                          return criteria.mid(0, 8);
+                                      }()}});
     }
     // Dependencies on operations that don't exist are dropped, not fatal.
     for (QVariant &value : operations) {

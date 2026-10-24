@@ -253,6 +253,28 @@ engagement and overwatch you pick:
 
 Operations in a campaign carry its name (◆) on the board.
 
+## Proof
+
+Fireteam checks the work itself rather than taking the agent's word for it.
+
+- **Gates**: the project's own checks, found from `package.json` scripts
+  (with the package manager its lockfile names), `Cargo.toml`, `go.mod`,
+  `bin/test`, a Makefile's `test`/`check`/`lint`, or Python tests. They're
+  listed in the briefing to switch off or add to. Fireteam runs them after
+  every cycle. A failing gate shows red on the cycle card, its output is one
+  click away in the intel view, and the next cycle is told to fix it. An
+  operation isn't done while a gate is red: it gets up to two more cycles,
+  then it fails.
+- **Acceptance criteria**: what "done" means, one per line in the briefing,
+  or written by the campaign planner. The agent marks each as met over the
+  field link, with its evidence. Overwatch then rules on each one, and its
+  word stands over the agent's. The board shows open ○, claimed ◐, met ●,
+  or not met ✕.
+- **Preview screenshot**: give a start command (such as `npm run dev`) and an
+  address. After each cycle Fireteam starts it, waits for the page, takes a
+  screenshot with headless Chromium, then stops the server and everything it
+  started. The screenshot goes on the cycle card and in the intel view.
+
 ## Overwatch
 
 With overwatch on (in the briefing), a separate read-only Claude Code session

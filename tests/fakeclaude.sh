@@ -19,7 +19,7 @@ case "$2" in *"OVERWATCH REVIEW"*)
   diff=$(printf '%s\n' "$2" | grep '/reviews/review-..\.diff$')
   [ -n "$diff" ] && cp "$diff" "$FIRETEAM_TEST_LOG.diff"
   if [ -f "$FIRETEAM_TEST_LOG.pass" ]; then grade=pass; else grade=needs-work; touch "$FIRETEAM_TEST_LOG.pass"; fi
-  printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"Looked it over.\n```json\n{\"grade\": \"'$grade'\", \"summary\": \"Mostly there.\", \"findings\": [{\"severity\": \"high\", \"file\": \"notes.txt\", \"issue\": \"Add a title line.\"}]}\n```"}'
+  printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"Looked it over.\n```json\n{\"grade\": \"'$grade'\", \"summary\": \"Mostly there.\", \"findings\": [{\"severity\": \"high\", \"file\": \"notes.txt\", \"issue\": \"Add a title line.\"}], \"criteria\": [{\"index\": 1, \"met\": true, \"note\": \"seen\"}, {\"index\": 2, \"met\": false, \"note\": \"no tests\"}]}\n```"}'
   exit 0;;
 esac
 if [ -n "$brief" ]; then echo '# brief' > "$brief"; echo '{"type":"result","subtype":"success","is_error":false,"result":"Brief written.","session_id":"sess-1","total_cost_usd":0.01}'; exit 0; fi

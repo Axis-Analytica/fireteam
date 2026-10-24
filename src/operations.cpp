@@ -1,5 +1,6 @@
 #include "operations.h"
 #include "fieldlink.h"
+#include "gates.h"
 #include "intel.h"
 #include "stream.h"
 
@@ -53,7 +54,9 @@ QJsonObject Operation::toJson() const {
             {"standing", standing}, {"worktree", worktree}, {"workdir", workdir}, {"branch", branch},
             {"baseBranch", baseBranch}, {"baseCommit", baseCommit}, {"stagedAt", stagedAt}, {"resumeAt", resumeAt},
             {"sessionDir", sessionDir}, {"overwatch", overwatch}, {"reviews", QJsonArray::fromVariantList(reviews)},
-            {"campaign", campaign}, {"campaignKey", campaignKey}, {"dependsOn", QJsonArray::fromStringList(dependsOn)}};
+            {"campaign", campaign}, {"campaignKey", campaignKey}, {"dependsOn", QJsonArray::fromStringList(dependsOn)},
+            {"gates", QJsonArray::fromVariantList(gates)}, {"criteria", QJsonArray::fromVariantList(criteria)},
+            {"preview", QJsonObject::fromVariantMap(preview)}, {"gateFixes", gateFixes}};
 }
 
 Operation Operation::fromJson(const QJsonObject &o) {
@@ -106,6 +109,10 @@ Operation Operation::fromJson(const QJsonObject &o) {
     op.campaign = o.value("campaign").toString();
     op.campaignKey = o.value("campaignKey").toString();
     op.dependsOn = strings(o.value("dependsOn"));
+    op.gates = o.value("gates").toArray().toVariantList();
+    op.criteria = o.value("criteria").toArray().toVariantList();
+    op.preview = o.value("preview").toObject().toVariantMap();
+    op.gateFixes = o.value("gateFixes").toInt();
     return op;
 }
 
@@ -141,6 +148,7 @@ Operations::Operations(const QString &dataDirectory, const QString &claude, QObj
     connect(m_link, &FieldLink::sitrep, this, &Operations::onSitrep);
     connect(m_link, &FieldLink::question, this, &Operations::onQuestion);
     connect(m_link, &FieldLink::authorise, this, &Operations::onAuthorise);
+    connect(m_link, &FieldLink::objective, this, &Operations::onObjective);
     loadCampaigns();
     // Campaigns follow their operations: finished ones let the next deploy.
     connect(this, &Operations::operationFinished, this, &Operations::onOperationDone, Qt::QueuedConnection);
@@ -334,7 +342,8 @@ QHash<int, QByteArray> Operations::roleNames() const {
             {BaseBranchRole, "baseBranch"}, {ResumeAtRole, "resumeAt"}, {QueueRole, "queue"},
             {OverwatchRole, "overwatch"}, {ReviewsRole, "reviews"}, {ProgressRole, "progress"},
             {ProgressNoteRole, "progressNote"}, {QuestionsRole, "questions"}, {PromptsRole, "prompts"},
-            {CampaignRole, "campaign"}};
+            {CampaignRole, "campaign"}, {GatesRole, "gates"}, {CriteriaRole, "criteria"}, {PreviewRole, "preview"},
+            {LastGatesRole, "lastGates"}};
 }
 
 QVariant Operations::data(const QModelIndex &index, int role) const {
@@ -384,6 +393,16 @@ QVariant Operations::data(const QModelIndex &index, int role) const {
     case ProgressNoteRole: return op.progressNote;
     case QuestionsRole: return op.questions;
     case PromptsRole: return op.prompts;
+    case GatesRole: return op.gates;
+    case CriteriaRole: return op.criteria;
+    case PreviewRole: return op.preview;
+    case LastGatesRole: {
+        // The latest run's gate results, for the board's proof chip.
+        for (qsizetype i = op.history.size() - 1; i >= 0; --i)
+            if (op.history.at(i).toMap().contains("gates"))
+                return op.history.at(i).toMap().value("gates");
+        return QVariantList();
+    }
     case CampaignRole: {
         const int c = campaignIndex(op.campaign);
         return c < 0 ? QString() : m_campaigns.at(c).name;
@@ -479,6 +498,12 @@ int Operations::create(const QString &codename, const QString &directory, const 
     op.handoffAt = qMax(0, handoffAt);
     op.standing = standing.trimmed();
     op.overwatch = QStringList{"review", "fix"}.contains(overwatch) ? overwatch : "off";
+    // The project's own checks, found now and editable in the briefing.
+    for (const QVariant &gate : Gates::detect(op.directory)) {
+        QVariantMap entry = gate.toMap();
+        entry.insert("enabled", true);
+        op.gates.append(entry);
+    }
     // Only a repository with a commit can have a worktree.
     op.worktree = worktree && Intel::repository(op.directory).value("commits").toBool();
     op.created = QDateTime::currentDateTime();
@@ -570,6 +595,7 @@ void Operations::deploy(int row) {
         op.cycles = op.cyclesDone + 1;
     op.hold = false;
     op.fixRounds = 0;
+    op.gateFixes = 0;
     start(op.id);
     if (m_ops.at(rowOf(op.id)).status == "deployed")
         emit deployed(rowOf(op.id));
@@ -891,7 +917,8 @@ void Operations::startCycle(const QString &id) {
                                            QString("Fireteam %1, before cycle %2").arg(op.codename).arg(cycle));
     const double costAtStart = op.costUsd;
     launch(id, Stream::cyclePrompt(op.codename, op.objective, cycle, op.cycles, report, brief,
-                                   QFileInfo(report).absolutePath(), orders, op.standing),
+                                   QFileInfo(report).absolutePath(), orders,
+                                   QStringList{op.standing, Stream::criteriaBlock(op.criteria)}.join("\n\n").trimmed()),
            false);
     Run &run = m_runs[id];
     run.orders = orders;
@@ -931,7 +958,7 @@ void Operations::launch(const QString &id, const QString &prompt, bool handoff, 
             {"type", "stdio"}, {"command", qEnvironmentVariable("FIRETEAM_BIN", QCoreApplication::applicationFilePath())},
             {"args", QJsonArray{"mcp", "--op", op.id, "--socket", m_link->serverName()}}}}}}};
         arguments << "--mcp-config" << QString::fromUtf8(QJsonDocument(mcp).toJson(QJsonDocument::Compact));
-        allowed << "mcp__fireteam__sitrep" << "mcp__fireteam__request_orders";
+        allowed << "mcp__fireteam__sitrep" << "mcp__fireteam__request_orders" << "mcp__fireteam__mark_objective";
         // Supervised: anything that would need permission is put to the
         // operator, live, while the agent waits.
         if (op.roe == "supervised")
@@ -1182,7 +1209,41 @@ void Operations::finishCycle(const QString &id, int exitCode) {
     if (op.status == "deployed")
         emit cycleFinished(row, cycle);
     collectIntel(id);
+    // A finished cycle is proved before anything follows it.
+    if (op.status == "deployed") {
+        changed(row);
+        save();
+        proveCycle(id, cycle);
+        return;
+    }
+    afterCycle(id, cycle);
+}
 
+void Operations::afterCycle(const QString &id, int cycle) {
+    const int row = rowOf(id);
+    if (row < 0)
+        return;
+    Operation &op = m_ops[row];
+    op.activity.clear();
+    // Gates still red after the last cycle: up to two more cycles to fix
+    // them, then it fails rather than calling red done.
+    const QVariantList gates = op.history.isEmpty() ? QVariantList() : op.history.last().toMap().value("gates").toList();
+    bool red = false;
+    for (const QVariant &gate : gates)
+        red = red || !gate.toMap().value("passed").toBool();
+    if (op.status == "deployed" && red) {
+        op.orders << Stream::gateOrders(gates);
+        if (op.cyclesDone >= op.cycles) {
+            if (op.gateFixes < 2) {
+                op.gateFixes += 1;
+                op.cycles += 1;
+                log(op, "sys", tr("Gates are red after the last cycle; one more cycle to fix them."));
+            } else {
+                op.status = "failed";
+                log(op, "error", tr("Gates are still red after two fix cycles. The operation isn't done."));
+            }
+        }
+    }
     const bool more = op.status == "deployed" && op.cyclesDone < op.cycles;
     // The last cycle is done: overwatch looks the work over before it counts.
     if (op.status == "deployed" && !more && op.overwatch != "off") {
@@ -1680,8 +1741,9 @@ void Operations::startReview(const QString &id) {
     }
     op.activity = tr("Overwatch reviewing");
     log(op, "sys", tr("Cycle %1 was the last. Overwatch is reviewing the work against the objective.").arg(op.cyclesDone));
+    const QVariantList gates = op.history.isEmpty() ? QVariantList() : op.history.last().toMap().value("gates").toList();
     launch(id, Stream::reviewPrompt(op.codename, op.objective, op.cyclesDone, diffPath,
-                                    m_dataDirectory + "/ops/" + op.id + "/debriefs"),
+                                    m_dataDirectory + "/ops/" + op.id + "/debriefs", op.criteria, gates),
            false, true);
 }
 
@@ -1713,6 +1775,17 @@ void Operations::finishReview(const QString &id, const Run &run, int exitCode) {
     review.insert("file", file);
     review.insert("time", QDateTime::currentDateTime().toString(Qt::ISODate));
     op.reviews.append(review);
+    // Overwatch's word on each criterion, over the agent's own.
+    for (const QVariant &value : review.value("criteria").toList()) {
+        const QVariantMap verdict = value.toMap();
+        const int index = verdict.value("index").toInt();
+        if (index < 1 || index > op.criteria.size())
+            continue;
+        QVariantMap criterion = op.criteria.at(index - 1).toMap();
+        criterion.insert("state", verdict.value("met").toBool() ? "met" : "unmet");
+        criterion.insert("note", verdict.value("note").toString().left(500));
+        op.criteria[index - 1] = criterion;
+    }
     writeDossier(op);
 
     const QString grade = review.value("grade").toString();
@@ -1767,6 +1840,14 @@ void Operations::collectIntel(const QString &id) {
 void Operations::abort(int row) {
     if (row < 0 || row >= m_ops.size())
         return;
+    // Proving a finished cycle: stop the gates and stand it down.
+    if (QPointer<Gates> gates = m_gateRunners.take(m_ops.at(row).id)) {
+        gates->stop();
+        gates->deleteLater();
+        log(m_ops[row], "error", tr("Aborted while running gates."));
+        stand(m_ops.at(row).id, "aborted");
+        return;
+    }
     // Waiting operations just leave the queue.
     if (m_ops.at(row).status == "staged" || m_ops.at(row).status == "pinned") {
         Operation &op = m_ops[row];
@@ -2161,6 +2242,8 @@ bool Operations::approveCampaign(const QString &id, const QString &roe, const QS
         for (const QString &dependency : planned.value("depends").toStringList())
             op.dependsOn << ids.value(dependency);
         ids.insert(key, op.id);
+        for (const QString &criterion : planned.value("criteria").toStringList())
+            op.criteria.append(QVariantMap{{"text", criterion}, {"state", "open"}});
         log(op, "sys", tr("Part of campaign %1.").arg(campaign.name));
     }
     campaign.status = "active";
@@ -2328,4 +2411,165 @@ void Operations::saveCampaigns() const {
         array.append(campaign.toJson());
     file.write(QJsonDocument(array).toJson());
     file.commit();
+}
+
+// Proof ----------------------------------------------------------------------
+
+bool Operations::browserAvailable() const { return !Gates::browser().isEmpty(); }
+
+QVariantList Operations::detectGates(const QString &directory) const {
+    QVariantList gates;
+    for (const QVariant &gate : Gates::detect(QDir::cleanPath(directory.trimmed()))) {
+        QVariantMap entry = gate.toMap();
+        entry.insert("enabled", true);
+        gates.append(entry);
+    }
+    return gates;
+}
+
+bool Operations::setProof(int row, const QVariantList &gates, const QString &criteria, const QString &previewCommand,
+                          const QString &previewUrl) {
+    if (row < 0 || row >= m_ops.size())
+        return false;
+    Operation &op = m_ops[row];
+    // A copy first: the caller may be handing back this operation's own list.
+    const QVariantList incoming = gates;
+    op.gates.clear();
+    for (const QVariant &value : incoming) {
+        const QVariantMap gate = value.toMap();
+        if (gate.value("command").toString().trimmed().isEmpty())
+            continue;
+        op.gates.append(QVariantMap{{"name", gate.value("name").toString().trimmed().isEmpty() ? gate.value("command").toString().section(' ', 0, 1)
+                                                                                              : gate.value("name").toString().trimmed()},
+                                    {"command", gate.value("command").toString().trimmed()},
+                                    {"enabled", gate.value("enabled", true).toBool()}});
+    }
+    // Criteria keep their state when their wording doesn't change.
+    QHash<QString, QVariantMap> previous;
+    for (const QVariant &value : op.criteria)
+        previous.insert(value.toMap().value("text").toString(), value.toMap());
+    op.criteria.clear();
+    for (const QString &line : criteria.split('\n', Qt::SkipEmptyParts)) {
+        const QString text = line.trimmed().remove(QRegularExpression("^([-*•]|\\d+[.)])\\s*"));
+        if (!text.isEmpty())
+            op.criteria.append(previous.value(text, {{"text", text}, {"state", "open"}}));
+    }
+    op.preview = previewUrl.trimmed().isEmpty() ? QVariantMap()
+                                                : QVariantMap{{"command", previewCommand.trimmed()}, {"url", previewUrl.trimmed()}};
+    changed(row);
+    save();
+    return true;
+}
+
+void Operations::onObjective(const QString &opId, int index, bool done, const QString &evidence) {
+    const int row = rowOf(opId);
+    if (row < 0 || index < 1 || index > m_ops.at(row).criteria.size())
+        return;
+    Operation &op = m_ops[row];
+    QVariantMap criterion = op.criteria.at(index - 1).toMap();
+    criterion.insert("state", done ? "claimed" : "open");
+    criterion.insert("evidence", evidence.left(500));
+    op.criteria[index - 1] = criterion;
+    log(op, "report", tr("Criterion %1 %2: %3").arg(index).arg(done ? tr("claimed met") : tr("not met yet"),
+                                                               criterion.value("text").toString()));
+    changed(row);
+    save();
+}
+
+void Operations::proveCycle(const QString &id, int cycle) {
+    const int row = rowOf(id);
+    Operation &op = m_ops[row];
+    QVariantList enabled;
+    for (const QVariant &gate : op.gates)
+        if (gate.toMap().value("enabled", true).toBool())
+            enabled.append(gate);
+    const bool preview = !op.preview.value("url").toString().isEmpty();
+    if (enabled.isEmpty() && !preview) {
+        afterCycle(id, cycle);
+        return;
+    }
+    auto *gates = new Gates(this);
+    m_gateRunners.insert(id, gates);
+    auto finish = [this, id, cycle, gates] {
+        m_gateRunners.remove(id);
+        gates->deleteLater();
+        const int r = rowOf(id);
+        if (r < 0)
+            return;
+        // Aborted while proving: the abort already settled it.
+        if (m_ops.at(r).status != "deployed")
+            return;
+        changed(r);
+        save();
+        afterCycle(id, cycle);
+    };
+    auto shoot = [this, id, cycle, gates, finish] {
+        const int r = rowOf(id);
+        if (r < 0)
+            return;
+        Operation &o = m_ops[r];
+        if (o.preview.value("url").toString().isEmpty()) {
+            finish();
+            return;
+        }
+        o.activity = tr("Taking the preview screenshot");
+        changed(r);
+        const QString path = QString("%1/ops/%2/proof/cycle-%3.png").arg(m_dataDirectory, o.id).arg(cycle, 2, 10, QChar('0'));
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        connect(gates, &Gates::previewed, this, [this, id, path, finish](const QString &shot, const QString &problem) {
+            const int r = rowOf(id);
+            if (r >= 0 && !m_ops.at(r).history.isEmpty()) {
+                Operation &o = m_ops[r];
+                QVariantMap entry = o.history.last().toMap();
+                if (!shot.isEmpty()) {
+                    entry.insert("screenshot", shot);
+                    log(o, "report", tr("Preview screenshot taken."));
+                } else {
+                    log(o, "error", tr("No preview screenshot: %1").arg(problem));
+                }
+                o.history.last() = entry;
+            }
+            finish();
+        });
+        gates->preview(workdir(o), o.preview.value("command").toString(), o.preview.value("url").toString(), path);
+    };
+    if (enabled.isEmpty()) {
+        shoot();
+        return;
+    }
+    op.activity = tr("Running gates");
+    log(op, "sys", tr("Running %n gate(s).", "", enabled.size()));
+    changed(row);
+    connect(gates, &Gates::started, this, [this, id](const QString &name) {
+        const int r = rowOf(id);
+        if (r >= 0) {
+            m_ops[r].activity = tr("Gate: %1").arg(name);
+            changed(r);
+        }
+    });
+    connect(gates, &Gates::finished, this, [this, id, shoot](const QVariantList &results) {
+        const int r = rowOf(id);
+        if (r < 0)
+            return;
+        Operation &o = m_ops[r];
+        if (!o.history.isEmpty()) {
+            QVariantMap entry = o.history.last().toMap();
+            entry.insert("gates", results);
+            o.history.last() = entry;
+        }
+        int passed = 0;
+        for (const QVariant &value : results) {
+            const QVariantMap gate = value.toMap();
+            passed += gate.value("passed").toBool();
+            log(o, gate.value("passed").toBool() ? "report" : "error",
+                tr("Gate %1 %2 in %3s: %4").arg(gate.value("name").toString(),
+                                                 gate.value("passed").toBool() ? tr("passed") : tr("FAILED"))
+                    .arg(gate.value("seconds").toInt()).arg(gate.value("command").toString()));
+        }
+        if (passed < results.size())
+            emit alert(o.id, tr("%1: %2 of %3 gates failed").arg(o.codename).arg(results.size() - passed).arg(results.size()),
+                       tr("The next cycle is told to fix them."));
+        shoot();
+    });
+    gates->run(workdir(op), enabled);
 }

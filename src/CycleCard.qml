@@ -49,6 +49,25 @@ Item {
                 font.weight: Font.Black
                 font.letterSpacing: 2 * Style.tracking
             }
+            // One square per gate, green or red; a camera when there's a screenshot.
+            Row {
+                spacing: 2
+                visible: card.modelData.gates !== undefined
+                Repeater {
+                    model: card.modelData.gates || []
+                    delegate: Rectangle {
+                        required property var modelData
+                        width: 6; height: 6
+                        color: modelData.passed ? Style.good : Style.danger
+                    }
+                }
+            }
+            Text {
+                visible: card.modelData.screenshot !== undefined
+                text: "◫"
+                color: Style.dim
+                font.pixelSize: 10
+            }
             Text {
                 Layout.fillWidth: true
                 text: card.outcome === "complete" ? qsTr("S%1").arg(card.modelData.session)

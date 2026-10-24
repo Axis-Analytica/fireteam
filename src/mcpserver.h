@@ -9,6 +9,7 @@
 // and stdout that Claude Code starts for each run. Its tools reach the running
 // app over a local socket:
 //   sitrep           progress for the board, answered at once
+//   mark_objective   claims an acceptance criterion met, with evidence
 //   request_orders   a question for the operator; waits for the answer
 //   authorise        Claude Code's permission prompt (Supervised ROE); waits
 class McpServer : public QObject {
