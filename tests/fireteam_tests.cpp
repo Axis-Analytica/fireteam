@@ -7,6 +7,7 @@
 #include <QtTest>
 
 #include "command.h"
+#include "mcpserver.h"
 #include "operations.h"
 #include "stream.h"
 #include "theme.h"
@@ -652,6 +653,92 @@ private slots:
         QVERIFY(!Command::execute(ops, {{"command", "hold"}, {"op", "red-fox"}}).value("ok").toBool());
         QVERIFY(!Command::execute(ops, {{"command", "fly"}, {"op", "red-fox"}}).value("ok").toBool());
         QVERIFY(Command::needsRunningApp("deploy") && !Command::needsRunningApp("order"));
+    }
+
+    void bridgesTheFieldLink()
+    {
+        QTemporaryDir data, project;
+        Operations ops(data.path(), "/bin/true");
+        QCOMPARE(ops.create("", project.path(), "Build", 1, "supervised", ""), 0);
+        QCOMPARE(ops.at(0).roe, QString("supervised"));
+        McpServer server(ops.at(0).id, ops.fieldLinkName());
+        QList<QJsonObject> sent;
+        connect(&server, &McpServer::send, [&](const QByteArray &line) { sent << QJsonDocument::fromJson(line).object(); });
+        auto call = [&](int id, const QString &method, const QJsonObject &params = {}) {
+            server.receive(QJsonDocument(QJsonObject{{"jsonrpc", "2.0"}, {"id", id}, {"method", method}, {"params", params}})
+                               .toJson(QJsonDocument::Compact));
+        };
+        auto text = [](const QJsonObject &reply) {
+            return reply.value("result").toObject().value("content").toArray().first().toObject().value("text").toString();
+        };
+
+        call(1, "initialize", {{"protocolVersion", "2025-06-18"}});
+        QCOMPARE(sent.last().value("result").toObject().value("protocolVersion").toString(), QString("2025-06-18"));
+        call(2, "tools/list");
+        QCOMPARE(sent.last().value("result").toObject().value("tools").toArray().size(), 3);
+
+        // Progress reaches the board.
+        QJsonObject progress;
+        progress.insert("status", "Router done");
+        progress.insert("progress", 40);
+        call(3, "tools/call", {{"name", "sitrep"}, {"arguments", progress}});
+        QTRY_COMPARE(ops.at(0).progress, 40);
+        QCOMPARE(ops.at(0).progressNote, QString("Router done"));
+
+        // A question waits for the operator.
+        const int before = sent.size();
+        QJsonObject question;
+        question.insert("question", "SQLite or JSON?");
+        question.insert("options", QJsonArray{"SQLite", "JSON"});
+        call(4, "tools/call", {{"name", "request_orders"}, {"arguments", question}});
+        QTRY_COMPARE(ops.at(0).questions.size(), 1);
+        QCOMPARE(sent.size(), before);
+        QVERIFY(ops.answer(0, ops.at(0).questions.first().toMap().value("id").toString(), "SQLite"));
+        QTRY_COMPARE(sent.size(), before + 1);
+        QCOMPARE(sent.last().value("id").toInt(), 4);
+        QCOMPARE(text(sent.last()), QString("SQLite"));
+
+        // A permission prompt, approved for good, then cleared without asking.
+        const QJsonObject npm{{"tool_name", "Bash"}, {"input", QJsonObject{{"command", "npm test"}}}};
+        call(5, "tools/call", {{"name", "authorise"}, {"arguments", npm}});
+        QTRY_COMPARE(ops.at(0).prompts.size(), 1);
+        QVERIFY(ops.decide(0, ops.at(0).prompts.first().toMap().value("id").toString(), "always"));
+        QTRY_COMPARE(sent.last().value("id").toInt(), 5);
+        QJsonObject decision = QJsonDocument::fromJson(text(sent.last()).toUtf8()).object();
+        QCOMPARE(decision.value("behavior").toString(), QString("allow"));
+        QCOMPARE(decision.value("updatedInput").toObject().value("command").toString(), QString("npm test"));
+        QCOMPARE(ops.at(0).allowed, QStringList{"Bash(npm test:*)"});
+        call(6, "tools/call", {{"name", "authorise"}, {"arguments", npm}});
+        QTRY_COMPARE(sent.last().value("id").toInt(), 6);
+        QVERIFY(ops.at(0).prompts.isEmpty());
+
+        // And a denial.
+        QJsonObject removal;
+        removal.insert("tool_name", "Bash");
+        removal.insert("input", QJsonObject{{"command", "rm -rf build"}});
+        call(7, "tools/call", {{"name", "authorise"}, {"arguments", removal}});
+        QTRY_COMPARE(ops.at(0).prompts.size(), 1);
+        QVERIFY(ops.decide(0, ops.at(0).prompts.first().toMap().value("id").toString(), "deny"));
+        QTRY_COMPARE(sent.last().value("id").toInt(), 7);
+        decision = QJsonDocument::fromJson(text(sent.last()).toUtf8()).object();
+        QCOMPARE(decision.value("behavior").toString(), QString("deny"));
+    }
+
+    void launchesWithTheFieldLink()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin), log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 1, "supervised", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        const QString run = QString::fromUtf8(read(log));
+        QVERIFY(run.contains("--mcp-config\n{\"mcpServers\":{\"fireteam\""));
+        QVERIFY(run.contains("--permission-prompt-tool\nmcp__fireteam__authorise"));
+        QVERIFY(run.contains("mcp__fireteam__sitrep\nmcp__fireteam__request_orders"));
+        QVERIFY(run.contains("--permission-mode\nacceptEdits"));
     }
 
     void keepsLoadouts()

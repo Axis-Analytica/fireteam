@@ -1,10 +1,12 @@
-QT += core gui qml quick quickcontrols2 dbus svg
+QT += core gui qml quick quickcontrols2 dbus svg network
 
 CONFIG += c++17 release
 TARGET = fireteam
 TEMPLATE = app
 
 HEADERS += src/notifier.h \
+    src/fieldlink.h \
+    src/mcpserver.h \
     src/cli.h \
     src/command.h \
     src/intel.h \
@@ -15,6 +17,8 @@ HEADERS += src/notifier.h \
     src/translator.h
 
 SOURCES += src/notifier.cpp \
+    src/fieldlink.cpp \
+    src/mcpserver.cpp \
     src/cli.cpp \
     src/command.cpp \
     src/intel.cpp \

@@ -1,6 +1,7 @@
 // fireteam: a base camp for running several Claude Code agents through
 // development cycles at once, each ending in an HTML debrief.
 
+#include <QCoreApplication>
 #include <QGuiApplication>
 #include <QLockFile>
 #include <QProcess>
@@ -17,6 +18,7 @@
 #include "cli.h"
 #include "command.h"
 #include "folderpicker.h"
+#include "mcpserver.h"
 #include "notifier.h"
 #include "operations.h"
 #include "theme.h"
@@ -25,6 +27,19 @@
 int main(int argc, char *argv[]) {
     const QByteArray command = argc > 1 ? QByteArray(argv[1]) : QByteArray("open");
     const bool cli = Cli::isCommand(command);
+    // The field link for one agent: started by Claude Code, not by people.
+    if (command == "mcp") {
+        QCoreApplication app(argc, argv);
+        app.setApplicationName("fireteam");
+        app.setApplicationVersion("0.2.0");
+        const QStringList args = app.arguments();
+        const int op = args.indexOf("--op"), socket = args.indexOf("--socket");
+        if (op < 0 || socket < 0 || op + 1 >= args.size() || socket + 1 >= args.size()) {
+            std::fprintf(stderr, "Usage: fireteam mcp --op <id> --socket <name>\n");
+            return 1;
+        }
+        return McpServer::run(args.at(op + 1), args.at(socket + 1));
+    }
     if (!cli && command != "open" && command != "serve") {
         std::fprintf(stderr, "fireteam: unknown command \"%s\". Try fireteam help.\n", command.constData());
         return 1;

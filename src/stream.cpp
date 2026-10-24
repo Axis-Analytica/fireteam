@@ -222,8 +222,11 @@ bool isUsageLimit(const QString &text) {
 }
 
 QString systemBrief() {
-    return "You are one agent on a fireteam, working unattended through a series of development cycles. "
-           "No one will answer questions mid-cycle, so make sensible decisions, note them, and keep moving. "
+    return "You are one agent on a fireteam, working through a series of development cycles mostly unattended. "
+           "Make sensible decisions, note them, and keep moving. Report progress at real milestones with the "
+           "fireteam sitrep tool. When a decision is genuinely the operator's (a direction, a trade-off, missing "
+           "information), ask with the fireteam request_orders tool and wait for the answer; otherwise decide "
+           "yourself. "
            "Each cycle should leave the project working and a little closer to the objective. "
            "Run shell commands one at a time rather than chained with ; && or |, so each can be approved on its "
            "own. If a command is refused for want of approval, don't retry it or look for a way around it: carry on "

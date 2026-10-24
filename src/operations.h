@@ -8,6 +8,8 @@
 #include <QPointer>
 #include <QProcess>
 #include <QTimer>
+
+class FieldLink;
 #include <QVariantList>
 
 // One development effort handed to a Claude Code agent: a project directory,
@@ -72,6 +74,14 @@ struct Operation {
     // (stopped by the plan's usage limit) resumes, in seconds since the epoch.
     qint64 stagedAt = 0;
     qint64 resumeAt = 0;
+    // Over the field link, this run: the agent's own progress report (-1 for
+    // none), questions waiting for the operator ({id, question, options,
+    // time}), and live permission prompts in Supervised ROE ({id, tool,
+    // summary, choices, time}). Not saved: they end with the run.
+    int progress = -1;
+    QString progressNote;
+    QVariantList questions;
+    QVariantList prompts;
     // Comms lines this session, which the board turns into an activity pulse.
     // Not saved.
     int events = 0;
@@ -108,7 +118,8 @@ public:
         ReportsRole, CommsRole, DossierRole, CreatedRole, ContextRole, ContextWindowRole, HandoffAtRole,
         SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole, HistoryRole, CanUndoRollbackRole,
         EventsRole, RequestsRole, AllowedRole, StandingRole, WorktreeRole, WorkdirRole, BranchRole,
-        BaseBranchRole, ResumeAtRole, QueueRole, OverwatchRole, ReviewsRole
+        BaseBranchRole, ResumeAtRole, QueueRole, OverwatchRole, ReviewsRole, ProgressRole, ProgressNoteRole,
+        QuestionsRole, PromptsRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -173,6 +184,12 @@ public:
     Q_INVOKABLE bool allow(int row, const QString &text, bool projectWide);
     Q_INVOKABLE void revoke(int row, const QString &rule);
     Q_INVOKABLE QString describeRule(const QString &rule) const;
+    // Answers an agent's question over the field link.
+    Q_INVOKABLE bool answer(int row, const QString &requestId, const QString &text);
+    // Decides a live permission prompt: "once", "always" (with the suggested
+    // rule to remember), or "deny".
+    Q_INVOKABLE bool decide(int row, const QString &requestId, const QString &decision, int rule = 0);
+    QString fieldLinkName() const;
     Q_INVOKABLE void abort(int row);
     Q_INVOKABLE void remove(int row);
     Q_INVOKABLE void abortAll();
@@ -244,6 +261,9 @@ private:
     void schedulePinned();
     bool prepareWorktree(Operation &op);
     void shelveWorktree(Operation &op);
+    void onSitrep(const QString &opId, const QString &status, int progress);
+    void onQuestion(const QString &opId, const QString &requestId, const QString &text, const QStringList &options);
+    void onAuthorise(const QString &opId, const QString &requestId, const QString &tool, const QVariantMap &input);
     void loadSettings();
     void saveSettings() const;
     void launch(const QString &id, const QString &prompt, bool handoff, bool review = false);
@@ -276,4 +296,5 @@ private:
     qint64 m_limitedUntil = 0;
     QVariantList m_loadouts;
     QTimer *m_pinTimer = nullptr;
+    FieldLink *m_link = nullptr;
 };

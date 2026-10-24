@@ -1,4 +1,5 @@
 #include "operations.h"
+#include "fieldlink.h"
 #include "intel.h"
 #include "stream.h"
 
@@ -8,6 +9,8 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QJsonValue>
 #include <algorithm>
 #include <QRandomGenerator>
@@ -19,6 +22,10 @@
 
 // Comms kept per operation; older lines stay in comms.jsonl on disk.
 static constexpr int CommsLimit = 400;
+// How long an agent waits on the operator before carrying on: a question gets
+// "use your judgement", a permission prompt is refused.
+static constexpr int QuestionTimeoutMs = 30 * 60 * 1000;
+static constexpr int PromptTimeoutMs = 20 * 60 * 1000;
 
 // claude reports a cycle's closing words twice, as a message and as the
 // result, so the result replaces the message instead of repeating it.
@@ -123,6 +130,12 @@ Operations::Operations(const QString &dataDirectory, const QString &claude, QObj
     m_pinTimer = new QTimer(this);
     m_pinTimer->setSingleShot(true);
     connect(m_pinTimer, &QTimer::timeout, this, &Operations::schedulePinned);
+    // One field link per data directory, so tests and a second user don't
+    // cross wires.
+    m_link = new FieldLink(fieldLinkName(), this);
+    connect(m_link, &FieldLink::sitrep, this, &Operations::onSitrep);
+    connect(m_link, &FieldLink::question, this, &Operations::onQuestion);
+    connect(m_link, &FieldLink::authorise, this, &Operations::onAuthorise);
     // A slot opening up (or a project clearing) lets the queue move.
     connect(this, &Operations::deployedCountChanged, this, &Operations::launchStaged, Qt::QueuedConnection);
     QTimer::singleShot(0, this, &Operations::schedulePinned);
@@ -305,7 +318,8 @@ QHash<int, QByteArray> Operations::roleNames() const {
             {EventsRole, "events"}, {RequestsRole, "requests"}, {AllowedRole, "allowed"}, {StandingRole, "standing"},
             {WorktreeRole, "worktree"}, {WorkdirRole, "workdir"}, {BranchRole, "branch"},
             {BaseBranchRole, "baseBranch"}, {ResumeAtRole, "resumeAt"}, {QueueRole, "queue"},
-            {OverwatchRole, "overwatch"}, {ReviewsRole, "reviews"}};
+            {OverwatchRole, "overwatch"}, {ReviewsRole, "reviews"}, {ProgressRole, "progress"},
+            {ProgressNoteRole, "progressNote"}, {QuestionsRole, "questions"}, {PromptsRole, "prompts"}};
 }
 
 QVariant Operations::data(const QModelIndex &index, int role) const {
@@ -351,6 +365,10 @@ QVariant Operations::data(const QModelIndex &index, int role) const {
     case ResumeAtRole: return double(op.resumeAt);
     case OverwatchRole: return op.overwatch;
     case ReviewsRole: return op.reviews;
+    case ProgressRole: return op.progress;
+    case ProgressNoteRole: return op.progressNote;
+    case QuestionsRole: return op.questions;
+    case PromptsRole: return op.prompts;
     case QueueRole: {
         // Place in the queue, from 1, for a staged operation.
         if (op.status != "staged")
@@ -437,7 +455,7 @@ int Operations::create(const QString &codename, const QString &directory, const 
     op.directory = QDir::cleanPath(directory.trimmed());
     op.objective = objective.trimmed();
     op.cycles = qBound(1, cycles, 20);
-    op.roe = roe == "free" ? "free" : "restricted";
+    op.roe = roe == "free" || roe == "supervised" ? roe : "restricted";
     op.model = model.trimmed();
     op.handoffAt = qMax(0, handoffAt);
     op.standing = standing.trimmed();
@@ -451,7 +469,7 @@ int Operations::create(const QString &codename, const QString &directory, const 
     m_ops.prepend(op);
     endInsertRows();
     log(m_ops.first(), "sys", tr("Operation planned: %1 cycles, %2, %3, %4.")
-                                  .arg(op.cycles).arg(op.roe == "free" ? tr("weapons free") : tr("restricted"))
+                                  .arg(op.cycles).arg(op.roe == "free" ? tr("weapons free") : op.roe == "supervised" ? tr("supervised") : tr("restricted"))
                                   .arg(op.handoffAt > 0 ? tr("hand off at %1").arg(Stream::tokens(op.handoffAt))
                                                         : tr("no hand-off"))
                                   .arg(op.worktree ? tr("in its own worktree") : tr("in place")));
@@ -471,7 +489,7 @@ bool Operations::update(int row, const QString &codename, const QString &objecti
         op.codename = codename.trimmed().toUpper();
     op.objective = objective.trimmed();
     op.cycles = qBound(qMax(1, op.cyclesDone), cycles, 20);
-    op.roe = roe == "free" ? "free" : "restricted";
+    op.roe = roe == "free" || roe == "supervised" ? roe : "restricted";
     op.model = model.trimmed();
     op.handoffAt = qMax(0, handoffAt);
     op.standing = standing.trimmed();
@@ -482,7 +500,7 @@ bool Operations::update(int row, const QString &codename, const QString &objecti
     if (op.status == "complete" && op.cyclesDone < op.cycles)
         op.status = "standby";
     log(op, "sys", tr("Briefing amended: %1 cycles, %2, %3.")
-                       .arg(op.cycles).arg(op.roe == "free" ? tr("weapons free") : tr("restricted"))
+                       .arg(op.cycles).arg(op.roe == "free" ? tr("weapons free") : op.roe == "supervised" ? tr("supervised") : tr("restricted"))
                        .arg(op.handoffAt > 0 ? tr("hand off at %1").arg(Stream::tokens(op.handoffAt))
                                              : tr("no hand-off")));
     changed(row);
@@ -823,6 +841,8 @@ void Operations::startCycle(const QString &id) {
     const int row = rowOf(id);
     Operation &op = m_ops[row];
     const int cycle = op.cyclesDone + 1;
+    op.progress = -1;
+    op.progressNote.clear();
     const QString report = reportPath(op, cycle);
     QDir().mkpath(QFileInfo(report).absolutePath());
     QFile::remove(report);
@@ -883,11 +903,24 @@ void Operations::launch(const QString &id, const QString &prompt, bool handoff, 
                           "--output-format", "stream-json", "--verbose",
                           "--permission-mode", review ? "plan" : op.roe == "free" ? "bypassPermissions" : "acceptEdits",
                           "--add-dir", m_dataDirectory + "/ops/" + op.id};
-    if (!review)
+    QStringList allowed = op.allowed;
+    if (!review) {
         arguments << "--append-system-prompt" << Stream::systemBrief();
+        // The field link: Fireteam's own MCP server for this operation, whose
+        // progress and question tools never need approval.
+        const QJsonObject mcp{{"mcpServers", QJsonObject{{"fireteam", QJsonObject{
+            {"type", "stdio"}, {"command", qEnvironmentVariable("FIRETEAM_BIN", QCoreApplication::applicationFilePath())},
+            {"args", QJsonArray{"mcp", "--op", op.id, "--socket", m_link->serverName()}}}}}}};
+        arguments << "--mcp-config" << QString::fromUtf8(QJsonDocument(mcp).toJson(QJsonDocument::Compact));
+        allowed << "mcp__fireteam__sitrep" << "mcp__fireteam__request_orders";
+        // Supervised: anything that would need permission is put to the
+        // operator, live, while the agent waits.
+        if (op.roe == "supervised")
+            arguments << "--permission-prompt-tool" << "mcp__fireteam__authorise";
+    }
     // Each approved rule is its own argument, since rules contain spaces.
-    if (!op.allowed.isEmpty())
-        arguments << "--allowedTools" << op.allowed;
+    if (!allowed.isEmpty())
+        arguments << "--allowedTools" << allowed;
     if (!op.model.isEmpty())
         arguments << "--model" << op.model;
     if (!op.sessionId.isEmpty() && !review)
@@ -901,6 +934,8 @@ void Operations::launch(const QString &id, const QString &prompt, bool handoff, 
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
     environment.remove("CLAUDECODE");
     environment.remove("CLAUDE_CODE_ENTRYPOINT");
+    // An agent may wait on the operator for a while.
+    environment.insert("MCP_TOOL_TIMEOUT", QString::number(QuestionTimeoutMs + 60000));
     process->setProcessEnvironment(environment);
     process->setStandardInputFile(QProcess::nullDevice());
 
@@ -960,10 +995,14 @@ void Operations::readOutput(const QString &id) {
                 log(op, "say", event.text);
                 break;
             case StreamEvent::Tool:
-                op.activity = event.text;
-                it->actions << event.text;
                 if (!event.toolId.isEmpty())
                     it->tools.insert(event.toolId, {{"tool", event.tool}, {"input", event.input}});
+                // The field link's own tools show up as their reports and
+                // questions, and tool lookups are housekeeping.
+                if (event.tool.startsWith("mcp__fireteam__") || event.tool == "ToolSearch")
+                    break;
+                op.activity = event.text;
+                it->actions << event.text;
                 log(op, "tool", event.text);
                 break;
             case StreamEvent::RateLimit: {
@@ -1054,6 +1093,9 @@ void Operations::finishCycle(const QString &id, int exitCode) {
     }
     const Run run = *it;
     m_runs.erase(it);
+    // Whatever the agent was waiting on went with it.
+    m_ops[row].questions.clear();
+    m_ops[row].prompts.clear();
     if (run.handoff) {
         finishHandoff(id, run, exitCode);
         return;
@@ -1424,6 +1466,146 @@ void Operations::revoke(int row, const QString &rule) {
 }
 
 QString Operations::describeRule(const QString &rule) const { return Stream::describeRule(rule); }
+
+QString Operations::fieldLinkName() const {
+    return "fireteam-" + QCryptographicHash::hash(m_dataDirectory.toUtf8(), QCryptographicHash::Sha1).toHex().left(12);
+}
+
+void Operations::onSitrep(const QString &opId, const QString &status, int progress) {
+    const int row = rowOf(opId);
+    if (row < 0)
+        return;
+    Operation &op = m_ops[row];
+    op.progress = progress < 0 ? op.progress : qBound(0, progress, 100);
+    op.progressNote = status.left(200);
+    log(op, "report", progress >= 0 ? QString("%1% · %2").arg(qBound(0, progress, 100)).arg(op.progressNote) : op.progressNote);
+    changed(row);
+}
+
+void Operations::onQuestion(const QString &opId, const QString &requestId, const QString &text, const QStringList &options) {
+    const int row = rowOf(opId);
+    if (row < 0) {
+        m_link->reply(requestId, {{"answer", "No operation is listening. Use your best judgement."}});
+        return;
+    }
+    Operation &op = m_ops[row];
+    op.questions.append(QVariantMap{{"id", requestId}, {"question", text}, {"options", options},
+                                    {"time", QDateTime::currentDateTime().toString("HH:mm")}});
+    op.activity = tr("Awaiting orders");
+    log(op, "ask", text);
+    emit alert(op.id, tr("%1 is asking for orders").arg(op.codename), text);
+    changed(row);
+    QTimer::singleShot(QuestionTimeoutMs, this, [this, opId, requestId] {
+        const int r = rowOf(opId);
+        if (r < 0)
+            return;
+        for (const QVariant &q : m_ops.at(r).questions)
+            if (q.toMap().value("id") == requestId) {
+                answer(r, requestId, QString());
+                return;
+            }
+    });
+}
+
+void Operations::onAuthorise(const QString &opId, const QString &requestId, const QString &tool, const QVariantMap &input) {
+    const int row = rowOf(opId);
+    if (row < 0) {
+        m_link->reply(requestId, {{"behavior", "deny"}, {"message", "No operation is listening."}});
+        return;
+    }
+    Operation &op = m_ops[row];
+    const QList<QStringList> choices = Stream::rulesFor(tool, input);
+    const QString summary = Stream::describeTool(tool, QJsonObject::fromVariantMap(input));
+    // Already approved for this operation ("always"): let it through.
+    for (const QStringList &rules : choices) {
+        bool covered = !rules.isEmpty();
+        for (const QString &rule : rules)
+            covered = covered && op.allowed.contains(rule);
+        if (covered) {
+            m_link->reply(requestId, {{"behavior", "allow"}});
+            log(op, "tool", tr("Cleared by standing approval: %1").arg(summary));
+            changed(row);
+            return;
+        }
+    }
+    QVariantList options;
+    for (const QStringList &rules : choices)
+        options.append(rules);
+    op.prompts.append(QVariantMap{{"id", requestId}, {"tool", tool}, {"summary", summary}, {"choices", options},
+                                  {"time", QDateTime::currentDateTime().toString("HH:mm")}});
+    op.activity = tr("Requesting permission: %1").arg(summary);
+    log(op, "denied", tr("Requesting permission, waiting: %1").arg(summary));
+    emit alert(op.id, tr("%1 requests permission").arg(op.codename), summary);
+    changed(row);
+    QTimer::singleShot(PromptTimeoutMs, this, [this, opId, requestId] {
+        const int r = rowOf(opId);
+        if (r < 0)
+            return;
+        for (const QVariant &p : m_ops.at(r).prompts)
+            if (p.toMap().value("id") == requestId) {
+                decide(r, requestId, "timeout");
+                return;
+            }
+    });
+}
+
+bool Operations::answer(int row, const QString &requestId, const QString &text) {
+    if (row < 0 || row >= m_ops.size())
+        return false;
+    Operation &op = m_ops[row];
+    for (int i = 0; i < op.questions.size(); ++i) {
+        if (op.questions.at(i).toMap().value("id") != requestId)
+            continue;
+        op.questions.removeAt(i);
+        const bool timedOut = text.trimmed().isEmpty();
+        const QString reply = timedOut ? QString("No answer from the operator. Use your best judgement and note the decision in your debrief.")
+                                       : text.trimmed();
+        const bool delivered = m_link->reply(requestId, {{"answer", reply}});
+        log(op, timedOut ? "sys" : "cmd", timedOut ? tr("No answer in time; the agent carries on with its own judgement.")
+                                                    : tr("Answered: %1").arg(text.trimmed()));
+        if (!delivered)
+            log(op, "error", tr("The agent that asked has gone, so the answer wasn't delivered."));
+        op.activity = op.questions.isEmpty() && op.prompts.isEmpty() ? QString() : op.activity;
+        changed(row);
+        return delivered;
+    }
+    return false;
+}
+
+bool Operations::decide(int row, const QString &requestId, const QString &decision, int rule) {
+    if (row < 0 || row >= m_ops.size())
+        return false;
+    Operation &op = m_ops[row];
+    for (int i = 0; i < op.prompts.size(); ++i) {
+        const QVariantMap prompt = op.prompts.at(i).toMap();
+        if (prompt.value("id") != requestId)
+            continue;
+        op.prompts.removeAt(i);
+        const bool allow = decision == "once" || decision == "always";
+        if (decision == "always") {
+            const QVariantList choices = prompt.value("choices").toList();
+            for (const QString &r : choices.value(qBound(0, rule, int(choices.size()) - 1)).toStringList())
+                if (!op.allowed.contains(r))
+                    op.allowed << r;
+            save();
+        }
+        const bool delivered = m_link->reply(requestId, allow ? QJsonObject{{"behavior", "allow"}}
+                                                              : QJsonObject{{"behavior", "deny"},
+                                                                            {"message", decision == "timeout"
+                                                                                 ? "The operator didn't answer in time. Carry on without it."
+                                                                                 : "The operator denied this. Carry on without it."}});
+        log(op, "cmd", decision == "always" ? tr("Approved, and always for this operation: %1").arg(prompt.value("summary").toString())
+                     : decision == "once" ? tr("Approved once: %1").arg(prompt.value("summary").toString())
+                     : decision == "timeout" ? tr("No answer in time, so refused: %1").arg(prompt.value("summary").toString())
+                     : tr("Denied: %1").arg(prompt.value("summary").toString()));
+        if (!delivered)
+            log(op, "error", tr("The agent that asked has gone, so the decision wasn't delivered."));
+        op.activity = op.questions.isEmpty() && op.prompts.isEmpty() ? QString() : op.activity;
+        changed(row);
+        return delivered;
+    }
+    return false;
+}
 
 void Operations::writeReports(Operation &op, const QStringList &actions) {
     const QString report = reportPath(op, op.cyclesDone);
