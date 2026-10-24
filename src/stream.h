@@ -90,5 +90,20 @@ QString reviewReport(const QString &codename, const QString &objective, int cycl
 // The findings as orders for a fix cycle.
 QString reviewOrders(const QVariantMap &review);
 
+// Campaigns: a read-only planning session breaks a large objective into
+// operations with dependencies, as JSON.
+QString campaignPrompt(const QString &name, const QString &objective);
+// {summary, operations: [{key, codename, objective, cycles, model, depends}]},
+// or {error} when the reply has no usable plan. Keys are unique, every
+// dependency names another operation, and there are no cycles.
+QVariantMap parseCampaignPlan(const QString &reply);
+// The operations in an order that respects their dependencies, or empty if
+// the dependencies loop.
+QStringList dependencyOrder(const QVariantList &operations);
+// What dependents are told about work they build on.
+QString priorWork(const QList<QVariantMap> &done);
+QString campaignDossier(const QString &name, const QString &objective, const QString &summary,
+                        const QVariantList &operations);
+
 QString codename(quint32 seed);
 }

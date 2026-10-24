@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QProcess>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QVariantMap>
 
 namespace {
@@ -27,6 +28,9 @@ Git git(const QString &directory, const QStringList &arguments, const QString &i
         environment.insert("GIT_COMMITTER_EMAIL", "fireteam@localhost");
     }
     environment.insert("GIT_TERMINAL_PROMPT", "0");
+    // Reads mustn't take the index lock, or a status in one place can make a
+    // merge in another fail.
+    environment.insert("GIT_OPTIONAL_LOCKS", "0");
     if (!index.isEmpty())
         environment.insert("GIT_INDEX_FILE", index);
     process.setProcessEnvironment(environment);
@@ -212,7 +216,13 @@ bool commitAll(const QString &directory, const QString &message, QString *error)
 
 QString merge(const QString &directory, const QString &branch, const QString &message, QStringList *conflicts) {
     const QString top = text(git(directory, {"rev-parse", "--show-toplevel"}));
-    const Git merged = git(top, {"merge", "--no-ff", "--no-edit", "-m", message, branch}, {}, false);
+    Git merged = git(top, {"merge", "--no-ff", "--no-edit", "-m", message, branch}, {}, false);
+    // Something else (an editor's git, the user) may hold the index for a
+    // moment; that's worth a few retries, not a failed extraction.
+    for (int attempt = 0; !merged.ok && attempt < 4 && errorText(merged).contains("index.lock"); ++attempt) {
+        QThread::msleep(400);
+        merged = git(top, {"merge", "--no-ff", "--no-edit", "-m", message, branch}, {}, false);
+    }
     if (merged.ok)
         return {};
     const QString unmerged = text(git(top, {"diff", "--name-only", "--diff-filter=U"}, {}, false));

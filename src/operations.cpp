@@ -13,6 +13,7 @@
 #include <QCryptographicHash>
 #include <QJsonValue>
 #include <algorithm>
+#include <memory>
 #include <QRandomGenerator>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -51,7 +52,8 @@ QJsonObject Operation::toJson() const {
             {"allowed", QJsonArray::fromStringList(allowed)}, {"requests", QJsonArray::fromVariantList(requests)},
             {"standing", standing}, {"worktree", worktree}, {"workdir", workdir}, {"branch", branch},
             {"baseBranch", baseBranch}, {"baseCommit", baseCommit}, {"stagedAt", stagedAt}, {"resumeAt", resumeAt},
-            {"sessionDir", sessionDir}, {"overwatch", overwatch}, {"reviews", QJsonArray::fromVariantList(reviews)}};
+            {"sessionDir", sessionDir}, {"overwatch", overwatch}, {"reviews", QJsonArray::fromVariantList(reviews)},
+            {"campaign", campaign}, {"campaignKey", campaignKey}, {"dependsOn", QJsonArray::fromStringList(dependsOn)}};
 }
 
 Operation Operation::fromJson(const QJsonObject &o) {
@@ -101,6 +103,9 @@ Operation Operation::fromJson(const QJsonObject &o) {
     op.sessionDir = o.value("sessionDir").toString();
     op.overwatch = o.value("overwatch").toString("off");
     op.reviews = o.value("reviews").toArray().toVariantList();
+    op.campaign = o.value("campaign").toString();
+    op.campaignKey = o.value("campaignKey").toString();
+    op.dependsOn = strings(o.value("dependsOn"));
     return op;
 }
 
@@ -136,6 +141,15 @@ Operations::Operations(const QString &dataDirectory, const QString &claude, QObj
     connect(m_link, &FieldLink::sitrep, this, &Operations::onSitrep);
     connect(m_link, &FieldLink::question, this, &Operations::onQuestion);
     connect(m_link, &FieldLink::authorise, this, &Operations::onAuthorise);
+    loadCampaigns();
+    // Campaigns follow their operations: finished ones let the next deploy.
+    connect(this, &Operations::operationFinished, this, &Operations::onOperationDone, Qt::QueuedConnection);
+    // The board's campaign view refreshes at most a few times a second.
+    m_campaignNotice = new QTimer(this);
+    m_campaignNotice->setSingleShot(true);
+    m_campaignNotice->setInterval(150);
+    connect(m_campaignNotice, &QTimer::timeout, this, &Operations::campaignsChanged);
+    connect(this, &QAbstractItemModel::dataChanged, this, &Operations::campaignChanged);
     // A slot opening up (or a project clearing) lets the queue move.
     connect(this, &Operations::deployedCountChanged, this, &Operations::launchStaged, Qt::QueuedConnection);
     QTimer::singleShot(0, this, &Operations::schedulePinned);
@@ -319,7 +333,8 @@ QHash<int, QByteArray> Operations::roleNames() const {
             {WorktreeRole, "worktree"}, {WorkdirRole, "workdir"}, {BranchRole, "branch"},
             {BaseBranchRole, "baseBranch"}, {ResumeAtRole, "resumeAt"}, {QueueRole, "queue"},
             {OverwatchRole, "overwatch"}, {ReviewsRole, "reviews"}, {ProgressRole, "progress"},
-            {ProgressNoteRole, "progressNote"}, {QuestionsRole, "questions"}, {PromptsRole, "prompts"}};
+            {ProgressNoteRole, "progressNote"}, {QuestionsRole, "questions"}, {PromptsRole, "prompts"},
+            {CampaignRole, "campaign"}};
 }
 
 QVariant Operations::data(const QModelIndex &index, int role) const {
@@ -369,6 +384,10 @@ QVariant Operations::data(const QModelIndex &index, int role) const {
     case ProgressNoteRole: return op.progressNote;
     case QuestionsRole: return op.questions;
     case PromptsRole: return op.prompts;
+    case CampaignRole: {
+        const int c = campaignIndex(op.campaign);
+        return c < 0 ? QString() : m_campaigns.at(c).name;
+    }
     case QueueRole: {
         // Place in the queue, from 1, for a staged operation.
         if (op.status != "staged")
@@ -1741,7 +1760,8 @@ void Operations::collectIntel(const QString &id) {
         git->deleteLater();
     });
     connect(git, &QProcess::errorOccurred, git, &QObject::deleteLater);
-    git->start("git", {"status", "--porcelain", "--untracked-files=all"});
+    // No optional locks: this read mustn't block a merge happening meanwhile.
+    git->start("git", {"--no-optional-locks", "status", "--porcelain", "--untracked-files=all"});
 }
 
 void Operations::abort(int row) {
@@ -1899,6 +1919,412 @@ void Operations::save() const {
     QJsonArray array;
     for (const auto &op : m_ops)
         array.append(op.toJson());
+    file.write(QJsonDocument(array).toJson());
+    file.commit();
+}
+
+// Campaigns ------------------------------------------------------------------
+
+QJsonObject Operations::Campaign::toJson() const {
+    return {{"id", id}, {"name", name}, {"objective", objective}, {"directory", directory}, {"model", model},
+            {"status", status}, {"summary", summary}, {"error", error}, {"plan", QJsonArray::fromVariantList(plan)},
+            {"created", created.toString(Qt::ISODate)}, {"costUsd", costUsd}};
+}
+
+Operations::Campaign Operations::Campaign::fromJson(const QJsonObject &o) {
+    Campaign campaign;
+    campaign.id = o.value("id").toString();
+    campaign.name = o.value("name").toString();
+    campaign.objective = o.value("objective").toString();
+    campaign.directory = o.value("directory").toString();
+    campaign.model = o.value("model").toString();
+    campaign.status = o.value("status").toString("draft");
+    campaign.summary = o.value("summary").toString();
+    campaign.error = o.value("error").toString();
+    campaign.plan = o.value("plan").toArray().toVariantList();
+    campaign.created = QDateTime::fromString(o.value("created").toString(), Qt::ISODate);
+    campaign.costUsd = o.value("costUsd").toDouble();
+    // A planner that was running when the app closed is gone.
+    if (campaign.status == "planning") {
+        campaign.status = "failed";
+        campaign.error = QObject::tr("Planning was interrupted. Plan it again.");
+    }
+    return campaign;
+}
+
+int Operations::campaignIndex(const QString &id) const {
+    for (int i = 0; i < m_campaigns.size(); ++i)
+        if (m_campaigns.at(i).id == id)
+            return i;
+    return -1;
+}
+
+void Operations::campaignChanged() {
+    if (m_campaignNotice && !m_campaigns.isEmpty())
+        m_campaignNotice->start();
+}
+
+QVariantList Operations::campaigns() const {
+    QVariantList list;
+    for (const Campaign &campaign : m_campaigns) {
+        QVariantList operations;
+        // Before approval the plan; after, the operations it became.
+        QHash<QString, int> rows;
+        for (int i = 0; i < m_ops.size(); ++i)
+            if (m_ops.at(i).campaign == campaign.id)
+                rows.insert(m_ops.at(i).campaignKey, i);
+        for (const QVariant &value : campaign.plan) {
+            QVariantMap entry = value.toMap();
+            const int row = rows.value(entry.value("key").toString(), -1);
+            if (row >= 0) {
+                const Operation &op = m_ops.at(row);
+                entry.insert("row", row);
+                entry.insert("opId", op.id);
+                entry.insert("codename", op.codename);
+                entry.insert("status", op.status);
+                entry.insert("cyclesDone", op.cyclesDone);
+                entry.insert("cycles", op.cycles);
+                entry.insert("activity", op.activity);
+                entry.insert("branch", op.branch);
+                entry.insert("waiting", op.questions.size() + op.prompts.size() + op.requests.size());
+            } else {
+                entry.insert("row", -1);
+                entry.insert("status", campaign.status == "draft" ? "planned" : "missing");
+            }
+            operations.append(entry);
+        }
+        list.append(QVariantMap{{"id", campaign.id}, {"name", campaign.name}, {"objective", campaign.objective},
+                                {"directory", campaign.directory}, {"status", campaign.status},
+                                {"summary", campaign.summary}, {"error", campaign.error}, {"activity", campaign.activity},
+                                {"cost", campaign.costUsd}, {"operations", operations},
+                                {"dossier", QFileInfo::exists(m_dataDirectory + "/campaigns/" + campaign.id + "/dossier.html")}});
+    }
+    return list;
+}
+
+QString Operations::planCampaign(const QString &name, const QString &directory, const QString &objective,
+                                 const QString &model) {
+    if (!validate(directory, objective).isEmpty())
+        return {};
+    Campaign campaign;
+    campaign.id = QUuid::createUuid().toString(QUuid::WithoutBraces).left(8);
+    campaign.name = name.trimmed().isEmpty() ? suggestCodename() : name.trimmed().toUpper();
+    campaign.directory = QDir::cleanPath(directory.trimmed());
+    campaign.objective = objective.trimmed();
+    campaign.model = model.trimmed();
+    campaign.created = QDateTime::currentDateTime();
+    m_campaigns.prepend(campaign);
+    saveCampaigns();
+    launchPlanner(campaign.id);
+    return campaign.id;
+}
+
+void Operations::replanCampaign(const QString &id) {
+    const int c = campaignIndex(id);
+    if (c < 0 || m_campaigns.at(c).status == "active" || m_planners.contains(id))
+        return;
+    launchPlanner(id);
+}
+
+void Operations::launchPlanner(const QString &id) {
+    Campaign &campaign = m_campaigns[campaignIndex(id)];
+    campaign.status = "planning";
+    campaign.error.clear();
+    campaign.activity = tr("Surveying the project");
+    // Read-only: the planner looks around but can't change anything.
+    QStringList arguments{"-p", Stream::campaignPrompt(campaign.name, campaign.objective),
+                          "--output-format", "stream-json", "--verbose", "--permission-mode", "plan"};
+    if (!campaign.model.isEmpty())
+        arguments << "--model" << campaign.model;
+    auto *process = new QProcess(this);
+    process->setWorkingDirectory(campaign.directory);
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    environment.remove("CLAUDECODE");
+    environment.remove("CLAUDE_CODE_ENTRYPOINT");
+    process->setProcessEnvironment(environment);
+    process->setStandardInputFile(QProcess::nullDevice());
+    m_planners.insert(id, process);
+    auto buffer = std::make_shared<QByteArray>();
+    auto reply = std::make_shared<QString>();
+    connect(process, &QProcess::readyReadStandardOutput, this, [this, id, process, buffer, reply] {
+        *buffer += process->readAllStandardOutput();
+        const int c = campaignIndex(id);
+        int newline;
+        while ((newline = buffer->indexOf('\n')) >= 0) {
+            const QByteArray line = buffer->left(newline);
+            buffer->remove(0, newline + 1);
+            for (const auto &event : Stream::parseLine(line)) {
+                if (c < 0)
+                    continue;
+                if (event.kind == StreamEvent::Tool)
+                    m_campaigns[c].activity = event.text;
+                else if (event.kind == StreamEvent::Result) {
+                    *reply = event.text;
+                    m_campaigns[c].costUsd += event.costUsd;
+                }
+            }
+        }
+        campaignChanged();
+    });
+    connect(process, &QProcess::finished, this, [this, id, process, reply](int code) {
+        m_planners.remove(id);
+        process->deleteLater();
+        const int c = campaignIndex(id);
+        if (c < 0)
+            return;
+        Campaign &campaign = m_campaigns[c];
+        campaign.activity.clear();
+        const QVariantMap plan = Stream::parseCampaignPlan(*reply);
+        if (code != 0 || plan.contains("error")) {
+            campaign.status = "failed";
+            campaign.error = plan.value("error", tr("The planner stopped without a plan.")).toString();
+        } else {
+            campaign.status = "draft";
+            campaign.summary = plan.value("summary").toString();
+            campaign.plan = plan.value("operations").toList();
+            emit alert(QString(), tr("Campaign %1 is planned").arg(campaign.name),
+                       tr("%n operation(s) ready for your review.", "", campaign.plan.size()));
+        }
+        saveCampaigns();
+        emit campaignsChanged();
+    });
+    connect(process, &QProcess::errorOccurred, this, [this, id, process](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart)
+            return;
+        m_planners.remove(id);
+        process->deleteLater();
+        const int c = campaignIndex(id);
+        if (c >= 0) {
+            m_campaigns[c].status = "failed";
+            m_campaigns[c].error = tr("The claude command couldn't run.");
+            saveCampaigns();
+            emit campaignsChanged();
+        }
+    });
+    process->start(m_claude, arguments);
+    emit campaignsChanged();
+}
+
+bool Operations::updateCampaignPlan(const QString &id, const QVariantList &operations) {
+    const int c = campaignIndex(id);
+    if (c < 0 || m_campaigns.at(c).status != "draft")
+        return false;
+    QVariantList cleaned;
+    QSet<QString> keys;
+    for (const QVariant &value : operations) {
+        const QVariantMap op = value.toMap();
+        if (!op.value("objective").toString().trimmed().isEmpty())
+            keys.insert(op.value("key").toString());
+    }
+    for (const QVariant &value : operations) {
+        QVariantMap op = value.toMap();
+        if (op.value("objective").toString().trimmed().isEmpty())
+            continue;
+        QStringList depends;
+        for (const QString &dependency : op.value("depends").toStringList())
+            if (keys.contains(dependency) && dependency != op.value("key").toString())
+                depends << dependency;
+        op.insert("depends", depends);
+        op.insert("cycles", qBound(1, op.value("cycles").toInt(), 20));
+        cleaned.append(op);
+    }
+    // A plan that loops can't be run; the edit is refused.
+    if (cleaned.isEmpty() || Stream::dependencyOrder(cleaned).isEmpty())
+        return false;
+    m_campaigns[c].plan = cleaned;
+    saveCampaigns();
+    emit campaignsChanged();
+    return true;
+}
+
+bool Operations::approveCampaign(const QString &id, const QString &roe, const QString &overwatch) {
+    const int c = campaignIndex(id);
+    if (c < 0 || m_campaigns.at(c).status != "draft")
+        return false;
+    Campaign &campaign = m_campaigns[c];
+    const QStringList order = Stream::dependencyOrder(campaign.plan);
+    if (order.isEmpty() || !validate(campaign.directory, campaign.objective).isEmpty())
+        return false;
+    QHash<QString, QVariantMap> byKey;
+    for (const QVariant &value : campaign.plan)
+        byKey.insert(value.toMap().value("key").toString(), value.toMap());
+    QHash<QString, QString> ids;
+    // Created in dependency order, so each knows its dependencies' ids.
+    for (const QString &key : order) {
+        const QVariantMap planned = byKey.value(key);
+        create(planned.value("codename").toString(), campaign.directory, planned.value("objective").toString(),
+               planned.value("cycles").toInt(), roe, planned.value("model").toString(), 250000, true, QString(),
+               overwatch);
+        Operation &op = m_ops.first();
+        op.campaign = campaign.id;
+        op.campaignKey = key;
+        for (const QString &dependency : planned.value("depends").toStringList())
+            op.dependsOn << ids.value(dependency);
+        ids.insert(key, op.id);
+        log(op, "sys", tr("Part of campaign %1.").arg(campaign.name));
+    }
+    campaign.status = "active";
+    save();
+    saveCampaigns();
+    writeCampaignDossier(campaign);
+    emit dataChanged(index(0), index(m_ops.size() - 1));
+    emit campaignsChanged();
+    scheduleCampaign(id);
+    return true;
+}
+
+void Operations::resumeCampaign(const QString &id) {
+    const int c = campaignIndex(id);
+    if (c < 0 || (m_campaigns.at(c).status != "blocked" && m_campaigns.at(c).status != "active"))
+        return;
+    m_campaigns[c].status = "active";
+    m_campaigns[c].error.clear();
+    saveCampaigns();
+    scheduleCampaign(id);
+    emit campaignsChanged();
+}
+
+void Operations::scheduleCampaign(const QString &id) {
+    const int c = campaignIndex(id);
+    if (c < 0 || m_campaigns.at(c).status != "active")
+        return;
+    // Done means complete and, for a worktree operation, merged back in.
+    auto done = [this](const QString &opId) {
+        const int row = rowOf(opId);
+        return row >= 0 && m_ops.at(row).status == "complete" && m_ops.at(row).branch.isEmpty();
+    };
+    bool all = true, any = false;
+    for (int row = 0; row < m_ops.size(); ++row) {
+        Operation &op = m_ops[row];
+        if (op.campaign != id)
+            continue;
+        any = true;
+        all = all && done(op.id);
+        if (op.status != "standby")
+            continue;
+        bool ready = true;
+        for (const QString &dependency : op.dependsOn)
+            ready = ready && done(dependency);
+        if (!ready)
+            continue;
+        // What it builds on goes out with its first cycle.
+        QList<QVariantMap> prior;
+        for (const QString &dependency : op.dependsOn) {
+            const Operation &before = m_ops.at(rowOf(dependency));
+            prior.append({{"codename", before.codename}, {"objective", before.objective}, {"sitrep", before.sitrep},
+                          {"brief", !before.handoffs.isEmpty() ? before.handoffs.last()
+                                    : before.reports.isEmpty() ? QString() : before.reports.last()}});
+        }
+        const QString orders = Stream::priorWork(prior);
+        if (!orders.isEmpty() && op.cyclesDone == 0)
+            op.orders.prepend(orders);
+        log(op, "sys", tr("Campaign %1: dependencies clear, deploying.").arg(m_campaigns.at(c).name));
+        deploy(row);
+    }
+    if (any && all) {
+        m_campaigns[c].status = "complete";
+        emit alert(QString(), tr("Campaign %1 complete").arg(m_campaigns.at(c).name), m_campaigns.at(c).objective);
+    }
+    writeCampaignDossier(m_campaigns.at(c));
+    saveCampaigns();
+    emit campaignsChanged();
+}
+
+void Operations::onOperationDone(int row) {
+    if (row < 0 || row >= m_ops.size() || m_ops.at(row).campaign.isEmpty())
+        return;
+    Operation &op = m_ops[row];
+    const int c = campaignIndex(op.campaign);
+    if (c < 0 || m_campaigns.at(c).status != "active")
+        return;
+    Campaign &campaign = m_campaigns[c];
+    if (op.status == "complete") {
+        // Its work joins the project, so the operations after it build on it.
+        if (!op.branch.isEmpty() && !extract(row)) {
+            campaign.status = "blocked";
+            campaign.error = tr("%1 couldn't be merged in; see its comms. Resolve it, then resume the campaign.").arg(op.codename);
+            emit alert(QString(), tr("Campaign %1 is blocked").arg(campaign.name), campaign.error);
+            saveCampaigns();
+            emit campaignsChanged();
+            return;
+        }
+    } else if (op.status == "failed" || op.status == "aborted") {
+        campaign.status = "blocked";
+        campaign.error = tr("%1 %2. Retry it, then resume the campaign.").arg(op.codename, op.status);
+        emit alert(QString(), tr("Campaign %1 is blocked").arg(campaign.name), campaign.error);
+        saveCampaigns();
+        emit campaignsChanged();
+        return;
+    }
+    scheduleCampaign(campaign.id);
+}
+
+void Operations::removeCampaign(const QString &id) {
+    const int c = campaignIndex(id);
+    if (c < 0)
+        return;
+    if (m_planners.contains(id) && m_planners.value(id))
+        m_planners.value(id)->kill();
+    // Its operations stay, on their own.
+    for (auto &op : m_ops)
+        if (op.campaign == id) {
+            op.campaign.clear();
+            op.dependsOn.clear();
+        }
+    m_campaigns.removeAt(c);
+    QDir(m_dataDirectory + "/campaigns/" + id).removeRecursively();
+    save();
+    saveCampaigns();
+    emit dataChanged(index(0), index(qMax(0, int(m_ops.size()) - 1)));
+    emit campaignsChanged();
+}
+
+void Operations::writeCampaignDossier(const Campaign &campaign) {
+    QVariantList operations;
+    for (const QVariant &entry : campaigns().value(campaignIndex(campaign.id)).toMap().value("operations").toList()) {
+        QVariantMap op = entry.toMap();
+        const int row = op.value("row").toInt();
+        if (row >= 0) {
+            op.insert("sitrep", m_ops.at(row).sitrep);
+            op.insert("dossier", QFileInfo::exists(dossierPath(m_ops.at(row))) ? dossierPath(m_ops.at(row)) : QString());
+        }
+        operations.append(op);
+    }
+    const QString folder = m_dataDirectory + "/campaigns/" + campaign.id;
+    QDir().mkpath(folder);
+    QSaveFile file(folder + "/dossier.html");
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(Stream::campaignDossier(campaign.name, campaign.objective, campaign.summary, operations).toUtf8());
+        file.commit();
+    }
+}
+
+bool Operations::openCampaignDossier(const QString &id) {
+    const int c = campaignIndex(id);
+    if (c < 0)
+        return false;
+    writeCampaignDossier(m_campaigns.at(c));
+    return openReport(m_dataDirectory + "/campaigns/" + id + "/dossier.html");
+}
+
+void Operations::loadCampaigns() {
+    QFile file(m_dataDirectory + "/campaigns.json");
+    if (!file.open(QIODevice::ReadOnly))
+        return;
+    for (const auto &value : QJsonDocument::fromJson(file.readAll()).array()) {
+        const Campaign campaign = Campaign::fromJson(value.toObject());
+        if (!campaign.id.isEmpty())
+            m_campaigns.append(campaign);
+    }
+}
+
+void Operations::saveCampaigns() const {
+    QSaveFile file(m_dataDirectory + "/campaigns.json");
+    if (!file.open(QIODevice::WriteOnly))
+        return;
+    QJsonArray array;
+    for (const Campaign &campaign : m_campaigns)
+        array.append(campaign.toJson());
     file.write(QJsonDocument(array).toJson());
     file.commit();
 }

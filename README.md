@@ -191,6 +191,7 @@ own.
 | `V` | Intel: the latest cycle's changes, file by file |
 | `[` `]` / `J` `K` | In intel: previous or next cycle, and file |
 | `/` | Search the comms |
+| `C` | Campaigns |
 | `S` | Service record |
 | `M` | Switch between the board and the theatre map |
 | `Shift+M` | Turn interface sounds on or off (off by default) |
@@ -226,6 +227,31 @@ start of an id. Only one Fireteam runs at a time: the board or `serve` holds
 the operations, and commands that need agents (deploy, hold, abort, extract,
 discard) are handed to it through an inbox. Planning and orders work with
 nothing running. A second `fireteam open` brings the running window forward.
+
+## Campaigns
+
+`C` opens the campaign board. Give a campaign one large objective, such as
+"build a habit tracker with an API, a web UI and sync", and a planner (a
+read-only Claude Code session; it changes nothing) surveys the project and
+breaks the objective into 2 to 8 operations with dependencies.
+
+The plan appears as a graph: one column per stage, supply lines from each
+operation to the ones that build on it. Before anything runs, click a card to
+change its codename, objective, cycles, model, or what it waits for (a plan
+whose dependencies loop is refused), add or remove operations, or replan.
+**Approve and deploy** turns the plan into operations with the rules of
+engagement and overwatch you pick:
+
+- Operations deploy as their dependencies finish; independent ones run in
+  parallel, each in its own worktree, within the squad limit.
+- A finished operation is **extracted automatically**, so the ones after it
+  start from its merged work, and their first cycle is briefed on what came
+  before (its objective, result, and debrief).
+- A failure, or a merge that conflicts, **blocks** the campaign rather than
+  pushing on; fix it, then **Resume campaign**.
+- The campaign dossier links every operation's dossier and result.
+
+Operations in a campaign carry its name (◆) on the board.
 
 ## Overwatch
 

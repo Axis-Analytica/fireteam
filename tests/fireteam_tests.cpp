@@ -741,6 +741,76 @@ private slots:
         QVERIFY(run.contains("--permission-mode\nacceptEdits"));
     }
 
+    void parsesCampaignPlans()
+    {
+        auto plan = Stream::parseCampaignPlan("Plan.\n```json\n{\"summary\": \"S\", \"operations\": ["
+                                              "{\"key\": \"Data Model\", \"objective\": \"A\", \"cycles\": 9},"
+                                              "{\"key\": \"api\", \"objective\": \"B\", \"depends\": [\"data model\", \"nope\"], \"model\": \"GPT\"}]}\n```");
+        QVERIFY(!plan.contains("error"));
+        const QVariantList ops = plan.value("operations").toList();
+        QCOMPARE(ops.size(), 2);
+        QCOMPARE(ops.at(0).toMap().value("key").toString(), QString("data-model"));
+        QCOMPARE(ops.at(0).toMap().value("cycles").toInt(), 8);
+        QCOMPARE(ops.at(1).toMap().value("depends").toStringList(), QStringList{"data-model"});
+        QCOMPARE(ops.at(1).toMap().value("model").toString(), QString());
+        QCOMPARE(Stream::dependencyOrder(ops), (QStringList{"data-model", "api"}));
+        auto loop = Stream::parseCampaignPlan("```json\n{\"operations\": [{\"key\": \"a\", \"objective\": \"x\", \"depends\": [\"b\"]},"
+                                              "{\"key\": \"b\", \"objective\": \"y\", \"depends\": [\"a\"]}]}\n```");
+        QVERIFY(loop.value("error").toString().contains("circle"));
+        QVERIFY(Stream::parseCampaignPlan("No plan.").contains("error"));
+    }
+
+    void runsACampaignInDependencyOrder()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin), log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        qputenv("FIRETEAM_TEST_PER_OP", "1");
+        // Cleared however the test ends, so later tests write notes.txt.
+        struct Unset { ~Unset() { qunsetenv("FIRETEAM_TEST_PER_OP"); } } unset;
+        QVERIFY(gitIn(project.path(), {"init", "-q", "-b", "main"}));
+        write(project.filePath("app.txt"), "app\n");
+        QVERIFY(gitIn(project.path(), {"add", "-A"}));
+        QVERIFY(gitIn(project.path(), {"-c", "user.name=T", "-c", "user.email=t@x", "commit", "-q", "-m", "start"}));
+
+        Operations ops(data.path(), claude);
+        QSignalSpy changes(&ops, &Operations::campaignsChanged);
+        const QString id = ops.planCampaign("habit tracker", project.path(), "Build a habit tracker", "");
+        QVERIFY(!id.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(ops.campaigns().first().toMap().value("status").toString(), QString("draft"), 10000);
+        QVariantMap campaign = ops.campaigns().first().toMap();
+        QCOMPARE(campaign.value("operations").toList().size(), 3);
+        // The planner ran read-only.
+        QVERIFY(QString::fromUtf8(read(log)).contains("--permission-mode\nplan"));
+
+        // An edit that loops is refused; a sensible one sticks.
+        QVariantList plan = campaign.value("operations").toList();
+        QVariantMap schema = plan.at(0).toMap();
+        schema.insert("depends", QStringList{"api"});
+        QVERIFY(!ops.updateCampaignPlan(id, {schema, plan.at(1), plan.at(2)}));
+        QVariantMap ui = plan.at(2).toMap();
+        ui.insert("objective", "Build the UI, with tests.");
+        QVERIFY(ops.updateCampaignPlan(id, {plan.at(0), plan.at(1), ui}));
+
+        QVERIFY(ops.approveCampaign(id, "restricted", "off"));
+        QCOMPARE(ops.rowCount(), 3);
+        // Only the schema goes first.
+        QCOMPARE(ops.deployedCount(), 1);
+        QTRY_VERIFY2_WITH_TIMEOUT(ops.campaigns().first().toMap().value("status").toString() == "complete",
+                                  qPrintable(ops.campaigns().first().toMap().value("error").toString()), 30000);
+
+        // Everyone's work is merged in, and the dependents were told what
+        // came before.
+        for (const QString &name : {"stone-gate", "swift-river", "pale-moon"})
+            QVERIFY2(QFile::exists(project.filePath("notes-" + name + ".txt")), qPrintable(name));
+        const QStringList runs = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts);
+        const QString api = runs.filter("OPERATION SWIFT RIVER").first();
+        QVERIFY(api.contains("PRIOR WORK") && api.contains("STONE GATE"));
+        QVERIFY(runs.filter("OPERATION PALE MOON").first().contains("Build the UI, with tests."));
+        QCOMPARE(gitOut(project.path(), {"status", "--porcelain"}), QString());
+        QVERIFY(QFile::exists(data.filePath("campaigns/" + id + "/dossier.html")));
+    }
+
     void keepsLoadouts()
     {
         QTemporaryDir data;

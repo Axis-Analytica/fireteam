@@ -11,6 +11,10 @@ echo '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsA
 echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"You have hit your usage limit · resets 3pm"}'
 exit 1; fi
 if [ -n "$FIRETEAM_TEST_SLOW" ]; then sleep "$FIRETEAM_TEST_SLOW"; fi
+case "$2" in *"CAMPAIGN "*", PLANNING"*)
+  printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.05,"result":"Three steps.\n```json\n{\"summary\": \"Schema first, then API and UI in parallel.\", \"operations\": [{\"key\": \"schema\", \"codename\": \"stone gate\", \"objective\": \"Design the schema.\", \"cycles\": 1, \"model\": \"haiku\", \"depends\": []}, {\"key\": \"api\", \"codename\": \"swift river\", \"objective\": \"Build the API.\", \"cycles\": 1, \"depends\": [\"schema\"]}, {\"key\": \"ui\", \"codename\": \"pale moon\", \"objective\": \"Build the UI.\", \"cycles\": 1, \"depends\": [\"schema\", \"ghost\"]}]}\n```"}'
+  exit 0;;
+esac
 case "$2" in *"OVERWATCH REVIEW"*)
   diff=$(printf '%s\n' "$2" | grep '/reviews/review-..\.diff$')
   [ -n "$diff" ] && cp "$diff" "$FIRETEAM_TEST_LOG.diff"
@@ -27,6 +31,6 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"Blocked on
 exit 0
 fi
 echo '{"type":"assistant","message":{"usage":{"input_tokens":'${FIRETEAM_TEST_CONTEXT:-1000}',"output_tokens":0},"content":[{"type":"text","text":"Moving out."},{"type":"tool_use","name":"Edit","input":{"file_path":"/x/src/main.cpp"}}]}}'
-echo "line" >> notes.txt
+if [ -n "$FIRETEAM_TEST_PER_OP" ]; then name=$(printf '%s\n' "$2" | head -1 | sed 's/^OPERATION \(.*\), CYCLE.*/\1/' | tr ' A-Z' '-a-z'); echo "line" >> "notes-$name.txt"; else echo "line" >> notes.txt; fi
 case "$report" in *cycle-01.html) echo '<html>agent debrief</html>' > "$report";; esac
 echo '{"type":"result","subtype":"success","is_error":false,"result":"Cycle done.","session_id":"sess-1","total_cost_usd":0.25,"num_turns":3}'

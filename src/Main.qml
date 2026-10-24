@@ -21,7 +21,7 @@ ApplicationWindow {
     readonly property bool narrow: width < 1100
     readonly property bool overlayOpen: briefing.visible || help.visible || confirm.visible || radio.visible || intel.visible
                                         || insertion.visible || authorisation.visible || serviceRecord.visible
-                                        || waitingPanel.visible
+                                        || waitingPanel.visible || campaignBoard.visible
     // The theatre map in place of the roster and detail.
     property bool mapView: false
     readonly property var selected: roster.currentItem
@@ -179,6 +179,7 @@ ApplicationWindow {
     Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.deploySelected() }
     Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: { win.mapView = !win.mapView; Sfx.play("open") } }
     Shortcut { sequence: "Shift+M"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: Sfx.toggle() }
+    Shortcut { sequence: "C"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: campaignBoard.open() }
     Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: serviceRecord.open() }
     Shortcut { sequence: "A"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.authoriseSelected() }
     Shortcut { sequence: "T"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.ordersSelected() }
@@ -204,6 +205,7 @@ ApplicationWindow {
             else if (intel.visible) intel.close()
             else if (authorisation.visible) authorisation.close()
             else if (waitingPanel.visible) waitingPanel.close()
+            else if (campaignBoard.visible) campaignBoard.close()
             else if (serviceRecord.visible) serviceRecord.close()
             else if (radio.visible) radio.close()
             else briefing.close()
@@ -520,6 +522,7 @@ ApplicationWindow {
                         KeyHint { key: "X"; label: qsTr("Abort") }
                         KeyHint { key: "V"; label: qsTr("Intel") }
                         KeyHint { key: "M"; label: win.mapView ? qsTr("Board") : qsTr("Map") }
+                        KeyHint { key: "C"; label: qsTr("Campaigns") }
                         KeyHint { key: "S"; label: qsTr("Record") }
                         KeyHint { key: "R"; label: qsTr("Debrief") }
                     }
@@ -568,6 +571,12 @@ ApplicationWindow {
             anchors.fill: parent
             onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
             onResumeRequested: ops.deploy(row)
+        }
+        CampaignBoard {
+            id: campaignBoard
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
+            onOperationPicked: (row) => { roster.currentIndex = row; campaignBoard.close() }
         }
         WaitingPanel {
             id: waitingPanel

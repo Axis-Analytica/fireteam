@@ -50,6 +50,7 @@ Item {
     required property string progressNote
     required property var questions
     required property var prompts
+    required property string campaign
     readonly property int waitingOn: questions.length + prompts.length
 
     readonly property bool selected: ListView.isCurrentItem
@@ -57,7 +58,7 @@ Item {
     signal activated()
 
     width: ListView.view ? ListView.view.width : 360
-    height: 84
+    height: campaign.length > 0 ? 98 : 84
 
     Shape {
         id: slab
@@ -157,6 +158,17 @@ Item {
             font.bold: entry.requests.length > 0 || entry.waitingOn > 0
             font.family: Style.mono
             font.pixelSize: 11
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: entry.campaign.length > 0
+            text: "◆ " + entry.campaign
+            elide: Text.ElideRight
+            color: entry.selected ? entry.ink : theme.accent
+            opacity: 0.8
+            font.family: Style.mono
+            font.pixelSize: 10
+            font.letterSpacing: 1 * Style.tracking
         }
         CycleTrack {
             Layout.fillWidth: true

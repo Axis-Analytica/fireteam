@@ -74,6 +74,11 @@ struct Operation {
     // (stopped by the plan's usage limit) resumes, in seconds since the epoch.
     qint64 stagedAt = 0;
     qint64 resumeAt = 0;
+    // The campaign this operation belongs to, its key in the campaign's plan,
+    // and the operations (by id) it waits for.
+    QString campaign;
+    QString campaignKey;
+    QStringList dependsOn;
     // Over the field link, this run: the agent's own progress report (-1 for
     // none), questions waiting for the operator ({id, question, options,
     // time}), and live permission prompts in Supervised ROE ({id, tool,
@@ -110,6 +115,8 @@ class Operations : public QAbstractListModel {
     // The plan's usage from the latest run: {status, resetsAt, windows}.
     Q_PROPERTY(QVariantMap usage READ usage NOTIFY usageChanged)
     Q_PROPERTY(QVariantList loadouts READ loadouts NOTIFY loadoutsChanged)
+    // Every campaign with its plan or its operations' live state.
+    Q_PROPERTY(QVariantList campaigns READ campaigns NOTIFY campaignsChanged)
 
 public:
     enum Role {
@@ -119,7 +126,7 @@ public:
         SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole, HistoryRole, CanUndoRollbackRole,
         EventsRole, RequestsRole, AllowedRole, StandingRole, WorktreeRole, WorkdirRole, BranchRole,
         BaseBranchRole, ResumeAtRole, QueueRole, OverwatchRole, ReviewsRole, ProgressRole, ProgressNoteRole,
-        QuestionsRole, PromptsRole
+        QuestionsRole, PromptsRole, CampaignRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -140,6 +147,19 @@ public:
     void setMaxDeployed(int max);
     QVariantMap usage() const { return m_usage; }
     QVariantList loadouts() const { return m_loadouts; }
+    QVariantList campaigns() const;
+
+    // Campaigns: plan with a read-only session, review and edit the plan,
+    // approve it into operations, and let them deploy as their dependencies
+    // finish.
+    Q_INVOKABLE QString planCampaign(const QString &name, const QString &directory, const QString &objective,
+                                     const QString &model);
+    Q_INVOKABLE void replanCampaign(const QString &id);
+    Q_INVOKABLE bool updateCampaignPlan(const QString &id, const QVariantList &operations);
+    Q_INVOKABLE bool approveCampaign(const QString &id, const QString &roe, const QString &overwatch);
+    Q_INVOKABLE void removeCampaign(const QString &id);
+    Q_INVOKABLE bool openCampaignDossier(const QString &id);
+    Q_INVOKABLE void resumeCampaign(const QString &id);
 
     Q_INVOKABLE QString suggestCodename() const;
     Q_INVOKABLE QString validate(const QString &directory, const QString &objective) const;
@@ -223,6 +243,7 @@ signals:
     void waiting(int row);
     void usageChanged();
     void loadoutsChanged();
+    void campaignsChanged();
     // Something worth telling someone who isn't looking at the board.
     void alert(const QString &opId, const QString &title, const QString &body);
 
@@ -266,6 +287,26 @@ private:
     void onSitrep(const QString &opId, const QString &status, int progress);
     void onQuestion(const QString &opId, const QString &requestId, const QString &text, const QStringList &options);
     void onAuthorise(const QString &opId, const QString &requestId, const QString &tool, const QVariantMap &input);
+    struct Campaign {
+        QString id, name, objective, directory, model;
+        // planning, draft (plan ready to review), active, blocked, complete,
+        // or failed (the planner couldn't plan).
+        QString status = "planning";
+        QString summary, error, activity;
+        QVariantList plan;
+        QDateTime created;
+        double costUsd = 0;
+        QJsonObject toJson() const;
+        static Campaign fromJson(const QJsonObject &object);
+    };
+    int campaignIndex(const QString &id) const;
+    void launchPlanner(const QString &id);
+    void scheduleCampaign(const QString &id);
+    void onOperationDone(int row);
+    void writeCampaignDossier(const Campaign &campaign);
+    void loadCampaigns();
+    void saveCampaigns() const;
+    void campaignChanged();
     void loadSettings();
     void saveSettings() const;
     void launch(const QString &id, const QString &prompt, bool handoff, bool review = false);
@@ -299,4 +340,7 @@ private:
     QVariantList m_loadouts;
     QTimer *m_pinTimer = nullptr;
     FieldLink *m_link = nullptr;
+    QList<Campaign> m_campaigns;
+    QHash<QString, QPointer<QProcess>> m_planners;
+    QTimer *m_campaignNotice = nullptr;
 };

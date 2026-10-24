@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QSet>
 #include <QUrl>
 
 namespace Stream {
@@ -458,6 +459,150 @@ QString reviewOrders(const QVariantMap &review) {
                                             finding.value("issue").toString());
     }
     return lines.join('\n');
+}
+
+QString campaignPrompt(const QString &name, const QString &objective) {
+    return QString("CAMPAIGN %1, PLANNING\n\nOBJECTIVE:\n%2\n\n"
+                   "You are the planner for a campaign: a large objective carried out by several Claude Code agents, "
+                   "each running its own operation through a few development cycles. Survey this project first "
+                   "(read files, run read-only commands; change nothing), then break the objective into operations.\n\n"
+                   "Rules for a good plan:\n"
+                   "- 2 to 8 operations, each a coherent piece of work one agent can finish and verify in 1 to 5 cycles.\n"
+                   "- Each objective is self-contained: an agent that sees only its own objective, and the summaries of "
+                   "the operations it depends on, can do it.\n"
+                   "- Dependencies only where one operation truly needs another's work; independent operations run in "
+                   "parallel on separate git branches and are merged in as they finish, so avoid two operations "
+                   "editing the same files at the same time.\n"
+                   "- No dependency cycles. Prefer a shallow graph.\n"
+                   "- Models: haiku for small mechanical work, sonnet for most, opus for the hardest design work.\n\n"
+                   "Explain the plan briefly in prose, then end your reply with exactly one fenced json block:\n"
+                   "```json\n{\"summary\": \"two sentences on the approach\", \"operations\": [{\"key\": \"short-id\", "
+                   "\"codename\": \"TWO WORDS\", \"objective\": \"what this operation must deliver, and how to verify it\", "
+                   "\"cycles\": 2, \"model\": \"sonnet\", \"depends\": [\"other-key\"]}]}\n```")
+        .arg(name, objective);
+}
+
+QStringList dependencyOrder(const QVariantList &operations) {
+    QHash<QString, QStringList> depends;
+    QStringList keys;
+    for (const QVariant &value : operations) {
+        const QVariantMap op = value.toMap();
+        keys << op.value("key").toString();
+        depends.insert(op.value("key").toString(), op.value("depends").toStringList());
+    }
+    QStringList order;
+    QSet<QString> placed;
+    // Repeatedly place whatever has all its dependencies placed.
+    while (order.size() < keys.size()) {
+        bool progress = false;
+        for (const QString &key : keys) {
+            if (placed.contains(key))
+                continue;
+            bool ready = true;
+            for (const QString &dependency : depends.value(key))
+                ready = ready && placed.contains(dependency);
+            if (ready) {
+                order << key;
+                placed.insert(key);
+                progress = true;
+            }
+        }
+        if (!progress)
+            return {};
+    }
+    return order;
+}
+
+QVariantMap parseCampaignPlan(const QString &reply) {
+    static const QRegularExpression block(R"(```json\s*(\{.*\})\s*```)", QRegularExpression::DotMatchesEverythingOption);
+    QJsonObject plan;
+    auto blocks = block.globalMatch(reply);
+    while (blocks.hasNext()) {
+        const QJsonDocument document = QJsonDocument::fromJson(blocks.next().captured(1).toUtf8());
+        if (document.isObject())
+            plan = document.object();
+    }
+    const QJsonArray raw = plan.value("operations").toArray();
+    if (raw.isEmpty())
+        return {{"error", "The planner's reply had no plan in it."}};
+    QVariantList operations;
+    QSet<QString> keys;
+    for (const auto &value : raw) {
+        const QJsonObject op = value.toObject();
+        QString key = op.value("key").toString().trimmed().toLower();
+        key.replace(QRegularExpression("[^a-z0-9]+"), "-");
+        if (key.isEmpty() || keys.contains(key))
+            key = QString("op-%1").arg(operations.size() + 1);
+        keys.insert(key);
+        const QString objective = op.value("objective").toString().trimmed();
+        if (objective.isEmpty())
+            continue;
+        QStringList depends;
+        for (const auto &dependency : op.value("depends").toArray()) {
+            QString name = dependency.toString().trimmed().toLower();
+            name.replace(QRegularExpression("[^a-z0-9]+"), "-");
+            depends << name;
+        }
+        const QString model = op.value("model").toString().toLower();
+        operations.append(QVariantMap{{"key", key}, {"codename", op.value("codename").toString().trimmed().toUpper()},
+                                      {"objective", objective}, {"cycles", qBound(1, op.value("cycles").toInt(2), 8)},
+                                      {"model", QStringList{"opus", "sonnet", "haiku"}.contains(model) ? model : QString()},
+                                      {"depends", depends}});
+    }
+    // Dependencies on operations that don't exist are dropped, not fatal.
+    for (QVariant &value : operations) {
+        QVariantMap op = value.toMap();
+        QStringList depends;
+        for (const QString &dependency : op.value("depends").toStringList())
+            if (keys.contains(dependency) && dependency != op.value("key").toString())
+                depends << dependency;
+        op.insert("depends", depends);
+        value = op;
+    }
+    if (operations.isEmpty())
+        return {{"error", "The planner's plan had no usable operations."}};
+    if (operations.size() > 10)
+        operations = operations.mid(0, 10);
+    if (dependencyOrder(operations).isEmpty())
+        return {{"error", "The planner's dependencies go round in a circle."}};
+    return {{"summary", plan.value("summary").toString().trimmed()}, {"operations", operations}};
+}
+
+QString priorWork(const QList<QVariantMap> &done) {
+    if (done.isEmpty())
+        return {};
+    QStringList lines{"PRIOR WORK: this operation is part of a campaign and builds on operations that have finished "
+                      "and been merged into the project. What they did:"};
+    for (const QVariantMap &op : done) {
+        lines << QString("- %1: %2\n  Result: %3").arg(op.value("codename").toString(), op.value("objective").toString(),
+                                                     op.value("sitrep").toString().isEmpty() ? "No sitrep." : op.value("sitrep").toString());
+        if (!op.value("brief").toString().isEmpty())
+            lines << "  Details: " + op.value("brief").toString();
+    }
+    lines << "Read those for context if you need it; don't redo their work.";
+    return lines.join('\n');
+}
+
+QString campaignDossier(const QString &name, const QString &objective, const QString &summary,
+                        const QVariantList &operations) {
+    QString rows;
+    for (const QVariant &value : operations) {
+        const QVariantMap op = value.toMap();
+        const QString status = op.value("status").toString();
+        const QString colour = status == "complete" ? "#86e07d" : status == "failed" || status == "aborted" ? "#ff4f45"
+                             : status == "deployed" ? "#f97316" : "#8b8f94";
+        rows += QString("<h2 style=\"color:%1\">%2 · %3%4</h2><div class=\"panel\" style=\"border-left-color:%1\">%5\n\n%6</div>")
+                    .arg(colour, op.value("codename").toString().toHtmlEscaped(), status.toUpper().toHtmlEscaped(),
+                         op.value("dossier").toString().isEmpty()
+                             ? QString() : QString(" · <a href=\"%1\">dossier</a>").arg(QUrl::fromLocalFile(op.value("dossier").toString()).toString().toHtmlEscaped()),
+                         op.value("objective").toString().toHtmlEscaped(),
+                         op.value("sitrep").toString().isEmpty() ? QString() : "Result: " + op.value("sitrep").toString().toHtmlEscaped());
+    }
+    const QString body = QString("<div class=\"tag\">Campaign dossier</div><h1>%1</h1><h2>Objective</h2><div class=\"panel\">%2</div>"
+                                 "<h2>Plan</h2><div class=\"panel\">%3</div>%4")
+                             .arg(name.toHtmlEscaped(), objective.toHtmlEscaped(),
+                                  summary.isEmpty() ? QString("No summary.") : summary.toHtmlEscaped(), rows);
+    return page(name + " · campaign", body);
 }
 
 }
