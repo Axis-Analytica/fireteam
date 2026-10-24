@@ -4,4 +4,9 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 "$ROOT/bin/build"
 cd "$ROOT/pkgbuild"
-exec makepkg -fsi "$@"
+
+# Stage the package on a local disk: makepkg's fakeroot needs to set
+# permissions, which shared or network mounts (like ~/Work here) refuse.
+STAGE="${XDG_CACHE_HOME:-$HOME/.cache}/fireteam-makepkg"
+mkdir -p "$STAGE"
+BUILDDIR="$STAGE" PKGDEST="$STAGE" exec makepkg -fsi "$@"
