@@ -5,6 +5,8 @@ TARGET = fireteam
 TEMPLATE = app
 
 HEADERS += src/notifier.h \
+    src/cli.h \
+    src/command.h \
     src/intel.h \
     src/operations.h \
     src/stream.h \
@@ -13,6 +15,8 @@ HEADERS += src/notifier.h \
     src/translator.h
 
 SOURCES += src/notifier.cpp \
+    src/cli.cpp \
+    src/command.cpp \
     src/intel.cpp \
     src/main.cpp \
     src/operations.cpp \

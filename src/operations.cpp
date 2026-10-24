@@ -115,9 +115,7 @@ static QString findClaude() {
 
 Operations::Operations(const QString &dataDirectory, const QString &claude, QObject *parent)
     : QAbstractListModel(parent),
-      m_dataDirectory(dataDirectory.isEmpty()
-                          ? QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/fireteam"
-                          : dataDirectory),
+      m_dataDirectory(dataDirectory.isEmpty() ? defaultDataDirectory() : dataDirectory),
       m_claude(claude.isEmpty() ? findClaude() : claude) {
     QDir().mkpath(m_dataDirectory);
     loadSettings();
@@ -129,6 +127,12 @@ Operations::Operations(const QString &dataDirectory, const QString &claude, QObj
     connect(this, &Operations::deployedCountChanged, this, &Operations::launchStaged, Qt::QueuedConnection);
     QTimer::singleShot(0, this, &Operations::schedulePinned);
 }
+
+QString Operations::defaultDataDirectory() {
+    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/fireteam";
+}
+
+void Operations::ensureDataDirectory() { QDir().mkpath(defaultDataDirectory()); }
 
 QString Operations::workdir(const Operation &op) {
     return op.worktree && !op.workdir.isEmpty() ? op.workdir : op.directory;
@@ -365,6 +369,23 @@ int Operations::deployedCount() const {
     for (const auto &op : m_ops)
         count += op.status == "deployed";
     return count;
+}
+
+int Operations::find(const QString &query) const {
+    const QString wanted = query.trimmed().toUpper().replace('-', ' ').replace('_', ' ');
+    if (wanted.isEmpty())
+        return -1;
+    int match = -1;
+    for (int i = 0; i < m_ops.size(); ++i) {
+        if (m_ops.at(i).id.toUpper() == wanted || m_ops.at(i).codename == wanted)
+            return i;
+        if (m_ops.at(i).id.toUpper().startsWith(wanted)) {
+            if (match >= 0)
+                return -1;
+            match = i;
+        }
+    }
+    return match;
 }
 
 int Operations::rowOf(const QString &id) const {

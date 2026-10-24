@@ -6,6 +6,13 @@
 Notifier::Notifier(QObject *parent)
     : QObject(parent), m_notifySend(QStandardPaths::findExecutable("notify-send")) {}
 
+void Notifier::focusFireteam() {
+    // Hyprland's Lua config dispatches as hl.dsp calls; older ones take the
+    // classic form. Omarchy's own launch-or-focus tries them in that order.
+    QProcess::startDetached("sh", {"-c", "hyprctl dispatch 'hl.dsp.focus({ window = \"class:fireteam\" })' >/dev/null 2>&1"
+                                         " || hyprctl dispatch focuswindow class:fireteam >/dev/null 2>&1"});
+}
+
 void Notifier::send(const QString &opId, const QString &title, const QString &body) {
     if (m_notifySend.isEmpty())
         return;
@@ -14,7 +21,7 @@ void Notifier::send(const QString &opId, const QString &title, const QString &bo
     auto *process = new QProcess(this);
     connect(process, &QProcess::finished, this, [this, process, opId] {
         if (process->readAllStandardOutput().trimmed() == "default") {
-            QProcess::startDetached("hyprctl", {"dispatch", "focuswindow", "class:fireteam"});
+            focusFireteam();
             emit activated(opId);
         }
         process->deleteLater();

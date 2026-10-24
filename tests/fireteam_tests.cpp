@@ -6,6 +6,7 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include "command.h"
 #include "operations.h"
 #include "stream.h"
 #include "theme.h"
@@ -629,6 +630,28 @@ private slots:
         QCOMPARE(weeks.last().toMap().value("cycles").toInt(), 2);
         QCOMPARE(weeks.last().toMap().value("cost").toDouble(), 0.5);
         QCOMPARE(record.value("projects").toList().first().toMap().value("runs").toInt(), 2);
+    }
+
+    void runsCommandLineRequests()
+    {
+        QTemporaryDir data, project;
+        Operations ops(data.path(), "/bin/true");
+        QJsonObject result = Command::execute(ops, {{"command", "plan"}, {"directory", "/no/such"}, {"objective", "x"}});
+        QVERIFY(!result.value("ok").toBool());
+        result = Command::execute(ops, {{"command", "plan"}, {"directory", project.path()}, {"objective", "Build"},
+                                        {"codename", "red fox"}, {"cycles", 2}, {"overwatch", "review"}});
+        QVERIFY(result.value("ok").toBool());
+        QCOMPARE(result.value("op").toObject().value("codename").toString(), QString("RED FOX"));
+        QCOMPARE(ops.at(0).overwatch, QString("review"));
+        QCOMPARE(ops.find("red-fox"), 0);
+        QCOMPARE(ops.find(ops.at(0).id.left(3)), 0);
+        QCOMPARE(ops.find("blue"), -1);
+        result = Command::execute(ops, {{"command", "order"}, {"op", "Red Fox"}, {"text", "Add tests."}});
+        QVERIFY(result.value("ok").toBool());
+        QCOMPARE(ops.at(0).orders, QStringList{"Add tests."});
+        QVERIFY(!Command::execute(ops, {{"command", "hold"}, {"op", "red-fox"}}).value("ok").toBool());
+        QVERIFY(!Command::execute(ops, {{"command", "fly"}, {"op", "red-fox"}}).value("ok").toBool());
+        QVERIFY(Command::needsRunningApp("deploy") && !Command::needsRunningApp("order"));
     }
 
     void keepsLoadouts()

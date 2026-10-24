@@ -5,6 +5,6 @@ TEMPLATE = app
 
 INCLUDEPATH += ../src
 
-HEADERS += ../src/intel.h ../src/operations.h ../src/stream.h ../src/theme.h ../src/translator.h
-SOURCES += fireteam_tests.cpp ../src/intel.cpp ../src/operations.cpp ../src/stream.cpp ../src/theme.cpp ../src/translator.cpp
+HEADERS += ../src/command.h ../src/intel.h ../src/operations.h ../src/stream.h ../src/theme.h ../src/translator.h
+SOURCES += fireteam_tests.cpp ../src/command.cpp ../src/intel.cpp ../src/operations.cpp ../src/stream.cpp ../src/theme.cpp ../src/translator.cpp
 RESOURCES += fakeclaude.qrc

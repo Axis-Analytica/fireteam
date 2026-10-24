@@ -158,6 +158,9 @@ public:
     Q_INVOKABLE void clearOrders(int row);
     Q_INVOKABLE void setHold(int row, bool hold);
     Q_INVOKABLE int rowOfId(const QString &id) const { return rowOf(id); }
+    // An operation by id, the start of its id, or codename (any case, spaces
+    // or dashes); -1 if none or more than one match.
+    int find(const QString &query) const;
     Q_INVOKABLE QVariantList cycleChanges(int row, int run) const;
     Q_INVOKABLE QString cycleDiff(int row, int run, const QString &path) const;
     Q_INVOKABLE bool rollback(int row, int run);
@@ -186,6 +189,8 @@ public:
     const Operation &at(int row) const { return m_ops.at(row); }
     // Where the agent works: its worktree, or the project directory.
     static QString workdir(const Operation &op);
+    static QString defaultDataDirectory();
+    static void ensureDataDirectory();
     // Past this much context a cycle is cut short and handed off on the spot.
     static qint64 ceiling(const Operation &op);
 

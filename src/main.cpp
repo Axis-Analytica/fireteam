@@ -2,6 +2,9 @@
 // development cycles at once, each ending in an HTML debrief.
 
 #include <QGuiApplication>
+#include <QLockFile>
+#include <QProcess>
+#include <csignal>
 #include <QIcon>
 #include <QJsonDocument>
 #include <QQmlApplicationEngine>
@@ -11,42 +14,56 @@
 #include <cstdio>
 #include <cstring>
 
+#include "cli.h"
+#include "command.h"
 #include "folderpicker.h"
 #include "notifier.h"
 #include "operations.h"
 #include "theme.h"
 #include "translator.h"
 
-static int status(bool json) {
-    Operations operations;
-    const QJsonArray array = operations.toJson();
-    if (json) {
-        std::fputs(QJsonDocument(array).toJson().constData(), stdout);
-        return 0;
-    }
-    for (const auto &value : array) {
-        const QJsonObject op = value.toObject();
-        std::printf("%-20s %-12s %d/%d  %s\n", op.value("codename").toString().toUtf8().constData(),
-                    op.value("status").toString().toUtf8().constData(), op.value("cyclesDone").toInt(),
-                    op.value("cycles").toInt(), op.value("directory").toString().toUtf8().constData());
-    }
-    return 0;
-}
-
 int main(int argc, char *argv[]) {
     const QByteArray command = argc > 1 ? QByteArray(argv[1]) : QByteArray("open");
-    if (command == "status")
-        qputenv("QT_QPA_PLATFORM", "offscreen");
-    else if (command != "open") {
-        std::fprintf(stderr, "Usage: fireteam [open | status [--json]]\n");
+    const bool cli = Cli::isCommand(command);
+    if (!cli && command != "open" && command != "serve") {
+        std::fprintf(stderr, "fireteam: unknown command \"%s\". Try fireteam help.\n", command.constData());
         return 1;
     }
+    // Only the board needs a display.
+    if (command != "open")
+        qputenv("QT_QPA_PLATFORM", "offscreen");
 
     QGuiApplication app(argc, argv);
     app.setApplicationName("fireteam");
-    app.setApplicationVersion("0.1.0");
-    if (command == "status")
-        return status(argc > 2 && std::strcmp(argv[2], "--json") == 0);
+    app.setApplicationVersion("0.2.0");
+    if (cli)
+        return Cli::run(app.arguments());
+
+    // One Fireteam at a time owns the operations: a second open brings the
+    // first to the front instead.
+    Operations::ensureDataDirectory();
+    QLockFile lock(Command::lockPath(Operations::defaultDataDirectory()));
+    lock.setStaleLockTime(0);
+    if (!lock.tryLock(0)) {
+        std::fprintf(stderr, "Fireteam is already running.\n");
+        if (command == "open")
+            Notifier::focusFireteam();
+        return command == "open" ? 0 : 1;
+    }
+
+    if (command == "serve") {
+        // Operations with no window: the inbox takes commands, and
+        // notifications still go out. Ctrl+C or a stop signal ends it cleanly.
+        std::signal(SIGINT, [](int) { QCoreApplication::quit(); });
+        std::signal(SIGTERM, [](int) { QCoreApplication::quit(); });
+        Operations operations;
+        Inbox inbox(operations);
+        Notifier notifier;
+        QObject::connect(&operations, &Operations::alert, &notifier, &Notifier::send);
+        std::fprintf(stderr, "Fireteam serving %s. Stop with Ctrl+C.\n",
+                     qPrintable(Operations::defaultDataDirectory()));
+        return app.exec();
+    }
 
     // Matches the window to fireteam.desktop, so the compositor (Wayland
     // app_id) and the launcher pick up the installed icon.
@@ -62,6 +79,7 @@ int main(int argc, char *argv[]) {
 
     Theme theme;
     Operations operations;
+    Inbox inbox(operations);
     FolderPicker folderPicker;
     Notifier notifier;
     operations.checkLink();

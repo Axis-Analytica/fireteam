@@ -172,6 +172,7 @@ own.
 | `V` | Intel: the latest cycle's changes, file by file |
 | `[` `]` / `J` `K` | In intel: previous or next cycle, and file |
 | `/` | Search the comms |
+| `S` | Service record |
 | `M` | Switch between the board and the theatre map |
 | `Shift+M` | Turn interface sounds on or off (off by default) |
 | `R` | Open the latest debrief |
@@ -185,11 +186,42 @@ own.
 
 ## Command line
 
+Fireteam can be driven from a terminal or by another agent. Every command
+takes `--json`, exits 0 on success and 1 on failure, and writes errors to
+stderr.
+
 ```sh
-fireteam              # open the board
-fireteam status       # list operations
-fireteam status --json
+fireteam list --json                       # every operation
+fireteam show night-spire                  # sitrep, requests, reviews, debriefs, comms
+fireteam plan --dir ~/Work/app --objective "Add CSV export with tests" \
+  --cycles 3 --model sonnet --overwatch review --deploy
+fireteam order night-spire "Use SQLite"    # add --deploy to send a finished one back in
+fireteam hold night-spire                  # or abort, extract, discard
+fireteam wait night-spire --timeout 3600   # 0 complete, 1 failed, 2 needs you
+fireteam serve                             # run operations with no window
+fireteam skill install                     # teach Claude Code to use all of this
 ```
+
+An operation is named by codename (any case, dashes for spaces), id, or the
+start of an id. Only one Fireteam runs at a time: the board or `serve` holds
+the operations, and commands that need agents (deploy, hold, abort, extract,
+discard) are handed to it through an inbox. Planning and orders work with
+nothing running. A second `fireteam open` brings the running window forward.
+
+## Overwatch
+
+With overwatch on (in the briefing), a separate read-only Claude Code session
+reviews the operation after its last cycle: it reads the whole diff, judges
+it against the objective, and grades it **pass**, **needs work**, or **fail**
+with findings. The review goes in the dossier and on the operation's chip.
+*Review and fix* sends a short-of-the-mark operation back for one more cycle
+with the findings as orders, then reviews it again.
+
+## Service record
+
+`S` shows totals across every operation: cycles run, success rate, lines
+changed, time in the field, API value by week, the busiest projects, and
+overwatch's verdicts.
 
 ## Build
 

@@ -15,6 +15,8 @@ public:
     bool available() const { return !m_notifySend.isEmpty(); }
 
     Q_INVOKABLE void send(const QString &opId, const QString &title, const QString &body);
+    // Asks Hyprland to focus Fireteam's window.
+    static void focusFireteam();
 
 signals:
     void activated(const QString &opId);
