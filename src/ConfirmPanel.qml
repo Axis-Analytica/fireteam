@@ -23,7 +23,8 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, 0.8)
-        TapHandler { onTapped: confirm.visible = false }
+        // A MouseArea, unlike a TapHandler, stops the click here.
+        MouseArea { anchors.fill: parent; onClicked: confirm.visible = false }
     }
     Rectangle {
         anchors.centerIn: parent
@@ -32,7 +33,8 @@ Item {
         color: Qt.rgba(0.04, 0.05, 0.065, 0.97)
         border.color: Style.line
         radius: theme.radius
-        TapHandler {}
+        // Clicks on the panel itself mustn't reach the dismissing backdrop.
+        MouseArea { anchors.fill: parent }
         Rectangle { width: parent.width; height: 3; color: Style.danger }
         ColumnLayout {
             id: column

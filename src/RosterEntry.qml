@@ -108,7 +108,7 @@ Item {
             elide: Text.ElideRight
             text: entry.status === "deployed" && entry.activity.length > 0
                   ? entry.activity
-                  : qsTr("%1 · cycle %2/%3 · $%4").arg(Style.statusLabel(entry.status).toUpperCase())
+                  : qsTr("%1 · cycle %2/%3 · ≈$%4").arg(Style.statusLabel(entry.status).toUpperCase())
                         .arg(entry.cyclesDone).arg(entry.cycles)
                         .arg(entry.cost.toLocaleString(Qt.locale(), 'f', 2))
             color: entry.selected ? entry.ink : Style.dim

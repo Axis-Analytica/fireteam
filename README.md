@@ -11,6 +11,11 @@ Several operations can be deployed at once, each with its own agent.
 Agents use the Claude Code login already on the machine (`claude auth status`
 is shown in the header as the Claude link). No API key is needed beyond that.
 
+The dollar figure on each operation is what `claude` reports the runs would
+cost at API prices. On a Pro or Max login it isn't billed; it counts against
+the plan's usage limits. It's only a real charge if `claude` itself is set up
+with an API key (`ANTHROPIC_API_KEY` or an `apiKeyHelper`).
+
 ## What you get per operation
 
 - **Comms**: the agent's live stream (what it says and every tool it uses).

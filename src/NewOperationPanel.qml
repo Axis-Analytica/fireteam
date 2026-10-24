@@ -50,7 +50,8 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, 0.78)
-        TapHandler { onTapped: panel.close() }
+        // A MouseArea, unlike a TapHandler, stops the click here.
+        MouseArea { anchors.fill: parent; onClicked: panel.close() }
     }
 
     Rectangle {
@@ -61,8 +62,8 @@ Item {
         color: Qt.rgba(0.04, 0.05, 0.065, 0.97)
         border.color: Style.line
         radius: theme.radius
-        // Swallow taps so they don't reach the dismissing backdrop.
-        TapHandler {}
+        // Clicks on the panel itself mustn't reach the dismissing backdrop.
+        MouseArea { anchors.fill: parent }
 
         Rectangle { width: parent.width; height: 3; color: theme.accent }
 

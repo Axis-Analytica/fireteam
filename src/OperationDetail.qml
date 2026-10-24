@@ -89,7 +89,9 @@ Item {
             }
             Chip { text: detail.op && detail.op.model ? detail.op.model : qsTr("Default model"); tone: Style.dim }
             Chip {
-                text: detail.op ? "$" + detail.op.cost.toLocaleString(Qt.locale(), 'f', 2) : ""
+                // claude reports what the run would cost at API prices; on a
+                // subscription it counts against the plan's usage, not a bill.
+                text: detail.op ? qsTr("≈ $%1 API value").arg(detail.op.cost.toLocaleString(Qt.locale(), 'f', 2)) : ""
                 tone: Style.dim
             }
             Chip { text: detail.op ? detail.op.directory : ""; tone: Style.dim; mono: true }
