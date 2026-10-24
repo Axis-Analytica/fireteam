@@ -23,7 +23,25 @@ with an API key (`ANTHROPIC_API_KEY` or an `apiKeyHelper`).
 - **Debriefs**: one HTML report per cycle. The agent writes it; if it doesn't,
   Fireteam writes one from the comms so no cycle goes unreported.
 - **Dossier**: an HTML index of every cycle's sitrep and debrief.
-- **Intel**: changed files, from `git status`, when the project is a repository.
+- **Cycle cards**: one per cycle run, with how it ended, files changed, lines
+  added and removed, how long it took, and its API value.
+- **Intel** (`V`): what a cycle changed, file by file, as a coloured diff.
+  Step through cycles with `[` `]` and files with `J` `K`.
+
+## Snapshots and rollback
+
+In a git repository, Fireteam snapshots the project before and after every
+cycle: the whole working tree, untracked files included and ignored files left
+out, as commits under hidden refs (`refs/fireteam/<id>/`). They're built in a
+throwaway index, so your index, branches, stash, and history never see them;
+`git log` and `git status` look exactly as before. Standing an operation down
+deletes its refs.
+
+From the intel view, **Roll back to before cycle N** puts every file in the
+repository back as it was when that cycle started, including changes you made
+since, so it asks first. The state it replaces is snapshotted, and **Undo
+rollback** brings it back. Projects that aren't git repositories still get
+cycle cards, but no diffs or rollback.
 
 Everything Fireteam keeps lives in `~/.local/share/fireteam/`. The project
 directory is only touched by the agent itself.
@@ -81,6 +99,9 @@ one brings Fireteam up on that operation.
 | `E` | Amend the briefing of an operation that isn't deployed |
 | `X` | Abort the selected operation |
 | `↑` `↓` / `J` `K` | Move through the roster |
+| `V` | Intel: the latest cycle's changes, file by file |
+| `[` `]` / `J` `K` | In intel: previous or next cycle, and file |
+| `/` | Search the comms |
 | `R` | Open the latest debrief |
 | `D` | Open the dossier |
 | `O` | Open the project directory |

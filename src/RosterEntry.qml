@@ -32,6 +32,8 @@ Item {
     required property var orders
     required property bool hold
     required property real ceiling
+    required property var history
+    required property bool canUndoRollback
 
     readonly property bool selected: ListView.isCurrentItem
     readonly property color ink: selected ? theme.accentForeground : Style.text

@@ -5,6 +5,8 @@
         <file alias="ConfirmPanel.qml">ConfirmPanel.qml</file>
         <file alias="Crosshair.qml">Crosshair.qml</file>
         <file alias="ContextGauge.qml">ContextGauge.qml</file>
+        <file alias="CycleCard.qml">CycleCard.qml</file>
+        <file alias="DiffView.qml">DiffView.qml</file>
         <file alias="CycleTrack.qml">CycleTrack.qml</file>
         <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
         <file alias="KeyHint.qml">KeyHint.qml</file>

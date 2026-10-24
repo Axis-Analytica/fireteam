@@ -18,6 +18,21 @@ Item {
     signal removeRequested()
     signal ordersRequested()
     signal editRequested()
+    signal diffRequested(int run)
+
+    // Comms filter: all, agent, tools, command, or errors, plus a search.
+    property string commsFilter: "all"
+    property alias commsQuery: search.text
+    function focusSearch() { search.forceActiveFocus(); search.selectAll() }
+    function matches(entry) {
+        switch (commsFilter) {
+        case "agent": if (entry.kind !== "say" && entry.kind !== "result") return false; break
+        case "tools": if (entry.kind !== "tool") return false; break
+        case "command": if (entry.kind !== "cmd" && entry.kind !== "sys") return false; break
+        case "errors": if (entry.kind !== "error") return false; break
+        }
+        return search.text.length === 0 || entry.text.toLowerCase().indexOf(search.text.toLowerCase()) >= 0
+    }
 
     Material.theme: Material.Dark
     Material.accent: theme.accent
@@ -42,14 +57,53 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 2
-            Text {
-                text: detail.op ? qsTr("Operation // %1 · planned %2").arg(detail.op.opId)
-                                      .arg(Qt.formatDateTime(detail.op.created, "d MMM HH:mm")) : ""
-                color: Style.dim
-                font.family: Style.mono
-                font.pixelSize: 11
-                font.letterSpacing: 2
-                font.capitalization: Font.AllUppercase
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 16
+                Text {
+                    Layout.fillWidth: true
+                    text: detail.op ? qsTr("Operation // %1 · planned %2").arg(detail.op.opId)
+                                          .arg(Qt.formatDateTime(detail.op.created, "d MMM HH:mm")) : ""
+                    elide: Text.ElideRight
+                    color: Style.dim
+                    font.family: Style.mono
+                    font.pixelSize: 11
+                    font.letterSpacing: 2
+                    font.capitalization: Font.AllUppercase
+                }
+                // The less frequent actions, as links, so the main row fits.
+                Repeater {
+                    model: [
+                        { label: qsTr("Dossier"), key: "D", action: "dossier" },
+                        { label: qsTr("Project"), key: "O", action: "project" },
+                        { label: qsTr("Stand down"), key: qsTr("Del"), action: "remove" }
+                    ]
+                    delegate: Text {
+                        id: link
+                        required property var modelData
+                        readonly property bool usable: modelData.action === "dossier" ? detail.op && detail.op.dossier.length > 0
+                                                     : modelData.action === "remove" ? detail.op && !detail.live
+                                                     : detail.op !== null
+                        text: modelData.label + "  <font color=\"" + Style.faint + "\">" + modelData.key + "</font>"
+                        textFormat: Text.StyledText
+                        opacity: usable ? 1 : 0.35
+                        color: linkHover.hovered && usable ? (modelData.action === "remove" ? Style.danger : theme.accent) : Style.dim
+                        font.family: Style.display
+                        font.pixelSize: 11
+                        font.weight: Font.Bold
+                        font.letterSpacing: 2
+                        font.capitalization: Font.AllUppercase
+                        HoverHandler { id: linkHover; cursorShape: link.usable ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                        TapHandler {
+                            enabled: link.usable
+                            onTapped: {
+                                if (link.modelData.action === "dossier") ops.openDossier(detail.row)
+                                else if (link.modelData.action === "project") ops.openProject(detail.row)
+                                else detail.removeRequested()
+                            }
+                        }
+                    }
+                }
             }
             Item {
                 Layout.fillWidth: true
@@ -120,9 +174,29 @@ Item {
             }
             CycleTrack {
                 Layout.fillWidth: true
+                // Short of room, the cards stand in for the track.
+                visible: !(detail.compact && timeline.count > 0)
                 cycles: detail.op ? detail.op.cycles : 1
                 done: detail.op ? detail.op.cyclesDone : 0
                 live: detail.live
+            }
+            // Every cycle run so far, newest on the right; each opens its diff.
+            ListView {
+                id: timeline
+                Layout.fillWidth: true
+                Layout.preferredHeight: 64
+                Layout.topMargin: 4
+                visible: count > 0
+                orientation: ListView.Horizontal
+                spacing: 8
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                model: detail.op ? detail.op.history : []
+                onCountChanged: Qt.callLater(positionViewAtEnd)
+                delegate: CycleCard {
+                    current: index === timeline.count - 1
+                    onOpened: detail.diffRequested(index)
+                }
             }
             SectionLabel {
                 Layout.fillWidth: true
@@ -182,14 +256,55 @@ Item {
                 Layout.preferredWidth: 1
                 Layout.fillHeight: true
                 spacing: 8
-                SectionLabel {
+                RowLayout {
                     Layout.fillWidth: true
-                    text: qsTr("Comms")
-                    detail: detail.live ? qsTr("Live") : ""
+                    spacing: 6
+                    SectionLabel {
+                        Layout.fillWidth: true
+                        Layout.rightMargin: 8
+                        text: qsTr("Comms")
+                        detail: detail.live ? qsTr("Live") : ""
+                    }
+                    Repeater {
+                        model: [
+                            { key: "all", label: qsTr("All") },
+                            { key: "agent", label: qsTr("Agent") },
+                            { key: "tools", label: qsTr("Tools") },
+                            { key: "command", label: qsTr("HQ") },
+                            { key: "errors", label: qsTr("Errors") }
+                        ]
+                        delegate: Text {
+                            required property var modelData
+                            readonly property bool chosen: detail.commsFilter === modelData.key
+                            text: modelData.label
+                            color: chosen ? theme.accent : Style.dim
+                            font.family: Style.display
+                            font.pixelSize: 11
+                            font.weight: Font.Bold
+                            font.letterSpacing: 2
+                            font.capitalization: Font.AllUppercase
+                            font.underline: chosen
+                            rightPadding: 4
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: detail.commsFilter = modelData.key }
+                        }
+                    }
+                    TextField {
+                        id: search
+                        Layout.preferredWidth: detail.compact ? 110 : 140
+                        Layout.preferredHeight: 30
+                        placeholderText: qsTr("Search  /")
+                        font.family: Style.mono
+                        font.pixelSize: 12
+                        topPadding: 4
+                        bottomPadding: 4
+                        Keys.onEscapePressed: { text = ""; detail.forceActiveFocus() }
+                    }
                 }
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    Layout.minimumHeight: 120
                     color: Qt.rgba(0, 0, 0, 0.45)
                     border.color: Style.line
                     radius: theme.radius
@@ -199,7 +314,9 @@ Item {
                         anchors.margins: 12
                         clip: true
                         spacing: 6
-                        model: detail.op ? detail.op.comms : []
+                        model: !detail.op ? []
+                             : detail.commsFilter === "all" && search.text.length === 0 ? detail.op.comms
+                             : detail.op.comms.filter(entry => detail.matches(entry))
                         onCountChanged: Qt.callLater(positionViewAtEnd)
                         Component.onCompleted: positionViewAtEnd()
                         ScrollBar.vertical: ScrollBar {}
@@ -261,7 +378,7 @@ Item {
                     Text {
                         anchors.centerIn: parent
                         visible: comms.count === 0
-                        text: qsTr("Radio silence")
+                        text: detail.op && detail.op.comms.length > 0 ? qsTr("Nothing matches") : qsTr("Radio silence")
                         color: Style.faint
                         font.family: Style.display
                         font.pixelSize: 13
@@ -277,7 +394,7 @@ Item {
                 Layout.maximumWidth: sideWidth
                 Layout.fillWidth: detail.compact
                 Layout.fillHeight: !detail.compact
-                Layout.maximumHeight: detail.compact ? 260 : Infinity
+                Layout.maximumHeight: detail.compact ? 190 : Infinity
                 spacing: 8
 
                 SectionLabel { Layout.fillWidth: true; text: qsTr("Objective") }
@@ -312,12 +429,14 @@ Item {
 
                 SectionLabel {
                     Layout.fillWidth: true
+                    visible: !detail.compact
                     Layout.topMargin: 8
                     text: qsTr("Debriefs")
                     detail: detail.op ? "" + detail.op.reports.length : ""
                 }
                 ListView {
                     id: debriefs
+                    visible: !detail.compact
                     Layout.fillWidth: true
                     Layout.preferredHeight: Math.min(contentHeight, 150)
                     clip: true
@@ -360,7 +479,7 @@ Item {
                     }
                 }
                 Text {
-                    visible: debriefs.count === 0
+                    visible: debriefs.count === 0 && !detail.compact
                     text: qsTr("Debriefs land here as each cycle completes.")
                     color: Style.faint
                     font.family: Style.display
@@ -369,12 +488,14 @@ Item {
 
                 SectionLabel {
                     Layout.fillWidth: true
+                    visible: !detail.compact
                     Layout.topMargin: 8
                     text: qsTr("Intel")
                     detail: detail.op && detail.op.intel.length ? qsTr("%1 changed").arg(detail.op.intel.length) : ""
                 }
                 ListView {
                     Layout.fillWidth: true
+                    visible: !detail.compact
                     Layout.fillHeight: true
                     Layout.minimumHeight: 0
                     clip: true
@@ -440,23 +561,10 @@ Item {
                 onClicked: detail.editRequested()
             }
             TacticalButton {
-                text: qsTr("Dossier")
-                key: "D"
-                enabled: detail.op && detail.op.dossier.length > 0
-                onClicked: ops.openDossier(detail.row)
-            }
-            TacticalButton {
-                text: qsTr("Project")
-                key: "O"
-                enabled: detail.op !== null
-                onClicked: ops.openProject(detail.row)
-            }
-            TacticalButton {
-                text: qsTr("Stand down")
-                key: qsTr("Del")
-                danger: true
-                enabled: detail.op && !detail.live
-                onClicked: detail.removeRequested()
+                text: qsTr("Intel")
+                key: "V"
+                enabled: detail.op !== null && detail.op.history.length > 0
+                onClicked: detail.diffRequested(detail.op.history.length - 1)
             }
         }
     }

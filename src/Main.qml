@@ -19,7 +19,7 @@ ApplicationWindow {
 
     // Hyprland tiles windows, so the board has to read in a narrow column too.
     readonly property bool narrow: width < 1100
-    readonly property bool overlayOpen: briefing.visible || help.visible || confirm.visible || radio.visible
+    readonly property bool overlayOpen: briefing.visible || help.visible || confirm.visible || radio.visible || intel.visible
     readonly property var selected: roster.currentItem
 
     function move(step) {
@@ -29,6 +29,17 @@ ApplicationWindow {
     function deploySelected() { if (selected) ops.deploy(roster.currentIndex) }
     function ordersSelected() { if (selected) radio.open(selected, roster.currentIndex) }
     function editSelected() { if (selected && selected.status !== "deployed") briefing.edit(selected, roster.currentIndex) }
+    function diffSelected(run) {
+        if (selected && selected.history.length > 0)
+            intel.open(selected, roster.currentIndex, run === undefined ? selected.history.length - 1 : run)
+    }
+    function rollback(run) {
+        const entry = selected.history[run]
+        const row = roster.currentIndex
+        confirm.ask(qsTr("Roll back to before cycle %1?").arg(entry.cycle),
+                    qsTr("Every file in the repository goes back to how it was when cycle %1 started, including changes made since by you. The current state is snapshotted first, so Undo rollback puts it all back.").arg(entry.cycle),
+                    qsTr("Roll back"), () => ops.rollback(row, run))
+    }
     function holdSelected() { if (selected && selected.status === "deployed") ops.setHold(roster.currentIndex, !selected.hold) }
     function abortSelected() {
         if (!selected || selected.status !== "deployed")
@@ -88,6 +99,8 @@ ApplicationWindow {
     Shortcut { sequence: "T"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.ordersSelected() }
     Shortcut { sequence: "H"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.holdSelected() }
     Shortcut { sequence: "E"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.editSelected() }
+    Shortcut { sequence: "V"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.diffSelected() }
+    Shortcut { sequence: "/"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen && win.selected !== null; onActivated: detailPanel.focusSearch() }
     Shortcut { sequence: "X"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.abortSelected() }
     Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: ops.openLatestReport(roster.currentIndex) }
     Shortcut { sequence: "D"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: ops.openDossier(roster.currentIndex) }
@@ -102,6 +115,7 @@ ApplicationWindow {
         onActivated: {
             if (confirm.visible) confirm.visible = false
             else if (help.visible) help.visible = false
+            else if (intel.visible) intel.close()
             else if (radio.visible) radio.close()
             else briefing.close()
         }
@@ -277,6 +291,7 @@ ApplicationWindow {
                 Rectangle { Layout.fillHeight: true; implicitWidth: 1; color: Style.line }
 
                 OperationDetail {
+                    id: detailPanel
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
                     Layout.fillHeight: true
@@ -287,6 +302,7 @@ ApplicationWindow {
                     onRemoveRequested: win.removeSelected()
                     onOrdersRequested: win.ordersSelected()
                     onEditRequested: win.editSelected()
+                    onDiffRequested: (run) => win.diffSelected(run)
                 }
             }
 
@@ -298,6 +314,7 @@ ApplicationWindow {
                 KeyHint { key: qsTr("Space"); label: qsTr("Deploy") }
                 KeyHint { visible: !win.narrow; key: "T"; label: qsTr("Orders") }
                 KeyHint { visible: !win.narrow; key: "X"; label: qsTr("Abort") }
+                KeyHint { visible: !win.narrow; key: "V"; label: qsTr("Intel") }
                 KeyHint { visible: !win.narrow; key: "R"; label: qsTr("Debrief") }
                 KeyHint { key: "?"; label: qsTr("Controls") }
                 KeyHint { key: "Q"; label: qsTr("Quit") }
@@ -330,6 +347,12 @@ ApplicationWindow {
             id: radio
             anchors.fill: parent
             onVisibleChanged: if (!visible) board.forceActiveFocus()
+        }
+        DiffView {
+            id: intel
+            anchors.fill: parent
+            onVisibleChanged: if (!visible) board.forceActiveFocus()
+            onRollbackRequested: (run) => win.rollback(run)
         }
         HelpOverlay { id: help; anchors.fill: parent }
         ConfirmPanel { id: confirm; anchors.fill: parent }

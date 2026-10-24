@@ -1,6 +1,7 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QProcess>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -26,6 +27,7 @@ echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"test-mode
 if [ -n "$brief" ]; then echo '# brief' > "$brief"; echo '{"type":"result","subtype":"success","is_error":false,"result":"Brief written.","session_id":"sess-1","total_cost_usd":0.01}'; exit 0; fi
 if [ -n "$FIRETEAM_TEST_STALL" ] && [ -f "$FIRETEAM_TEST_STALL" ]; then rm "$FIRETEAM_TEST_STALL"; echo '{"type":"assistant","message":{"usage":{"input_tokens":900000,"output_tokens":0},"content":[]}}'; exec sleep 20; fi
 echo '{"type":"assistant","message":{"usage":{"input_tokens":'${FIRETEAM_TEST_CONTEXT:-1000}',"output_tokens":0},"content":[{"type":"text","text":"Moving out."},{"type":"tool_use","name":"Edit","input":{"file_path":"/x/src/main.cpp"}}]}}'
+echo "line" >> notes.txt
 case "$report" in *cycle-01.html) echo '<html>agent debrief</html>' > "$report";; esac
 echo '{"type":"result","subtype":"success","is_error":false,"result":"Cycle done.","session_id":"sess-1","total_cost_usd":0.25,"num_turns":3}'
 )";
@@ -217,6 +219,65 @@ private slots:
         QVERIFY(finished.wait(5000));
         QCOMPARE(ops.at(0).status, QString("failed"));
         QCOMPARE(ops.at(0).orders, QStringList{"Add a README."});
+    }
+
+    void snapshotsEachCycleAndRollsBack()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        QVERIFY(gitIn(project.path(), {"init", "-q"}));
+        write(project.filePath("app.txt"), "app\n");
+
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 2, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(15000));
+
+        const Operation &op = ops.at(0);
+        QCOMPARE(op.history.size(), 2);
+        const QVariantMap first = op.history.at(0).toMap();
+        QCOMPARE(first.value("cycle").toInt(), 1);
+        QCOMPARE(first.value("outcome").toString(), QString("complete"));
+        QCOMPARE(first.value("files").toInt(), 1);
+        QCOMPARE(first.value("added").toInt(), 1);
+        const QVariantList changes = ops.cycleChanges(0, 1);
+        QCOMPARE(changes.size(), 1);
+        QCOMPARE(changes.first().toMap().value("path").toString(), QString("notes.txt"));
+        QCOMPARE(changes.first().toMap().value("status").toString(), QString("M"));
+        QVERIFY(ops.cycleDiff(0, 1, "notes.txt").contains("+line"));
+
+        // The user's index and branches never saw the snapshots.
+        QCOMPARE(gitOut(project.path(), {"status", "--porcelain"}), QString("?? app.txt\n?? notes.txt\n"));
+        QVERIFY(gitOut(project.path(), {"for-each-ref", "refs/fireteam/"}).contains("run-2-after"));
+
+        // Back to before cycle 1: the agent's file goes, the user's stays.
+        QVERIFY(ops.rollback(0, 0));
+        QVERIFY(!QFile::exists(project.filePath("notes.txt")));
+        QCOMPARE(read(project.filePath("app.txt")), QByteArray("app\n"));
+        QVERIFY(ops.undoRollback(0));
+        QCOMPARE(read(project.filePath("notes.txt")), QByteArray("line\nline\n"));
+        QVERIFY(!ops.undoRollback(0));
+
+        ops.remove(0);
+        QCOMPARE(gitOut(project.path(), {"for-each-ref", "refs/fireteam/"}), QString());
+    }
+
+    void keepsHistoryWithoutGit()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 1, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        QCOMPARE(ops.at(0).history.size(), 1);
+        QVERIFY(ops.at(0).history.first().toMap().value("before").toString().isEmpty());
+        QVERIFY(ops.cycleChanges(0, 0).isEmpty());
+        QVERIFY(!ops.rollback(0, 0));
     }
 
     void holdsAfterTheCurrentCycle()
@@ -423,6 +484,21 @@ private:
         write(claude, FakeClaude);
         QFile::setPermissions(claude, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
         return claude;
+    }
+    static bool gitIn(const QString &directory, const QStringList &arguments)
+    {
+        QProcess git;
+        git.setWorkingDirectory(directory);
+        git.start("git", arguments);
+        return git.waitForFinished(10000) && git.exitCode() == 0;
+    }
+    static QString gitOut(const QString &directory, const QStringList &arguments)
+    {
+        QProcess git;
+        git.setWorkingDirectory(directory);
+        git.start("git", arguments);
+        git.waitForFinished(10000);
+        return QString::fromUtf8(git.readAllStandardOutput());
     }
     static void write(const QString &path, const QByteArray &contents)
     {

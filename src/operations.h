@@ -37,6 +37,12 @@ struct Operation {
     // agent down once its current cycle ends.
     QStringList orders;
     bool hold = false;
+    // One entry per cycle run (retries and cut-short runs included), with the
+    // snapshots of the project before and after it.
+    QVariantList history;
+    // Snapshots taken just before each rollback, newest last, so one can be
+    // undone.
+    QStringList rollbacks;
     QString sitrep;
     QString activity;
     QStringList intel;
@@ -62,7 +68,7 @@ public:
         IdRole = Qt::UserRole + 1, CodenameRole, DirectoryRole, ObjectiveRole, ModelRole, RoeRole,
         CyclesRole, CyclesDoneRole, StatusRole, CostRole, SitrepRole, ActivityRole, IntelRole,
         ReportsRole, CommsRole, DossierRole, CreatedRole, ContextRole, ContextWindowRole, HandoffAtRole,
-        SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole
+        SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole, HistoryRole, CanUndoRollbackRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -90,6 +96,10 @@ public:
     Q_INVOKABLE void clearOrders(int row);
     Q_INVOKABLE void setHold(int row, bool hold);
     Q_INVOKABLE int rowOfId(const QString &id) const { return rowOf(id); }
+    Q_INVOKABLE QVariantList cycleChanges(int row, int run) const;
+    Q_INVOKABLE QString cycleDiff(int row, int run, const QString &path) const;
+    Q_INVOKABLE bool rollback(int row, int run);
+    Q_INVOKABLE bool undoRollback(int row);
     Q_INVOKABLE void abort(int row);
     Q_INVOKABLE void remove(int row);
     Q_INVOKABLE void abortAll();
@@ -127,6 +137,9 @@ private:
         bool ceiling = false;
         // Orders this cycle carried, put back if it doesn't finish.
         QStringList orders;
+        QString before;
+        QDateTime started;
+        double costAtStart = 0;
     };
 
     int rowOf(const QString &id) const;
@@ -139,6 +152,8 @@ private:
     void readOutput(const QString &id);
     void finishCycle(const QString &id, int exitCode);
     void writeReports(Operation &op, const QStringList &actions);
+    void record(Operation &op, const Run &run, int cycle, const QString &outcome);
+    QString snapshotRef(const Operation &op, const QString &name) const;
     void collectIntel(const QString &id);
     void log(Operation &op, const QString &kind, const QString &text);
     void changed(int row);

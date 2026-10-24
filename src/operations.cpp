@@ -1,4 +1,5 @@
 #include "operations.h"
+#include "intel.h"
 #include "stream.h"
 
 #include <QDesktopServices>
@@ -25,7 +26,8 @@ QJsonObject Operation::toJson() const {
             {"sitreps", QJsonArray::fromStringList(sitreps)}, {"created", created.toString(Qt::ISODate)},
             {"contextTokens", contextTokens}, {"contextWindow", contextWindow}, {"handoffAt", handoffAt},
             {"session", session}, {"handoffBrief", handoffBrief}, {"handoffs", QJsonArray::fromStringList(handoffs)},
-            {"orders", QJsonArray::fromStringList(orders)}, {"hold", hold}};
+            {"orders", QJsonArray::fromStringList(orders)}, {"hold", hold},
+            {"history", QJsonArray::fromVariantList(history)}, {"rollbacks", QJsonArray::fromStringList(rollbacks)}};
 }
 
 Operation Operation::fromJson(const QJsonObject &o) {
@@ -60,6 +62,8 @@ Operation Operation::fromJson(const QJsonObject &o) {
     op.handoffs = strings(o.value("handoffs"));
     op.orders = strings(o.value("orders"));
     op.hold = o.value("hold").toBool();
+    op.history = o.value("history").toArray().toVariantList();
+    op.rollbacks = strings(o.value("rollbacks"));
     return op;
 }
 
@@ -113,7 +117,7 @@ QHash<int, QByteArray> Operations::roleNames() const {
             {DossierRole, "dossier"}, {CreatedRole, "created"}, {ContextRole, "context"},
             {ContextWindowRole, "contextWindow"}, {HandoffAtRole, "handoffAt"}, {SessionRole, "session"},
             {HandoffBriefRole, "handoffBrief"}, {OrdersRole, "orders"}, {HoldRole, "hold"},
-            {CeilingRole, "ceiling"}};
+            {CeilingRole, "ceiling"}, {HistoryRole, "history"}, {CanUndoRollbackRole, "canUndoRollback"}};
 }
 
 QVariant Operations::data(const QModelIndex &index, int role) const {
@@ -146,6 +150,8 @@ QVariant Operations::data(const QModelIndex &index, int role) const {
     case OrdersRole: return op.orders;
     case HoldRole: return op.hold;
     case CeilingRole: return double(ceiling(op));
+    case HistoryRole: return op.history;
+    case CanUndoRollbackRole: return !op.rollbacks.isEmpty();
     }
     return {};
 }
@@ -366,10 +372,18 @@ void Operations::startCycle(const QString &id) {
                                     : tr("Cycle %1 of %2 deployed with %n order(s) from command.", "", orders.size())
                                           .arg(cycle).arg(op.cycles));
     save();
+    // The project as the agent finds it, to diff against when the cycle ends.
+    const QString before = Intel::snapshot(op.directory, snapshotRef(op, QString("run-%1-before").arg(op.history.size() + 1)),
+                                           QString("Fireteam %1, before cycle %2").arg(op.codename).arg(cycle));
+    const double costAtStart = op.costUsd;
     launch(id, Stream::cyclePrompt(op.codename, op.objective, cycle, op.cycles, report, brief,
                                    QFileInfo(report).absolutePath(), orders),
            false);
-    m_runs[id].orders = orders;
+    Run &run = m_runs[id];
+    run.orders = orders;
+    run.before = before;
+    run.started = QDateTime::currentDateTime();
+    run.costAtStart = costAtStart;
 }
 
 void Operations::startHandoff(const QString &id, bool midCycle) {
@@ -536,6 +550,7 @@ void Operations::finishCycle(const QString &id, int exitCode) {
     // Stopped at the ceiling before the cycle could finish: the old session
     // writes a brief and a fresh one picks the same cycle up.
     if (run.ceiling && !run.resultSeen && !run.aborting) {
+        record(op, run, cycle, "cut");
         changed(row);
         save();
         startHandoff(id, true);
@@ -555,8 +570,10 @@ void Operations::finishCycle(const QString &id, int exitCode) {
         op.sitreps << op.sitrep;
         writeReports(op, run.actions);
         log(op, "sys", tr("Cycle %1 complete. Debrief filed.").arg(cycle));
-        emit cycleFinished(row, cycle);
     }
+    record(op, run, cycle, op.status == "deployed" ? "complete" : op.status);
+    if (op.status == "deployed")
+        emit cycleFinished(row, cycle);
     collectIntel(id);
 
     const bool more = op.status == "deployed" && op.cyclesDone < op.cycles;
@@ -621,6 +638,88 @@ void Operations::finishHandoff(const QString &id, const Run &run, int exitCode) 
     changed(row);
     save();
     startCycle(id);
+}
+
+QString Operations::snapshotRef(const Operation &op, const QString &name) const {
+    return QString("refs/fireteam/%1/%2").arg(op.id, name);
+}
+
+void Operations::record(Operation &op, const Run &run, int cycle, const QString &outcome) {
+    const int index = op.history.size() + 1;
+    const QString after = run.before.isEmpty()
+        ? QString()
+        : Intel::snapshot(op.directory, snapshotRef(op, QString("run-%1-after").arg(index)),
+                          QString("Fireteam %1, after cycle %2").arg(op.codename).arg(cycle));
+    int added = 0, removed = 0;
+    const QVariantList files = Intel::changes(op.directory, run.before, after);
+    for (const QVariant &file : files) {
+        added += file.toMap().value("added").toInt();
+        removed += file.toMap().value("removed").toInt();
+    }
+    const QDateTime now = QDateTime::currentDateTime();
+    op.history.append(QVariantMap{
+        {"cycle", cycle}, {"session", op.session},
+        {"started", run.started.toString(Qt::ISODate)}, {"seconds", run.started.isValid() ? run.started.secsTo(now) : 0},
+        {"cost", op.costUsd - run.costAtStart}, {"context", double(op.contextTokens)}, {"before", run.before},
+        {"after", after}, {"files", files.size()}, {"added", added}, {"removed", removed}, {"outcome", outcome},
+        {"sitrep", outcome == "complete" ? op.sitrep : QString()}});
+}
+
+QVariantList Operations::cycleChanges(int row, int run) const {
+    if (row < 0 || row >= m_ops.size() || run < 0 || run >= m_ops.at(row).history.size())
+        return {};
+    const QVariantMap entry = m_ops.at(row).history.at(run).toMap();
+    return Intel::changes(m_ops.at(row).directory, entry.value("before").toString(), entry.value("after").toString());
+}
+
+QString Operations::cycleDiff(int row, int run, const QString &path) const {
+    if (row < 0 || row >= m_ops.size() || run < 0 || run >= m_ops.at(row).history.size())
+        return {};
+    const QVariantMap entry = m_ops.at(row).history.at(run).toMap();
+    return Intel::diff(m_ops.at(row).directory, entry.value("before").toString(), entry.value("after").toString(), path);
+}
+
+bool Operations::rollback(int row, int run) {
+    if (row < 0 || row >= m_ops.size() || run < 0 || run >= m_ops.at(row).history.size()
+        || m_ops.at(row).status == "deployed")
+        return false;
+    Operation &op = m_ops[row];
+    const QVariantMap entry = op.history.at(run).toMap();
+    const QString target = entry.value("before").toString();
+    // The tree as it is now is kept first, so the rollback can be undone.
+    const QString current = Intel::snapshot(op.directory, snapshotRef(op, QString("rollback-%1").arg(op.rollbacks.size() + 1)),
+                                            QString("Fireteam %1, before a rollback").arg(op.codename));
+    if (target.isEmpty() || current.isEmpty() || !Intel::restore(op.directory, target, current)) {
+        log(op, "error", tr("The rollback failed; the project wasn't changed."));
+        changed(row);
+        return false;
+    }
+    op.rollbacks << current;
+    log(op, "sys", tr("Project rolled back to before cycle %1. Undo puts it back as it was.")
+                       .arg(entry.value("cycle").toInt()));
+    changed(row);
+    save();
+    collectIntel(op.id);
+    return true;
+}
+
+bool Operations::undoRollback(int row) {
+    if (row < 0 || row >= m_ops.size() || m_ops.at(row).rollbacks.isEmpty() || m_ops.at(row).status == "deployed")
+        return false;
+    Operation &op = m_ops[row];
+    const QString current = Intel::snapshot(op.directory, snapshotRef(op, "undo"),
+                                            QString("Fireteam %1, before undoing a rollback").arg(op.codename));
+    if (current.isEmpty() || !Intel::restore(op.directory, op.rollbacks.last(), current)) {
+        log(op, "error", tr("Undoing the rollback failed; the project wasn't changed."));
+        changed(row);
+        return false;
+    }
+    op.rollbacks.removeLast();
+    log(op, "sys", tr("Rollback undone."));
+    changed(row);
+    save();
+    collectIntel(op.id);
+    return true;
 }
 
 void Operations::writeReports(Operation &op, const QStringList &actions) {
@@ -693,8 +792,11 @@ void Operations::abortAll() {
 void Operations::remove(int row) {
     if (row < 0 || row >= m_ops.size() || m_ops.at(row).status == "deployed")
         return;
-    // Only Fireteam's own records go; the project directory is never touched.
+    // Only Fireteam's own records go: its data and its hidden snapshot refs.
+    // The project's files, branches, and index are never touched.
     QDir(m_dataDirectory + "/ops/" + m_ops.at(row).id).removeRecursively();
+    if (QFileInfo(m_ops.at(row).directory).isDir())
+        Intel::forget(m_ops.at(row).directory, QString("refs/fireteam/%1/").arg(m_ops.at(row).id));
     beginRemoveRows({}, row, row);
     m_ops.removeAt(row);
     endRemoveRows();
