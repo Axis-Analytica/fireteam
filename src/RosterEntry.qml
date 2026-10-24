@@ -44,6 +44,8 @@ Item {
     required property string baseBranch
     required property real resumeAt
     required property int queue
+    required property string overwatch
+    required property var reviews
 
     readonly property bool selected: ListView.isCurrentItem
     readonly property color ink: selected ? theme.accentForeground : Style.text

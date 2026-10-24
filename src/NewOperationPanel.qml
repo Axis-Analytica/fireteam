@@ -45,10 +45,12 @@ Item {
         if (!worktreeLocked)
             useWorktree = loadout.worktree === true
         standingField.text = loadout.standing || ""
+        overwatchBox.currentIndex = Math.max(0, overwatchBox.keys.indexOf(loadout.overwatch || "off"))
     }
     function currentLoadout(name) {
         return { name: name, model: model.currentIndex === 0 ? "" : model.currentText, roe: roe, cycles: cycles,
-                 handoffAt: handoff.limits[handoff.currentIndex], worktree: useWorktree, standing: standingField.text }
+                 handoffAt: handoff.limits[handoff.currentIndex], worktree: useWorktree, standing: standingField.text,
+                 overwatch: overwatchBox.keys[overwatchBox.currentIndex] }
     }
     Timer { id: repoCheck; interval: 300; onTriggered: panel.refreshRepo() }
 
@@ -66,6 +68,7 @@ Item {
         worktreeLocked = false
         savingLoadout = false
         standingField.text = ""
+        overwatchBox.currentIndex = 0
         refreshRepo()
         visible = true
         enter.restart()
@@ -91,6 +94,7 @@ Item {
         worktreeLocked = op.branch.length > 0
         savingLoadout = false
         standingField.text = op.standing
+        overwatchBox.currentIndex = Math.max(0, overwatchBox.keys.indexOf(op.overwatch))
         refreshRepo()
         visible = true
         enter.restart()
@@ -105,7 +109,7 @@ Item {
             }
             ops.update(editing, codename.text, objective.text, cycles, roe,
                        model.currentIndex === 0 ? "" : model.currentText, handoff.limits[handoff.currentIndex],
-                       useWorktree && worktreeAvailable, standingField.text)
+                       useWorktree && worktreeAvailable, standingField.text, overwatchBox.keys[overwatchBox.currentIndex])
             visible = false
             amended(editing, deployNow)
             return
@@ -115,7 +119,7 @@ Item {
             return
         ops.create(codename.text, directory.text, objective.text, cycles, roe,
                    model.currentIndex === 0 ? "" : model.currentText, handoff.limits[handoff.currentIndex],
-                   useWorktree && worktreeAvailable, standingField.text)
+                   useWorktree && worktreeAvailable, standingField.text, overwatchBox.keys[overwatchBox.currentIndex])
         visible = false
         planned(deployNow)
     }
@@ -488,6 +492,35 @@ Item {
                     color: Style.amber
                     font.family: Style.display
                     font.pixelSize: 12
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+                    Text {
+                        text: qsTr("Overwatch")
+                        color: Style.dim
+                        font.family: Style.display
+                        font.pixelSize: 12
+                        font.weight: Font.Bold
+                        font.letterSpacing: 3
+                        font.capitalization: Font.AllUppercase
+                    }
+                    ComboBox {
+                        id: overwatchBox
+                        Layout.preferredWidth: 200
+                        readonly property var keys: ["off", "review", "fix"]
+                        model: [qsTr("Off"), qsTr("Review"), qsTr("Review and fix")]
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        color: Style.dim
+                        font.family: Style.display
+                        font.pixelSize: 12
+                        text: overwatchBox.currentIndex === 0 ? qsTr("No review; the operation completes after its last cycle.")
+                            : overwatchBox.currentIndex === 1 ? qsTr("After the last cycle, a separate read-only session grades the work against the objective.")
+                            : qsTr("As Review, and if it falls short, one more cycle fixes the findings before a second review.")
+                    }
                 }
                 TextField {
                     id: standingField

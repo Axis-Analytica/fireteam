@@ -16,32 +16,11 @@
 // the agent's own report and Fireteam's fallback are exercised. When the
 // FIRETEAM_TEST_STALL file exists, one run reports a huge context and then
 // hangs, the way a runaway cycle would.
-static const char *FakeClaude = R"(#!/bin/sh
-printf '%s\n' "$@" >> "$FIRETEAM_TEST_LOG"
-echo '---' >> "$FIRETEAM_TEST_LOG"
-if [ "$1" = auth ]; then echo '{"loggedIn":true,"email":"agent@example.com","subscriptionType":"max"}'; exit 0; fi
-prompt="$2"
-report=$(printf '%s\n' "$prompt" | grep '/debriefs/cycle-')
-brief=$(printf '%s\n' "$prompt" | grep '^/.*/handoffs/session-..\.md$')
-echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"test-model"}'
-if [ -n "$FIRETEAM_TEST_LIMIT" ] && [ -f "$FIRETEAM_TEST_LIMIT" ]; then rm "$FIRETEAM_TEST_LIMIT"
-echo '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":'$(( $(date +%s) + 1 ))',"rateLimitType":"five_hour","unifiedWindows":{"five_hour":{"utilization":1.0,"status":"rejected"}}}}'
-echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"You have hit your usage limit · resets 3pm"}'
-exit 1; fi
-if [ -n "$FIRETEAM_TEST_SLOW" ]; then sleep "$FIRETEAM_TEST_SLOW"; fi
-if [ -n "$brief" ]; then echo '# brief' > "$brief"; echo '{"type":"result","subtype":"success","is_error":false,"result":"Brief written.","session_id":"sess-1","total_cost_usd":0.01}'; exit 0; fi
-if [ -n "$FIRETEAM_TEST_STALL" ] && [ -f "$FIRETEAM_TEST_STALL" ]; then rm "$FIRETEAM_TEST_STALL"; echo '{"type":"assistant","message":{"usage":{"input_tokens":900000,"output_tokens":0},"content":[]}}'; exec sleep 20; fi
-if [ -n "$FIRETEAM_TEST_DENY" ] && ! printf '%s\n' "$@" | grep -qx 'Bash(npm test:\*)'; then
-echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npm test"}}]}}'
-echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"This command requires approval"}]}}'
-echo '{"type":"result","subtype":"success","is_error":false,"result":"Blocked on npm test.","session_id":"sess-1","permission_denials":[{"tool_name":"Bash","tool_use_id":"t1","tool_input":{"command":"npm test"}}]}'
-exit 0
-fi
-echo '{"type":"assistant","message":{"usage":{"input_tokens":'${FIRETEAM_TEST_CONTEXT:-1000}',"output_tokens":0},"content":[{"type":"text","text":"Moving out."},{"type":"tool_use","name":"Edit","input":{"file_path":"/x/src/main.cpp"}}]}}'
-echo "line" >> notes.txt
-case "$report" in *cycle-01.html) echo '<html>agent debrief</html>' > "$report";; esac
-echo '{"type":"result","subtype":"success","is_error":false,"result":"Cycle done.","session_id":"sess-1","total_cost_usd":0.25,"num_turns":3}'
-)";
+// The script lives in tests/fakeclaude.sh, compiled in as a resource.
+static QByteArray fakeClaudeScript() {
+    QFile file(":/fakeclaude.sh");
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
 
 class FireteamTests : public QObject {
     Q_OBJECT
@@ -101,7 +80,7 @@ private slots:
     {
         QTemporaryDir data, project, bin;
         const QString claude = bin.filePath("claude"), log = bin.filePath("args.log");
-        write(claude, FakeClaude);
+        write(claude, fakeClaudeScript());
         QVERIFY(QFile::setPermissions(claude, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
         qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
 
@@ -138,7 +117,7 @@ private slots:
     {
         QTemporaryDir data, project, bin;
         const QString claude = bin.filePath("claude"), log = bin.filePath("args.log");
-        write(claude, FakeClaude);
+        write(claude, fakeClaudeScript());
         QVERIFY(QFile::setPermissions(claude, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
         qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
         qputenv("FIRETEAM_TEST_CONTEXT", "6000");
@@ -173,7 +152,7 @@ private slots:
     {
         QTemporaryDir data, project, bin;
         const QString claude = bin.filePath("claude");
-        write(claude, FakeClaude);
+        write(claude, fakeClaudeScript());
         QVERIFY(QFile::setPermissions(claude, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
         qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
         qputenv("FIRETEAM_TEST_CONTEXT", "900000");
@@ -644,6 +623,48 @@ private slots:
         QCOMPARE(reloaded.loadouts().first().toMap().value("name").toString(), QString("Standard"));
     }
 
+    void parsesOverwatchVerdicts()
+    {
+        auto review = Stream::parseReview("Fine.\n```json\n{\"grade\": \"Needs work\", \"summary\": \"Close.\", \"findings\": [{\"severity\": \"HIGH\", \"file\": \"a.c\", \"issue\": \"Leaks.\"}, {\"issue\": \"\"}]}\n```");
+        QCOMPARE(review.value("grade").toString(), QString("needs-work"));
+        QCOMPARE(review.value("findings").toList().size(), 1);
+        QCOMPARE(review.value("findings").toList().first().toMap().value("severity").toString(), QString("high"));
+        QVERIFY(Stream::reviewOrders(review).contains("[high] a.c: Leaks."));
+        QCOMPARE(Stream::parseReview("No verdict here.").value("grade").toString(), QString("unknown"));
+        QVERIFY(Stream::reviewReport("<X>", "o", 1, review, "Fine.").contains("&lt;X&gt;"));
+    }
+
+    void overwatchSendsBackForOneFix()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin), log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        QVERIFY(gitIn(project.path(), {"init", "-q"}));
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Write notes", 1, "restricted", "", 250000, false, "", "fix"), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(15000));
+
+        // Cycle, review (needs work), fix cycle with the findings, review (pass).
+        const Operation &op = ops.at(0);
+        QCOMPARE(op.status, QString("complete"));
+        QCOMPARE(op.cyclesDone, 2);
+        QCOMPARE(op.reviews.size(), 2);
+        QCOMPARE(op.reviews.first().toMap().value("grade").toString(), QString("needs-work"));
+        QCOMPARE(op.reviews.last().toMap().value("grade").toString(), QString("pass"));
+        QVERIFY(QFile::exists(op.reviews.first().toMap().value("file").toString()));
+        QVERIFY(read(ops.dossierPath(op)).contains("Overwatch after cycle 2"));
+        const QStringList runs = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts);
+        QCOMPARE(runs.size(), 4);
+        // The reviewer reads only, in a session of its own, with the diff.
+        QVERIFY(runs.at(1).contains("--permission-mode\nplan") && !runs.at(1).contains("--resume"));
+        QVERIFY(read(log + ".diff").contains("notes.txt"));
+        // The fix cycle carries the findings and resumes the work session.
+        QVERIFY(runs.at(2).contains("Add a title line.") && runs.at(2).contains("--resume\nsess-1"));
+        QCOMPARE(op.sessionId, QString("sess-1"));
+    }
+
     void readsContextUsage()
     {
         auto events = Stream::parseLine(R"({"type":"assistant","message":{"usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":5},"content":[]}})");
@@ -764,7 +785,7 @@ private:
     static QString fakeClaude(const QTemporaryDir &bin)
     {
         const QString claude = bin.filePath("claude");
-        write(claude, FakeClaude);
+        write(claude, fakeClaudeScript());
         QFile::setPermissions(claude, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
         return claude;
     }

@@ -44,7 +44,7 @@ QJsonObject Operation::toJson() const {
             {"allowed", QJsonArray::fromStringList(allowed)}, {"requests", QJsonArray::fromVariantList(requests)},
             {"standing", standing}, {"worktree", worktree}, {"workdir", workdir}, {"branch", branch},
             {"baseBranch", baseBranch}, {"baseCommit", baseCommit}, {"stagedAt", stagedAt}, {"resumeAt", resumeAt},
-            {"sessionDir", sessionDir}};
+            {"sessionDir", sessionDir}, {"overwatch", overwatch}, {"reviews", QJsonArray::fromVariantList(reviews)}};
 }
 
 Operation Operation::fromJson(const QJsonObject &o) {
@@ -92,6 +92,8 @@ Operation Operation::fromJson(const QJsonObject &o) {
     op.stagedAt = o.value("stagedAt").toInteger();
     op.resumeAt = o.value("resumeAt").toInteger();
     op.sessionDir = o.value("sessionDir").toString();
+    op.overwatch = o.value("overwatch").toString("off");
+    op.reviews = o.value("reviews").toArray().toVariantList();
     return op;
 }
 
@@ -236,7 +238,8 @@ QHash<int, QByteArray> Operations::roleNames() const {
             {CeilingRole, "ceiling"}, {HistoryRole, "history"}, {CanUndoRollbackRole, "canUndoRollback"},
             {EventsRole, "events"}, {RequestsRole, "requests"}, {AllowedRole, "allowed"}, {StandingRole, "standing"},
             {WorktreeRole, "worktree"}, {WorkdirRole, "workdir"}, {BranchRole, "branch"},
-            {BaseBranchRole, "baseBranch"}, {ResumeAtRole, "resumeAt"}, {QueueRole, "queue"}};
+            {BaseBranchRole, "baseBranch"}, {ResumeAtRole, "resumeAt"}, {QueueRole, "queue"},
+            {OverwatchRole, "overwatch"}, {ReviewsRole, "reviews"}};
 }
 
 QVariant Operations::data(const QModelIndex &index, int role) const {
@@ -280,6 +283,8 @@ QVariant Operations::data(const QModelIndex &index, int role) const {
     case BranchRole: return op.branch;
     case BaseBranchRole: return op.baseBranch;
     case ResumeAtRole: return double(op.resumeAt);
+    case OverwatchRole: return op.overwatch;
+    case ReviewsRole: return op.reviews;
     case QueueRole: {
         // Place in the queue, from 1, for a staged operation.
         if (op.status != "staged")
@@ -340,7 +345,7 @@ QString Operations::validate(const QString &directory, const QString &objective)
 
 int Operations::create(const QString &codename, const QString &directory, const QString &objective, int cycles,
                        const QString &roe, const QString &model, int handoffAt, bool worktree,
-                       const QString &standing) {
+                       const QString &standing, const QString &overwatch) {
     if (!validate(directory, objective).isEmpty())
         return -1;
     Operation op;
@@ -353,6 +358,7 @@ int Operations::create(const QString &codename, const QString &directory, const 
     op.model = model.trimmed();
     op.handoffAt = qMax(0, handoffAt);
     op.standing = standing.trimmed();
+    op.overwatch = QStringList{"review", "fix"}.contains(overwatch) ? overwatch : "off";
     // Only a repository with a commit can have a worktree.
     op.worktree = worktree && Intel::repository(op.directory).value("commits").toBool();
     op.created = QDateTime::currentDateTime();
@@ -372,7 +378,7 @@ int Operations::create(const QString &codename, const QString &directory, const 
 
 bool Operations::update(int row, const QString &codename, const QString &objective, int cycles,
                         const QString &roe, const QString &model, int handoffAt, bool worktree,
-                        const QString &standing) {
+                        const QString &standing, const QString &overwatch) {
     if (row < 0 || row >= m_ops.size() || m_ops.at(row).status == "deployed" || objective.trimmed().isEmpty())
         return false;
     Operation &op = m_ops[row];
@@ -386,6 +392,7 @@ bool Operations::update(int row, const QString &codename, const QString &objecti
     op.model = model.trimmed();
     op.handoffAt = qMax(0, handoffAt);
     op.standing = standing.trimmed();
+    op.overwatch = QStringList{"review", "fix"}.contains(overwatch) ? overwatch : "off";
     // An active worktree stays until it's extracted or discarded.
     if (op.workdir.isEmpty())
         op.worktree = worktree && Intel::repository(op.directory).value("commits").toBool();
@@ -442,6 +449,7 @@ void Operations::deploy(int row) {
     if (op.cyclesDone >= op.cycles)
         op.cycles = op.cyclesDone + 1;
     op.hold = false;
+    op.fixRounds = 0;
     start(op.id);
     if (m_ops.at(rowOf(op.id)).status == "deployed")
         emit deployed(rowOf(op.id));
@@ -784,20 +792,22 @@ void Operations::startHandoff(const QString &id, bool midCycle) {
            true);
 }
 
-void Operations::launch(const QString &id, const QString &prompt, bool handoff) {
+void Operations::launch(const QString &id, const QString &prompt, bool handoff, bool review) {
     const int row = rowOf(id);
     Operation &op = m_ops[row];
+    // Overwatch reads but never writes, in a session of its own.
     QStringList arguments{"-p", prompt,
                           "--output-format", "stream-json", "--verbose",
-                          "--permission-mode", op.roe == "free" ? "bypassPermissions" : "acceptEdits",
-                          "--add-dir", m_dataDirectory + "/ops/" + op.id,
-                          "--append-system-prompt", Stream::systemBrief()};
+                          "--permission-mode", review ? "plan" : op.roe == "free" ? "bypassPermissions" : "acceptEdits",
+                          "--add-dir", m_dataDirectory + "/ops/" + op.id};
+    if (!review)
+        arguments << "--append-system-prompt" << Stream::systemBrief();
     // Each approved rule is its own argument, since rules contain spaces.
     if (!op.allowed.isEmpty())
         arguments << "--allowedTools" << op.allowed;
     if (!op.model.isEmpty())
         arguments << "--model" << op.model;
-    if (!op.sessionId.isEmpty())
+    if (!op.sessionId.isEmpty() && !review)
         arguments << "--resume" << op.sessionId;
 
     auto *process = new QProcess(this);
@@ -814,6 +824,7 @@ void Operations::launch(const QString &id, const QString &prompt, bool handoff) 
     Run run;
     run.process = process;
     run.handoff = handoff;
+    run.review = review;
     m_runs.insert(id, run);
     changed(row);
 
@@ -851,6 +862,10 @@ void Operations::readOutput(const QString &id) {
         for (const auto &event : Stream::parseLine(line)) {
             switch (event.kind) {
             case StreamEvent::Session:
+                if (it->review) {
+                    log(op, "sys", tr("Overwatch on station%1.").arg(event.text.isEmpty() ? "" : " · " + event.text));
+                    break;
+                }
                 if (!event.sessionId.isEmpty()) {
                     op.sessionId = event.sessionId;
                     op.sessionDir = workdir(op);
@@ -881,11 +896,13 @@ void Operations::readOutput(const QString &id) {
             }
             case StreamEvent::Denied: {
                 const QVariantMap call = it->tools.value(event.toolId);
-                if (!call.isEmpty())
+                if (!call.isEmpty() && !it->review)
                     request(op, call.value("tool").toString(), call.value("input").toMap());
                 break;
             }
             case StreamEvent::Usage:
+                if (it->review)
+                    break;
                 op.contextTokens = event.contextTokens;
                 if (!it->handoff && !it->pastLine && op.handoffAt > 0 && op.contextTokens >= op.handoffAt) {
                     it->pastLine = true;
@@ -910,12 +927,16 @@ void Operations::readOutput(const QString &id) {
                 op.costUsd += event.costUsd;
                 // The full list, in case a refusal wasn't recognised as it
                 // happened.
-                for (const QVariant &denial : event.denials)
+                for (const QVariant &denial : it->review ? QVariantList() : event.denials)
                     request(op, denial.toMap().value("tool").toString(), denial.toMap().value("input").toMap());
                 if (event.contextWindow > 0)
                     op.contextWindow = event.contextWindow;
-                if (!event.sessionId.isEmpty())
+                if (!event.sessionId.isEmpty() && !it->review)
                     op.sessionId = event.sessionId;
+                if (it->review && !event.isError) {
+                    it->actions << event.text;
+                    break;
+                }
                 if (event.isError && Stream::isUsageLimit(event.text)) {
                     it->limited = true;
                     log(op, "error", tr("Run stopped by the plan's usage limit: %1").arg(event.text));
@@ -952,6 +973,10 @@ void Operations::finishCycle(const QString &id, int exitCode) {
     m_runs.erase(it);
     if (run.handoff) {
         finishHandoff(id, run, exitCode);
+        return;
+    }
+    if (run.review) {
+        finishReview(id, run, exitCode);
         return;
     }
 
@@ -1015,6 +1040,13 @@ void Operations::finishCycle(const QString &id, int exitCode) {
     collectIntel(id);
 
     const bool more = op.status == "deployed" && op.cyclesDone < op.cycles;
+    // The last cycle is done: overwatch looks the work over before it counts.
+    if (op.status == "deployed" && !more && op.overwatch != "off") {
+        changed(row);
+        save();
+        startReview(id);
+        return;
+    }
     if (op.status == "deployed" && !more) {
         op.status = "complete";
         log(op, "sys", tr("Operation complete."));
@@ -1323,14 +1355,102 @@ void Operations::writeReports(Operation &op, const QStringList &actions) {
     if (!op.reports.contains(report))
         op.reports << report;
 
+    writeDossier(op);
+}
+
+void Operations::writeDossier(const Operation &op) {
     QList<Stream::DossierEntry> entries;
     for (int i = 0; i < op.reports.size(); ++i)
         entries.append({i + 1, QFileInfo(op.reports.at(i)).fileName().prepend("debriefs/"), op.sitreps.value(i)});
     QSaveFile dossier(dossierPath(op));
     if (dossier.open(QIODevice::WriteOnly)) {
-        dossier.write(Stream::dossier(op.codename, op.objective, op.directory, entries).toUtf8());
+        dossier.write(Stream::dossier(op.codename, op.objective, op.directory, entries, op.reviews).toUtf8());
         dossier.commit();
     }
+}
+
+void Operations::startReview(const QString &id) {
+    const int row = rowOf(id);
+    Operation &op = m_ops[row];
+    const QString folder = QString("%1/ops/%2/reviews").arg(m_dataDirectory, op.id);
+    QDir().mkpath(folder);
+    // The whole operation's work: from where it started (its worktree's base,
+    // or before its first recorded cycle) to now.
+    QString from = op.baseCommit;
+    for (const QVariant &entry : op.history)
+        if (from.isEmpty())
+            from = entry.toMap().value("before").toString();
+    const QString now = Intel::snapshot(workdir(op), snapshotRef(op, QString("review-%1").arg(op.reviews.size() + 1)),
+                                        QString("Fireteam %1, for overwatch").arg(op.codename));
+    QString diffPath;
+    const QString diff = Intel::diffAll(workdir(op), from, now);
+    if (!diff.trimmed().isEmpty()) {
+        diffPath = QString("%1/review-%2.diff").arg(folder).arg(op.reviews.size() + 1, 2, 10, QChar('0'));
+        QSaveFile file(diffPath);
+        if (file.open(QIODevice::WriteOnly)) {
+            file.write(diff.toUtf8());
+            file.commit();
+        }
+    }
+    op.activity = tr("Overwatch reviewing");
+    log(op, "sys", tr("Cycle %1 was the last. Overwatch is reviewing the work against the objective.").arg(op.cyclesDone));
+    launch(id, Stream::reviewPrompt(op.codename, op.objective, op.cyclesDone, diffPath,
+                                    m_dataDirectory + "/ops/" + op.id + "/debriefs"),
+           false, true);
+}
+
+void Operations::finishReview(const QString &id, const Run &run, int exitCode) {
+    const int row = rowOf(id);
+    Operation &op = m_ops[row];
+    op.activity.clear();
+    if (run.aborting) {
+        log(op, "error", tr("Aborted during the overwatch review."));
+        stand(id, "aborted");
+        return;
+    }
+    if (run.limited) {
+        // The work is done; only the review waits, and isn't retried.
+        log(op, "error", tr("The usage limit stopped the overwatch review; the operation stands as complete without one."));
+    }
+    const QString reply = run.actions.isEmpty() ? QString() : run.actions.last();
+    QVariantMap review = Stream::parseReview(reply);
+    if (exitCode != 0 || reply.isEmpty())
+        review.insert("summary", tr("Overwatch couldn't finish its review."));
+    const QString file = QString("%1/ops/%2/reviews/review-%3.html").arg(m_dataDirectory, op.id)
+                             .arg(op.reviews.size() + 1, 2, 10, QChar('0'));
+    QSaveFile report(file);
+    if (report.open(QIODevice::WriteOnly)) {
+        report.write(Stream::reviewReport(op.codename, op.objective, op.cyclesDone, review, reply).toUtf8());
+        report.commit();
+    }
+    review.insert("cycle", op.cyclesDone);
+    review.insert("file", file);
+    review.insert("time", QDateTime::currentDateTime().toString(Qt::ISODate));
+    op.reviews.append(review);
+    writeDossier(op);
+
+    const QString grade = review.value("grade").toString();
+    const int findings = review.value("findings").toList().size();
+    log(op, "review", tr("Overwatch: %1. %2").arg(grade.toUpper(), review.value("summary").toString()));
+    // Falls short: one fix cycle with the findings, then overwatch again.
+    if ((grade == "needs-work" || grade == "fail") && op.overwatch == "fix" && op.fixRounds < 1 && !run.limited) {
+        op.fixRounds += 1;
+        op.cycles += 1;
+        op.orders << Stream::reviewOrders(review);
+        log(op, "sys", tr("Sent back for a fix cycle with %n finding(s).", "", findings));
+        emit alert(op.id, tr("%1 sent back by overwatch").arg(op.codename), review.value("summary").toString());
+        changed(row);
+        save();
+        advance(id);
+        return;
+    }
+    op.status = "complete";
+    log(op, "sys", tr("Operation complete."));
+    emit alert(op.id, tr("%1 complete · overwatch: %2").arg(op.codename, grade), review.value("summary").toString());
+    changed(row);
+    save();
+    emit deployedCountChanged();
+    emit operationFinished(row);
 }
 
 void Operations::collectIntel(const QString &id) {

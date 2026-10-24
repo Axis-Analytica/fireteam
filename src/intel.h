@@ -20,6 +20,9 @@ QString diff(const QString &directory, const QString &from, const QString &to, c
 // Puts the working tree back to the snapshot target, given a snapshot of the
 // tree as it is now: files are rewritten from target, and files that target
 // didn't have are deleted.
+// The whole diff between two snapshots, with a summary on top, cut at limit
+// bytes.
+QString diffAll(const QString &directory, const QString &from, const QString &to, int limit = 600000);
 bool restore(const QString &directory, const QString &target, const QString &current);
 // Deletes every ref under prefix (refs/fireteam/<id>/), letting git collect
 // the snapshots in its own time.

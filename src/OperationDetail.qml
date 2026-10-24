@@ -177,6 +177,18 @@ Item {
                 tone: Style.amber
                 solid: true
             }
+            // The latest overwatch verdict; opens the review.
+            Chip {
+                id: verdict
+                readonly property var review: detail.op && detail.op.reviews.length > 0 ? detail.op.reviews[detail.op.reviews.length - 1] : null
+                visible: review !== null || (detail.op !== null && detail.op.overwatch !== "off")
+                text: review ? qsTr("Overwatch · %1 ↗").arg(Style.gradeLabel(review.grade))
+                             : qsTr("Overwatch · %1").arg(detail.op && detail.op.overwatch === "fix" ? qsTr("review and fix") : qsTr("review"))
+                tone: review ? Style.gradeColor(review.grade) : Style.dim
+                solid: review !== null
+                HoverHandler { cursorShape: verdict.review ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                TapHandler { enabled: verdict.review !== null; onTapped: ops.openReport(verdict.review.file) }
+            }
             Chip {
                 visible: detail.op !== null && detail.op.worktree
                 text: !detail.op ? "" : detail.op.branch.length > 0 ? "⎇ " + detail.op.branch : qsTr("⎇ Own worktree on deploy")
@@ -409,6 +421,7 @@ Item {
                                 case "result": return Style.good
                                 case "cmd": return Style.amber
                                 case "denied": return Style.amber
+                                case "review": return Style.good
                                 case "sys": return Style.dim
                                 }
                                 return Style.text
@@ -430,6 +443,7 @@ Item {
                                     case "result": return qsTr("SITREP")
                                     case "cmd": return qsTr("CMD")
                                     case "denied": return qsTr("BLOCK")
+                                    case "review": return qsTr("REVIEW")
                                     case "sys": return qsTr("HQ")
                                     }
                                     return qsTr("AGENT")
@@ -443,7 +457,7 @@ Item {
                                 Layout.fillWidth: true
                                 text: line.modelData.text
                                 wrapMode: Text.Wrap
-                                maximumLineCount: line.modelData.kind === "say" || line.modelData.kind === "cmd" ? 12 : 3
+                                maximumLineCount: ["say", "cmd", "review"].indexOf(line.modelData.kind) >= 0 ? 12 : 3
                                 elide: Text.ElideRight
                                 color: line.modelData.kind === "say" ? Style.text : line.tone
                                 font.bold: line.modelData.kind === "cmd"

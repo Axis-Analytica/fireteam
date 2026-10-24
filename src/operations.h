@@ -53,6 +53,13 @@ struct Operation {
     QVariantList requests;
     // Orders that hold for every cycle.
     QString standing;
+    // Overwatch after the final cycle: "off", "review", or "fix" (review, and
+    // send it back for one fix cycle if it falls short). Reviews are {cycle,
+    // grade, summary, findings, file, time}; fixRounds counts fix cycles
+    // since the last deploy.
+    QString overwatch = "off";
+    QVariantList reviews;
+    int fixRounds = 0;
     // Run in a git worktree of its own on branch, made from baseBranch, so
     // operations can share a repository. workdir is where the agent works:
     // the worktree while it's active, otherwise the directory.
@@ -101,7 +108,7 @@ public:
         ReportsRole, CommsRole, DossierRole, CreatedRole, ContextRole, ContextWindowRole, HandoffAtRole,
         SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole, HistoryRole, CanUndoRollbackRole,
         EventsRole, RequestsRole, AllowedRole, StandingRole, WorktreeRole, WorkdirRole, BranchRole,
-        BaseBranchRole, ResumeAtRole, QueueRole
+        BaseBranchRole, ResumeAtRole, QueueRole, OverwatchRole, ReviewsRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -127,10 +134,10 @@ public:
     Q_INVOKABLE QString validate(const QString &directory, const QString &objective) const;
     Q_INVOKABLE int create(const QString &codename, const QString &directory, const QString &objective,
                            int cycles, const QString &roe, const QString &model, int handoffAt = 250000,
-                           bool worktree = false, const QString &standing = {});
+                           bool worktree = false, const QString &standing = {}, const QString &overwatch = "off");
     Q_INVOKABLE bool update(int row, const QString &codename, const QString &objective, int cycles,
                             const QString &roe, const QString &model, int handoffAt, bool worktree = false,
-                            const QString &standing = {});
+                            const QString &standing = {}, const QString &overwatch = "off");
     // {git, commits, branch} for the briefing, and other operations working
     // in place in the same directory.
     Q_INVOKABLE QVariantMap repository(const QString &directory) const;
@@ -199,6 +206,7 @@ private:
         bool aborting = false;
         bool resultSeen = false;
         bool handoff = false;
+        bool review = false;
         bool pastLine = false;
         bool ceiling = false;
         // Orders this cycle carried, put back if it doesn't finish.
@@ -229,7 +237,10 @@ private:
     void shelveWorktree(Operation &op);
     void loadSettings();
     void saveSettings() const;
-    void launch(const QString &id, const QString &prompt, bool handoff);
+    void launch(const QString &id, const QString &prompt, bool handoff, bool review = false);
+    void startReview(const QString &id);
+    void finishReview(const QString &id, const Run &run, int exitCode);
+    void writeDossier(const Operation &op);
     void finishHandoff(const QString &id, const Run &run, int exitCode);
     void readOutput(const QString &id);
     void finishCycle(const QString &id, int exitCode);

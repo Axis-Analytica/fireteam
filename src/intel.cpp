@@ -114,6 +114,16 @@ QString diff(const QString &directory, const QString &from, const QString &to, c
     return QString::fromUtf8(git(directory, {"diff", "--no-renames", "--no-color", from, to, "--", ":/" + path}).out);
 }
 
+QString diffAll(const QString &directory, const QString &from, const QString &to, int limit) {
+    if (from.isEmpty() || to.isEmpty())
+        return {};
+    const QString stat = text(git(directory, {"diff", "--stat", "--no-color", from, to}));
+    QString patch = QString::fromUtf8(git(directory, {"diff", "--no-color", "--no-renames", from, to}).out);
+    if (patch.size() > limit)
+        patch = patch.left(limit) + QString("\n… cut at %1 KB; read the files themselves for the rest.\n").arg(limit / 1000);
+    return stat + "\n\n" + patch;
+}
+
 bool restore(const QString &directory, const QString &target, const QString &current) {
     if (target.isEmpty() || current.isEmpty())
         return false;

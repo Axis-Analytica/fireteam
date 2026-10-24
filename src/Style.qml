@@ -43,6 +43,14 @@ QtObject {
         return qsTr("Standby")
     }
 
+    function gradeColor(grade) {
+        return grade === "pass" ? good : grade === "needs-work" ? amber : grade === "fail" ? danger : dim
+    }
+    function gradeLabel(grade) {
+        return grade === "pass" ? qsTr("Pass") : grade === "needs-work" ? qsTr("Needs work")
+             : grade === "fail" ? qsTr("Fail") : qsTr("No verdict")
+    }
+
     function tokens(n) {
         if (n >= 1000000) return (n / 1000000).toLocaleString(Qt.locale(), 'f', n % 1000000 ? 1 : 0) + "M"
         if (n >= 1000) return Math.round(n / 1000) + "k"

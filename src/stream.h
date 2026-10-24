@@ -74,8 +74,21 @@ struct DossierEntry {
     QString file;
     QString sitrep;
 };
+// Reviews are {cycle, grade, summary, file}, newest last.
 QString dossier(const QString &codename, const QString &objective, const QString &directory,
-                const QList<DossierEntry> &entries);
+                const QList<DossierEntry> &entries, const QVariantList &reviews = {});
+
+// Overwatch: an independent, read-only review of an operation's work against
+// its objective, ending in a graded JSON verdict.
+QString reviewPrompt(const QString &codename, const QString &objective, int cycles, const QString &diffPath,
+                     const QString &debriefs);
+// {grade: pass | needs-work | fail | unknown, summary, findings: [{severity,
+// file, issue}]} from the reviewer's reply.
+QVariantMap parseReview(const QString &reply);
+QString reviewReport(const QString &codename, const QString &objective, int cycle, const QVariantMap &review,
+                     const QString &reply);
+// The findings as orders for a fix cycle.
+QString reviewOrders(const QVariantMap &review);
 
 QString codename(quint32 seed);
 }

@@ -329,9 +329,26 @@ QString fallbackReport(const QString &codename, int cycle, int cycles, const QSt
     return page(codename + " · cycle " + QString::number(cycle), body);
 }
 
+static QString gradeLabel(const QString &grade) {
+    return grade == "pass" ? "Pass" : grade == "needs-work" ? "Needs work" : grade == "fail" ? "Fail" : "No verdict";
+}
+static QString gradeColour(const QString &grade) {
+    return grade == "pass" ? "#86e07d" : grade == "needs-work" ? "#e9b44c" : grade == "fail" ? "#ff4f45" : "#8b8f94";
+}
+
 QString dossier(const QString &codename, const QString &objective, const QString &directory,
-                const QList<DossierEntry> &entries) {
+                const QList<DossierEntry> &entries, const QVariantList &reviews) {
     QString cycles;
+    for (const QVariant &value : reviews) {
+        const QVariantMap review = value.toMap();
+        cycles += QString("<h2 style=\"color:%1\">Overwatch after cycle %2 · %3 · <a href=\"%4\">open review</a></h2>"
+                          "<div class=\"panel\" style=\"border-left-color:%1\">%5</div>")
+                      .arg(gradeColour(review.value("grade").toString()))
+                      .arg(review.value("cycle").toInt())
+                      .arg(gradeLabel(review.value("grade").toString()),
+                           ("reviews/" + QFileInfo(review.value("file").toString()).fileName()).toHtmlEscaped(),
+                           review.value("summary").toString().toHtmlEscaped());
+    }
     for (const auto &entry : entries)
         cycles += QString("<h2>Cycle %1 · <a href=\"%2\">open debrief</a></h2><div class=\"panel\">%3</div>")
                       .arg(entry.cycle).arg(entry.file.toHtmlEscaped(),
@@ -349,6 +366,95 @@ QString codename(quint32 seed) {
     static const char *second[] = {"VIPER", "ANVIL", "TALON", "HARBOR", "LANTERN", "SPIRE", "WOLF", "CINDER",
                                    "RAVEN", "CITADEL", "MERIDIAN", "HAMMER", "TIDE", "SABLE", "KESTREL", "FORGE"};
     return QString("%1 %2").arg(first[seed % 16], second[(seed / 16) % 16]);
+}
+
+QString reviewPrompt(const QString &codename, const QString &objective, int cycles, const QString &diffPath,
+                     const QString &debriefs) {
+    const QString evidence = diffPath.isEmpty()
+        ? QString("The project isn't a git repository, so there's no diff: inspect the project files directly.")
+        : QString("Everything the operation changed is in this diff (read it first, then open the files it touches "
+                  "for context):\n%1").arg(diffPath);
+    return QString("OPERATION %1, OVERWATCH REVIEW\n\nOBJECTIVE:\n%2\n\n"
+                   "You are overwatch: an independent reviewer who wasn't part of this operation. The fireteam has "
+                   "finished %3 cycle(s). Judge whether the work meets the objective and is sound.\n\n%4\n\n"
+                   "The fireteam's own debriefs are in %5 if you want its account, but judge the code, not the "
+                   "claims. You may read files and run read-only commands (tests included, if they're allowed); "
+                   "don't change anything.\n\n"
+                   "Look for: parts of the objective not done, bugs, broken or missing tests, security problems, and "
+                   "anything left half-finished. Ignore style nits.\n\n"
+                   "Write your review in plain prose, then end your reply with exactly one fenced json block:\n"
+                   "```json\n{\"grade\": \"pass\" | \"needs-work\" | \"fail\", \"summary\": \"two sentences\", "
+                   "\"findings\": [{\"severity\": \"high\" | \"medium\" | \"low\", \"file\": \"path or empty\", "
+                   "\"issue\": \"what's wrong and what to do\"}]}\n```\n"
+                   "Grade pass only if the objective is met with no high-severity findings.")
+        .arg(codename, objective).arg(cycles).arg(evidence, debriefs);
+}
+
+QVariantMap parseReview(const QString &reply) {
+    static const QRegularExpression block(R"(```json\s*(\{.*?\})\s*```)", QRegularExpression::DotMatchesEverythingOption);
+    QJsonObject verdict;
+    auto blocks = block.globalMatch(reply);
+    while (blocks.hasNext()) {
+        const QJsonDocument document = QJsonDocument::fromJson(blocks.next().captured(1).toUtf8());
+        if (document.isObject())
+            verdict = document.object();
+    }
+    QString grade = verdict.value("grade").toString().toLower().replace(' ', '-').replace('_', '-');
+    if (!QStringList{"pass", "needs-work", "fail"}.contains(grade))
+        grade = "unknown";
+    QVariantList findings;
+    for (const auto &value : verdict.value("findings").toArray()) {
+        const QJsonObject finding = value.toObject();
+        if (!finding.value("issue").toString().trimmed().isEmpty())
+            findings.append(QVariantMap{{"severity", finding.value("severity").toString("medium").toLower()},
+                                        {"file", finding.value("file").toString()},
+                                        {"issue", finding.value("issue").toString().trimmed()}});
+    }
+    QString summary = verdict.value("summary").toString().trimmed();
+    if (summary.isEmpty())
+        summary = reply.section("```", 0, 0).trimmed().left(400);
+    return {{"grade", grade}, {"summary", summary}, {"findings", findings}};
+}
+
+QString reviewReport(const QString &codename, const QString &objective, int cycle, const QVariantMap &review,
+                     const QString &reply) {
+    const QString grade = review.value("grade").toString();
+    QString findings;
+    for (const QVariant &value : review.value("findings").toList()) {
+        const QVariantMap finding = value.toMap();
+        const QString severity = finding.value("severity").toString();
+        findings += QString("<li><b style=\"color:%1\">%2</b> %3%4</li>")
+                        .arg(severity == "high" ? "#ff4f45" : severity == "medium" ? "#e9b44c" : "#8b8f94",
+                             severity.toUpper().toHtmlEscaped(),
+                             finding.value("file").toString().isEmpty()
+                                 ? QString() : "<code>" + finding.value("file").toString().toHtmlEscaped() + "</code> ",
+                             finding.value("issue").toString().toHtmlEscaped());
+    }
+    const QString prose = reply.section("```json", 0, 0).trimmed();
+    const QString body = QString("<div class=\"tag\">Overwatch review · after cycle %1</div><h1>%2</h1>"
+                                 "<h2 style=\"color:%3\">%4</h2><div class=\"panel\" style=\"border-left-color:%3\">%5</div>"
+                                 "<h2>Objective</h2><div class=\"panel\">%6</div>"
+                                 "<h2>Findings</h2>%7<h2>Review</h2><div class=\"panel\">%8</div>")
+                             .arg(cycle)
+                             .arg(codename.toHtmlEscaped(), gradeColour(grade), gradeLabel(grade),
+                                  review.value("summary").toString().toHtmlEscaped(), objective.toHtmlEscaped(),
+                                  findings.isEmpty() ? "<p class=\"tag\">None.</p>" : "<ul>" + findings + "</ul>",
+                                  prose.toHtmlEscaped());
+    return page(codename + " · overwatch", body);
+}
+
+QString reviewOrders(const QVariantMap &review) {
+    QStringList lines{QString("Overwatch reviewed the work and graded it %1: %2")
+                          .arg(gradeLabel(review.value("grade").toString()).toLower(), review.value("summary").toString()),
+                      "Fix these findings this cycle:"};
+    for (const QVariant &value : review.value("findings").toList()) {
+        const QVariantMap finding = value.toMap();
+        lines << QString("- [%1] %2%3").arg(finding.value("severity").toString(),
+                                            finding.value("file").toString().isEmpty() ? QString()
+                                                : finding.value("file").toString() + ": ",
+                                            finding.value("issue").toString());
+    }
+    return lines.join('\n');
 }
 
 }
