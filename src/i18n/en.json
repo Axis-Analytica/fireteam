@@ -46,5 +46,21 @@
   "Sent back for a fix cycle with %n finding(s).": {
     "one": "Sent back for a fix cycle with %n finding.",
     "other": "Sent back for a fix cycle with %n findings."
+  },
+  "%n operation(s)": {
+    "one": "%n operation",
+    "other": "%n operations"
+  },
+  "%n cycle(s)": {
+    "one": "%n cycle",
+    "other": "%n cycles"
+  },
+  "%1 · %n cycle(s)": {
+    "one": "%1 · %n cycle",
+    "other": "%1 · %n cycles"
+  },
+  "%n operation(s) ready for your review.": {
+    "one": "%n operation ready for your review.",
+    "other": "%n operations ready for your review."
   }
 }
