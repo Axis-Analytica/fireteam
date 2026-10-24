@@ -38,7 +38,7 @@ Item {
         if (creating)
             nameField.forceActiveFocus()
     }
-    function close() { visible = false }
+    function close() { commitEditor(); visible = false }
     function startNew() {
         creating = true
         editing = ""
@@ -86,6 +86,24 @@ Item {
                     cycles: 2, model: "sonnet", depends: [] })
         if (ops.updateCampaignPlan(current, next))
             editing = "op-" + n
+    }
+    // The editor's fields save on Enter or losing focus; a click on a button
+    // takes neither, so approving or switching cards saves them first.
+    function commitEditor() {
+        if (!draft || editing === "" || !editor.op)
+            return
+        const changes = {}
+        if (editCodename.text.trim().length > 0 && editCodename.text.toUpperCase() !== editor.op.codename)
+            changes.codename = editCodename.text.toUpperCase()
+        if (editObjective.text.trim().length > 0 && editObjective.text !== editor.op.objective)
+            changes.objective = editObjective.text
+        if (Object.keys(changes).length > 0)
+            planWith(editing, changes)
+    }
+    function approve() {
+        commitEditor()
+        ops.approveCampaign(current, campaignRoe.keys[campaignRoe.currentIndex],
+                            campaignOverwatch.keys[campaignOverwatch.currentIndex])
     }
     function statusColor(status) {
         return status === "complete" ? Style.good : status === "active" ? theme.accent
@@ -552,8 +570,10 @@ Item {
                             HoverHandler { id: cardHover; cursorShape: Qt.PointingHandCursor }
                             TapHandler {
                                 onTapped: {
-                                    if (board.draft)
+                                    if (board.draft) {
+                                        board.commitEditor()
                                         board.editing = board.editing === card.modelData.key ? "" : card.modelData.key
+                                    }
                                     else if (card.modelData.row >= 0)
                                         board.operationPicked(card.modelData.row)
                                 }
@@ -777,8 +797,7 @@ Item {
                         text: qsTr("Approve and deploy")
                         key: "Ctrl+Enter"
                         primary: true
-                        onClicked: ops.approveCampaign(board.current, campaignRoe.keys[campaignRoe.currentIndex],
-                                                       campaignOverwatch.keys[campaignOverwatch.currentIndex])
+                        onClicked: board.approve()
                     }
                 }
             }
@@ -791,8 +810,7 @@ Item {
         context: Qt.ApplicationShortcut
         onActivated: {
             if (board.creating) board.plan()
-            else if (board.draft) ops.approveCampaign(board.current, campaignRoe.keys[campaignRoe.currentIndex],
-                                                      campaignOverwatch.keys[campaignOverwatch.currentIndex])
+            else if (board.draft) board.approve()
         }
     }
 }
