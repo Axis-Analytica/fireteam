@@ -51,7 +51,7 @@ Item {
             font.family: Style.display
             font.pixelSize: 13
             font.weight: Font.Black
-            font.letterSpacing: 3
+            font.letterSpacing: 3 * Style.tracking
             font.capitalization: Font.AllUppercase
         }
     }

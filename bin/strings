@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+# Lists every translatable string in src/ (qsTr in QML, tr in C++) as JSON,
+# marking the counted ones (%n) that need plural forms.
+#
+#   bin/strings                  all strings, as a JSON list
+#   bin/strings --check da       what src/i18n/da.json is missing or has extra
+import json, os, re, sys
+
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+SRC = os.path.join(ROOT, "src")
+CALL = re.compile(r'(?<![\w.])(?:qsTr|tr)\(')
+LITERAL = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+def unescape(text):
+    return json.loads('"' + text + '"')
+
+
+def strings():
+    found = {}
+    for name in sorted(os.listdir(SRC)):
+        if not name.endswith((".qml", ".cpp")) or name in ("translator.cpp", "theme.cpp"):
+            continue
+        source = open(os.path.join(SRC, name), encoding="utf-8").read()
+        for call in CALL.finditer(source):
+            # One or more adjacent literals make the string; a comma after it
+            # means a disambiguation and count follow.
+            i, parts = call.end(), []
+            while True:
+                while i < len(source) and source[i] in " \t\r\n":
+                    i += 1
+                match = LITERAL.match(source, i)
+                if not match:
+                    break
+                parts.append(unescape(match.group(1)))
+                i = match.end()
+            if not parts:
+                continue
+            text = "".join(parts)
+            counted = "%n" in text and source[i:i + 1] == ","
+            entry = found.setdefault(text, {"text": text, "plural": False, "files": []})
+            entry["plural"] = entry["plural"] or counted
+            if name not in entry["files"]:
+                entry["files"].append(name)
+    return list(found.values())
+
+
+if len(sys.argv) > 2 and sys.argv[1] == "--check":
+    path = os.path.join(SRC, "i18n", sys.argv[2] + ".json")
+    catalog = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
+    wanted = {entry["text"] for entry in strings()}
+    missing = sorted(wanted - catalog.keys())
+    extra = sorted(catalog.keys() - wanted)
+    # A translation must keep the numbered placeholders and the tags; %n may
+    # be dropped where a plural form spells the number out.
+    marks = re.compile(r"%[1-9]|<[^>]+>")
+    broken = []
+    for key, value in catalog.items():
+        forms = value.values() if isinstance(value, dict) else [value]
+        for form in forms:
+            if sorted(marks.findall(form)) != sorted(marks.findall(key)):
+                broken.append({"key": key, "translation": form})
+    print(json.dumps({"missing": missing, "extra": extra, "broken": broken}, ensure_ascii=False, indent=2))
+    sys.exit(1 if missing or broken else 0)
+
+print(json.dumps(strings(), ensure_ascii=False, indent=2))

@@ -160,7 +160,7 @@ Item {
                     color: Style.dim
                     font.family: Style.mono
                     font.pixelSize: 10
-                    font.letterSpacing: 3
+                    font.letterSpacing: 3 * Style.tracking
                     font.capitalization: Font.AllUppercase
                 }
             }
@@ -253,7 +253,7 @@ Item {
                             font.family: Style.display
                             font.pixelSize: 15
                             font.weight: Font.Black
-                            font.letterSpacing: 2
+                            font.letterSpacing: 2 * Style.tracking
                         }
                         Text {
                             text: qsTr("%1 · C%2/%3").arg(Style.statusLabel(marker.status).toUpperCase())
@@ -278,7 +278,7 @@ Item {
                         color: Style.faint
                         font.family: Style.mono
                         font.pixelSize: 10
-                        font.letterSpacing: 1
+                        font.letterSpacing: 1 * Style.tracking
                     }
 
                     MouseArea {
@@ -300,7 +300,7 @@ Item {
                 color: Style.faint
                 font.family: Style.display
                 font.pixelSize: 14
-                font.letterSpacing: 4
+                font.letterSpacing: 4 * Style.tracking
                 font.capitalization: Font.AllUppercase
             }
         }
@@ -325,7 +325,7 @@ Item {
                     font.family: Style.display
                     font.pixelSize: 22
                     font.weight: Font.Black
-                    font.letterSpacing: 3
+                    font.letterSpacing: 3 * Style.tracking
                 }
                 Text {
                     Layout.fillWidth: true

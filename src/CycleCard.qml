@@ -47,7 +47,7 @@ Item {
                 font.family: Style.display
                 font.pixelSize: 16
                 font.weight: Font.Black
-                font.letterSpacing: 2
+                font.letterSpacing: 2 * Style.tracking
             }
             Text {
                 Layout.fillWidth: true

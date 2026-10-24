@@ -26,5 +26,25 @@
   "%n request(s) to approve or deny before cycle %1.": {
     "one": "A request to approve or deny before cycle %1.",
     "other": "%n requests to approve or deny before cycle %1."
+  },
+  "−%1 · %n file change(s)": {
+    "one": "−%1 · %n file change",
+    "other": "−%1 · %n file changes"
+  },
+  "%n hand-off(s)": {
+    "one": "%n hand-off",
+    "other": "%n hand-offs"
+  },
+  "Week of %1\n%2 API value · %n cycle(s) complete": {
+    "one": "Week of %1\n%2 API value · %n cycle complete",
+    "other": "Week of %1\n%2 API value · %n cycles complete"
+  },
+  "the squad is at its limit of %n agent(s)": {
+    "one": "the squad is at its limit of %n agent",
+    "other": "the squad is at its limit of %n agents"
+  },
+  "Sent back for a fix cycle with %n finding(s).": {
+    "one": "Sent back for a fix cycle with %n finding.",
+    "other": "Sent back for a fix cycle with %n findings."
   }
 }

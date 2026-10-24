@@ -13,7 +13,7 @@ RowLayout {
         font.family: Style.display
         font.pixelSize: 12
         font.weight: Font.Bold
-        font.letterSpacing: 4
+        font.letterSpacing: 4 * Style.tracking
         font.capitalization: Font.AllUppercase
     }
     Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Style.line }
@@ -23,6 +23,6 @@ RowLayout {
         color: Style.dim
         font.family: Style.mono
         font.pixelSize: 11
-        font.letterSpacing: 1
+        font.letterSpacing: 1 * Style.tracking
     }
 }

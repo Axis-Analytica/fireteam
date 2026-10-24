@@ -223,6 +223,15 @@ with the findings as orders, then reviews it again.
 changed, time in the field, API value by week, the busiest projects, and
 overwatch's verdicts.
 
+## Languages
+
+Fireteam follows the language picked in Omarchy (Setup > Language), live. It
+ships in English, Danish, German, Spanish (Mexico), French, Portuguese
+(Brazil), Japanese, Simplified Chinese, and Arabic (right to left); other
+languages fall back to English. Catalogs are `src/i18n/<code>.json`.
+`bin/strings` lists every string, and `bin/strings --check <code>` reports what
+a catalog is missing and any translation that drops a placeholder.
+
 ## Build
 
 ```sh

@@ -82,7 +82,7 @@ Item {
                     color: Style.dim
                     font.family: Style.mono
                     font.pixelSize: 11
-                    font.letterSpacing: 2
+                    font.letterSpacing: 2 * Style.tracking
                     font.capitalization: Font.AllUppercase
                 }
                 // The less frequent actions, as links, so the main row fits.
@@ -106,7 +106,7 @@ Item {
                         font.family: Style.display
                         font.pixelSize: 11
                         font.weight: Font.Bold
-                        font.letterSpacing: 2
+                        font.letterSpacing: 2 * Style.tracking
                         font.capitalization: Font.AllUppercase
                         HoverHandler { id: linkHover; cursorShape: link.usable ? Qt.PointingHandCursor : Qt.ArrowCursor }
                         TapHandler {
@@ -142,7 +142,7 @@ Item {
                     font.family: Style.display
                     font.pixelSize: detail.compact || detail.tight ? 34 : 52
                     font.weight: Font.Black
-                    font.letterSpacing: 6
+                    font.letterSpacing: 6 * Style.tracking
                 }
             }
         }
@@ -260,7 +260,7 @@ Item {
                     font.family: Style.display
                     font.pixelSize: 11
                     font.weight: Font.Bold
-                    font.letterSpacing: 2
+                    font.letterSpacing: 2 * Style.tracking
                     font.capitalization: Font.AllUppercase
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: ops.openReport(detail.op.handoffBrief) }
@@ -348,39 +348,57 @@ Item {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 6
+                    // The activity line above already says it's live; this row
+                    // stays narrow enough to never widen the panel.
                     SectionLabel {
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 40
                         Layout.rightMargin: 8
                         text: qsTr("Comms")
-                        detail: detail.live ? qsTr("Live") : ""
                     }
-                    Repeater {
-                        model: [
-                            { key: "all", label: qsTr("All") },
-                            { key: "agent", label: qsTr("Agent") },
-                            { key: "tools", label: qsTr("Tools") },
-                            { key: "command", label: qsTr("HQ") },
-                            { key: "errors", label: qsTr("Errors") }
-                        ]
-                        delegate: Text {
-                            required property var modelData
-                            readonly property bool chosen: detail.commsFilter === modelData.key
-                            text: modelData.label
-                            color: chosen ? theme.accent : Style.dim
-                            font.family: Style.display
-                            font.pixelSize: 11
-                            font.weight: Font.Bold
-                            font.letterSpacing: 2
-                            font.capitalization: Font.AllUppercase
-                            font.underline: chosen
-                            rightPadding: 4
-                            HoverHandler { cursorShape: Qt.PointingHandCursor }
-                            TapHandler { onTapped: detail.commsFilter = modelData.key }
+                    // The filters give way (cut at the edge) before the column widens.
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        Layout.preferredWidth: filters.implicitWidth
+                        implicitHeight: 18
+                        clip: true
+                        Flow {
+                            id: filters
+                            width: parent.width
+                            spacing: 6
+                            Repeater {
+                                model: [
+                                    { key: "all", label: qsTr("All") },
+                                    { key: "agent", label: qsTr("Agent") },
+                                    { key: "tools", label: qsTr("Tools") },
+                                    { key: "command", label: qsTr("HQ") },
+                                    { key: "errors", label: qsTr("Errors") }
+                                ]
+                                delegate: Text {
+                                    required property var modelData
+                                    readonly property bool chosen: detail.commsFilter === modelData.key
+                                    text: modelData.label
+                                    color: chosen ? theme.accent : Style.dim
+                                    font.family: Style.display
+                                    font.pixelSize: 11
+                                    font.weight: Font.Bold
+                                    font.letterSpacing: 2 * Style.tracking
+                                    font.capitalization: Font.AllUppercase
+                                    font.underline: chosen
+                                    rightPadding: 4
+                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: detail.commsFilter = modelData.key }
+                                }
+                            }
                         }
                     }
                     TextField {
                         id: search
-                        Layout.preferredWidth: detail.compact ? 110 : 140
+                        // It gives way first when the column is narrow.
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 140
+                        Layout.minimumWidth: 70
                         Layout.preferredHeight: 30
                         placeholderText: qsTr("Search  /")
                         font.family: Style.mono
@@ -475,7 +493,7 @@ Item {
                         color: Style.faint
                         font.family: Style.display
                         font.pixelSize: 13
-                        font.letterSpacing: 4
+                        font.letterSpacing: 4 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                 }
@@ -566,7 +584,7 @@ Item {
                                 font.family: Style.display
                                 font.pixelSize: 12
                                 font.weight: Font.Bold
-                                font.letterSpacing: 2
+                                font.letterSpacing: 2 * Style.tracking
                                 font.capitalization: Font.AllUppercase
                             }
                             Text { text: "↗"; color: Style.dim; font.pixelSize: 13 }
@@ -577,6 +595,8 @@ Item {
                 }
                 Text {
                     visible: debriefs.count === 0 && !detail.compact
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
                     text: qsTr("Debriefs land here as each cycle completes.")
                     color: Style.faint
                     font.family: Style.display
@@ -693,7 +713,7 @@ Item {
             font.family: Style.display
             font.pixelSize: 26
             font.weight: Font.Black
-            font.letterSpacing: 5
+            font.letterSpacing: 5 * Style.tracking
             font.capitalization: Font.AllUppercase
         }
         Text {

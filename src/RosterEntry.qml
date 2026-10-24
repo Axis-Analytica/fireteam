@@ -122,7 +122,7 @@ Item {
                 font.family: Style.display
                 font.pixelSize: 22
                 font.weight: Font.Black
-                font.letterSpacing: 3
+                font.letterSpacing: 3 * Style.tracking
             }
             ActivityPulse {
                 visible: entry.status === "deployed"

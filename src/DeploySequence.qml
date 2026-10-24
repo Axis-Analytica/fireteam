@@ -66,7 +66,7 @@ Item {
                 color: theme.accent
                 font.family: Style.mono
                 font.pixelSize: 12
-                font.letterSpacing: 5
+                font.letterSpacing: 5 * Style.tracking
                 font.capitalization: Font.AllUppercase
                 opacity: frame.spread < 0.2 ? 1 : 0
             }
@@ -77,7 +77,7 @@ Item {
                 font.family: Style.display
                 font.pixelSize: Math.min(72, sequence.width / 14)
                 font.weight: Font.Black
-                font.letterSpacing: 10
+                font.letterSpacing: 10 * Style.tracking
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -85,7 +85,7 @@ Item {
                 color: Style.dim
                 font.family: Style.mono
                 font.pixelSize: 14
-                font.letterSpacing: 1
+                font.letterSpacing: 1 * Style.tracking
             }
         }
     }

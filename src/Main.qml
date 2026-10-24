@@ -235,7 +235,7 @@ ApplicationWindow {
                         font.family: Style.display
                         font.pixelSize: 46
                         font.weight: Font.Black
-                        font.letterSpacing: 12
+                        font.letterSpacing: 12 * Style.tracking
                         // An occasional flicker, like a menu waking up.
                         SequentialAnimation on opacity {
                             loops: Animation.Infinite
@@ -251,7 +251,7 @@ ApplicationWindow {
                         color: Style.dim
                         font.family: Style.mono
                         font.pixelSize: 12
-                        font.letterSpacing: 4
+                        font.letterSpacing: 4 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                 }
@@ -267,7 +267,7 @@ ApplicationWindow {
                         font.family: Style.display
                         font.pixelSize: 11
                         font.weight: Font.Bold
-                        font.letterSpacing: 3
+                        font.letterSpacing: 3 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                     RowLayout {
@@ -300,7 +300,7 @@ ApplicationWindow {
                         font.family: Style.display
                         font.pixelSize: 11
                         font.weight: Font.Bold
-                        font.letterSpacing: 3
+                        font.letterSpacing: 3 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                     Repeater {
@@ -361,7 +361,7 @@ ApplicationWindow {
                             font.family: Style.display
                             font.pixelSize: 11
                             font.weight: Font.Bold
-                            font.letterSpacing: 3
+                            font.letterSpacing: 3 * Style.tracking
                             font.capitalization: Font.AllUppercase
                         }
                         Text {
@@ -491,23 +491,35 @@ ApplicationWindow {
                 spacing: 22
                 KeyHint { key: "N"; label: qsTr("Plan") }
                 KeyHint { key: qsTr("Space"); label: qsTr("Deploy") }
-                KeyHint { visible: !win.narrow; key: "T"; label: qsTr("Orders") }
-                KeyHint { visible: !win.narrow; key: "X"; label: qsTr("Abort") }
-                KeyHint { visible: !win.narrow; key: "V"; label: qsTr("Intel") }
-                KeyHint { visible: !win.narrow; key: "R"; label: qsTr("Debrief") }
-                KeyHint { visible: !win.narrow; key: "M"; label: win.mapView ? qsTr("Board") : qsTr("Map") }
-                KeyHint { visible: !win.narrow; key: "S"; label: qsTr("Record") }
+                // The rest show as room allows (a long language or a narrow
+                // tile), cut at the edge rather than widening the window; ?
+                // lists them all.
+                Item {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    implicitHeight: 20
+                    clip: true
+                    Flow {
+                        width: parent.width
+                        spacing: 22
+                        KeyHint { key: "T"; label: qsTr("Orders") }
+                        KeyHint { key: "X"; label: qsTr("Abort") }
+                        KeyHint { key: "V"; label: qsTr("Intel") }
+                        KeyHint { key: "M"; label: win.mapView ? qsTr("Board") : qsTr("Map") }
+                        KeyHint { key: "S"; label: qsTr("Record") }
+                        KeyHint { key: "R"; label: qsTr("Debrief") }
+                    }
+                }
                 KeyHint { key: "?"; label: qsTr("Controls") }
                 KeyHint { key: "Q"; label: qsTr("Quit") }
-                Item { Layout.fillWidth: true }
-                KeyHint { key: "Shift+M"; label: Sfx.enabled ? qsTr("Sound on") : qsTr("Sound off"); opacity: Sfx.enabled ? 1 : 0.6 }
+                KeyHint { visible: !win.narrow; key: "Shift+M"; label: Sfx.enabled ? qsTr("Sound on") : qsTr("Sound off"); opacity: Sfx.enabled ? 1 : 0.6 }
                 Text {
-                    visible: !win.narrow
+                    visible: win.width > 1560
                     text: "FIRETEAM " + Qt.application.version
                     color: Style.faint
                     font.family: Style.mono
                     font.pixelSize: 11
-                    font.letterSpacing: 2
+                    font.letterSpacing: 2 * Style.tracking
                 }
             }
         }

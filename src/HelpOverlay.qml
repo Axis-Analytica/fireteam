@@ -35,7 +35,7 @@ Item {
                 font.family: Style.display
                 font.pixelSize: 28
                 font.weight: Font.Black
-                font.letterSpacing: 5
+                font.letterSpacing: 5 * Style.tracking
                 font.capitalization: Font.AllUppercase
             }
             Repeater {

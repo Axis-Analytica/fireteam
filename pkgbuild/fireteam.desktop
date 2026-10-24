@@ -2,6 +2,14 @@
 Type=Application
 Name=Fireteam
 Comment=Run Claude Code agents through development cycles
+Comment[da]=Kør Claude Code-agenter gennem udviklingscyklusser
+Comment[de]=Claude-Code-Agenten durch Entwicklungszyklen führen
+Comment[es_MX]=Ejecuta agentes de Claude Code en ciclos de desarrollo
+Comment[fr]=Faites travailler des agents Claude Code par cycles de développement
+Comment[pt_BR]=Execute agentes do Claude Code em ciclos de desenvolvimento
+Comment[ja]=Claude Code エージェントを開発サイクルで運用する
+Comment[zh_CN]=让 Claude Code 智能体按开发周期执行任务
+Comment[ar]=شغّل وكلاء Claude Code عبر دورات التطوير
 Exec=fireteam
 Icon=fireteam
 Terminal=false

@@ -29,7 +29,7 @@ RowLayout {
         font.family: Style.display
         font.pixelSize: 12
         font.weight: Font.DemiBold
-        font.letterSpacing: 2
+        font.letterSpacing: 2 * Style.tracking
         font.capitalization: Font.AllUppercase
     }
 }

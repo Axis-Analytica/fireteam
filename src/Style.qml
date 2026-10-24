@@ -15,6 +15,10 @@ QtObject {
     readonly property string display: "Adwaita Sans"
     readonly property string mono: "GeistMono Nerd Font"
 
+    // The tactical letter-spacing, which would pull apart the joined letters
+    // of right-to-left scripts like Arabic, so it's off for them.
+    readonly property real tracking: Qt.application.layoutDirection === Qt.RightToLeft ? 0 : 1
+
     function statusColor(status, accent) {
         switch (status) {
         case "deployed": return accent

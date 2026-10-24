@@ -49,7 +49,7 @@ Item {
                 font.family: Style.display
                 font.pixelSize: 24
                 font.weight: Font.Black
-                font.letterSpacing: 4
+                font.letterSpacing: 4 * Style.tracking
                 font.capitalization: Font.AllUppercase
             }
             Text {

@@ -70,7 +70,7 @@ Item {
                     color: Style.amber
                     font.family: Style.mono
                     font.pixelSize: 11
-                    font.letterSpacing: 4
+                    font.letterSpacing: 4 * Style.tracking
                     font.capitalization: Font.AllUppercase
                 }
                 Text {
@@ -79,7 +79,7 @@ Item {
                     font.family: Style.display
                     font.pixelSize: 30
                     font.weight: Font.Black
-                    font.letterSpacing: 5
+                    font.letterSpacing: 5 * Style.tracking
                     font.capitalization: Font.AllUppercase
                 }
                 Text {
@@ -126,7 +126,7 @@ Item {
                     font.family: Style.display
                     font.pixelSize: 11
                     font.weight: Font.Bold
-                    font.letterSpacing: 2
+                    font.letterSpacing: 2 * Style.tracking
                     font.capitalization: Font.AllUppercase
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: ops.clearOrders(radio.row) }

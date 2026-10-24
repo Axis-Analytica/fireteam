@@ -69,7 +69,7 @@ Item {
                         color: theme.accent
                         font.family: Style.mono
                         font.pixelSize: 11
-                        font.letterSpacing: 4
+                        font.letterSpacing: 4 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                     Text {
@@ -78,7 +78,7 @@ Item {
                         font.family: Style.display
                         font.pixelSize: 34
                         font.weight: Font.Black
-                        font.letterSpacing: 5
+                        font.letterSpacing: 5 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                 }
@@ -125,7 +125,7 @@ Item {
                                     font.family: Style.display
                                     font.pixelSize: 11
                                     font.weight: Font.Bold
-                                    font.letterSpacing: 3
+                                    font.letterSpacing: 3 * Style.tracking
                                     font.capitalization: Font.AllUppercase
                                 }
                                 Text {

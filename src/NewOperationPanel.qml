@@ -174,7 +174,7 @@ Item {
                         color: theme.accent
                         font.family: Style.mono
                         font.pixelSize: 11
-                        font.letterSpacing: 4
+                        font.letterSpacing: 4 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                     Text {
@@ -183,7 +183,7 @@ Item {
                         font.family: Style.display
                         font.pixelSize: 34
                         font.weight: Font.Black
-                        font.letterSpacing: 5
+                        font.letterSpacing: 5 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                 }
@@ -201,7 +201,7 @@ Item {
                         font.family: Style.display
                         font.pixelSize: 12
                         font.weight: Font.Bold
-                        font.letterSpacing: 3
+                        font.letterSpacing: 3 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                     Repeater {
@@ -224,7 +224,7 @@ Item {
                                     font.family: Style.display
                                     font.pixelSize: 12
                                     font.weight: Font.Bold
-                                    font.letterSpacing: 2
+                                    font.letterSpacing: 2 * Style.tracking
                                     font.capitalization: Font.AllUppercase
                                 }
                                 Text {
@@ -258,7 +258,7 @@ Item {
                         font.family: Style.display
                         font.pixelSize: 11
                         font.weight: Font.Bold
-                        font.letterSpacing: 2
+                        font.letterSpacing: 2 * Style.tracking
                         font.capitalization: Font.AllUppercase
                         HoverHandler { id: saveHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: { panel.savingLoadout = true; loadoutName.forceActiveFocus() } }
@@ -292,7 +292,7 @@ Item {
                         placeholderText: qsTr("Codename")
                         font.family: Style.display
                         font.weight: Font.Black
-                        font.letterSpacing: 3
+                        font.letterSpacing: 3 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                     TacticalButton { text: qsTr("Reroll"); onClicked: codename.text = ops.suggestCodename() }
@@ -392,7 +392,7 @@ Item {
                                     font.family: Style.display
                                     font.pixelSize: 15
                                     font.weight: Font.Black
-                                    font.letterSpacing: 3
+                                    font.letterSpacing: 3 * Style.tracking
                                     font.capitalization: Font.AllUppercase
                                 }
                                 Text {
@@ -419,7 +419,7 @@ Item {
                         font.family: Style.display
                         font.pixelSize: 12
                         font.weight: Font.Bold
-                        font.letterSpacing: 3
+                        font.letterSpacing: 3 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                     ComboBox {
@@ -434,7 +434,7 @@ Item {
                         font.family: Style.display
                         font.pixelSize: 12
                         font.weight: Font.Bold
-                        font.letterSpacing: 3
+                        font.letterSpacing: 3 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                     ComboBox {
@@ -467,7 +467,7 @@ Item {
                             font.family: Style.display
                             font.pixelSize: 13
                             font.weight: Font.Bold
-                            font.letterSpacing: 2
+                            font.letterSpacing: 2 * Style.tracking
                             font.capitalization: Font.AllUppercase
                         }
                         Text {
@@ -502,7 +502,7 @@ Item {
                         font.family: Style.display
                         font.pixelSize: 12
                         font.weight: Font.Bold
-                        font.letterSpacing: 3
+                        font.letterSpacing: 3 * Style.tracking
                         font.capitalization: Font.AllUppercase
                     }
                     ComboBox {

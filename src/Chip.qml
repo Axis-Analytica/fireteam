@@ -24,7 +24,7 @@ Rectangle {
         font.family: chip.mono ? Style.mono : Style.display
         font.pixelSize: 11
         font.weight: Font.Bold
-        font.letterSpacing: chip.mono ? 0 : 2
+        font.letterSpacing: chip.mono ? 0 : 2 * Style.tracking
         font.capitalization: chip.mono ? Font.MixedCase : Font.AllUppercase
     }
 }
