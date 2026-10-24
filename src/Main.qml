@@ -22,13 +22,23 @@ ApplicationWindow {
     readonly property bool overlayOpen: briefing.visible || help.visible || confirm.visible || radio.visible || intel.visible
                                         || insertion.visible || authorisation.visible || serviceRecord.visible
                                         || waitingPanel.visible || campaignBoard.visible || terminalPanel.visible
+                                        || manualPanel.visible || replayView.visible || searchPanel.visible
     // The theatre map in place of the roster and detail.
     property bool mapView: false
     readonly property var selected: roster.currentItem
 
+    // Archived operations are only on the board when asked for.
+    property bool showArchived: false
     function move(step) {
-        if (roster.count > 0)
-            roster.currentIndex = Math.max(0, Math.min(roster.count - 1, roster.currentIndex + step))
+        let next = roster.currentIndex
+        for (let i = 0; i < roster.count; ++i) {
+            next = Math.max(0, Math.min(roster.count - 1, next + step))
+            const item = roster.itemAtIndex(next)
+            if (!item || !item.hidden) {
+                roster.currentIndex = next
+                return
+            }
+        }
     }
     function deploySelected() { if (selected) ops.deploy(roster.currentIndex) }
     function ordersSelected() { if (selected) radio.open(selected, roster.currentIndex) }
@@ -179,6 +189,9 @@ ApplicationWindow {
     Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.deploySelected() }
     Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: { win.mapView = !win.mapView; Sfx.play("open") } }
     Shortcut { sequence: "Shift+M"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: Sfx.toggle() }
+    Shortcut { sequence: "F"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: manualPanel.open(win.selected ? win.selected.directory : "") }
+    Shortcut { sequence: "Shift+R"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen && win.selected !== null; onActivated: replayView.open(win.selected, roster.currentIndex) }
+    Shortcut { sequences: [StandardKey.Find]; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: searchPanel.open() }
     Shortcut { sequence: "P"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: terminalPanel.open() }
     Shortcut { sequence: "C"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: campaignBoard.open() }
     Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: serviceRecord.open() }
@@ -208,6 +221,9 @@ ApplicationWindow {
             else if (waitingPanel.visible) waitingPanel.close()
             else if (campaignBoard.visible) campaignBoard.close()
             else if (terminalPanel.visible) terminalPanel.close()
+            else if (manualPanel.visible) manualPanel.close()
+            else if (replayView.visible) replayView.close()
+            else if (searchPanel.visible) searchPanel.close()
             else if (serviceRecord.visible) serviceRecord.close()
             else if (radio.visible) radio.close()
             else briefing.close()
@@ -487,6 +503,20 @@ ApplicationWindow {
                         displaced: Transition { NumberAnimation { properties: "y"; duration: 220; easing.type: Easing.OutCubic } }
                         ScrollBar.vertical: ScrollBar {}
                     }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: ops.archivedCount > 0
+                        text: win.showArchived ? qsTr("Hide the archive") : qsTr("Show the archive (%1)").arg(ops.archivedCount)
+                        horizontalAlignment: Text.AlignHCenter
+                        color: archiveHover.hovered ? theme.accent : Style.dim
+                        font.family: Style.display
+                        font.pixelSize: 11
+                        font.weight: Font.Bold
+                        font.letterSpacing: 2 * Style.tracking
+                        font.capitalization: Font.AllUppercase
+                        HoverHandler { id: archiveHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: win.showArchived = !win.showArchived }
+                    }
                     TacticalButton {
                         Layout.fillWidth: true
                         text: qsTr("Plan operation")
@@ -513,6 +543,7 @@ ApplicationWindow {
                     onDiffRequested: (run) => win.diffSelected(run)
                     onAuthorisationRequested: win.authoriseSelected()
                     onExtractRequested: win.extractSelected()
+                    onReplayRequested: replayView.open(win.selected, roster.currentIndex)
                     onDiscardRequested: win.discardSelected()
                 }
             }
@@ -598,6 +629,30 @@ ApplicationWindow {
             anchors.fill: parent
             onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
             onResumeRequested: ops.deploy(row)
+        }
+        FieldManualPanel {
+            id: manualPanel
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
+        }
+        ReplayView {
+            id: replayView
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
+        }
+        SearchPanel {
+            id: searchPanel
+            anchors.fill: parent
+            onVisibleChanged: if (!visible) board.forceActiveFocus()
+            onPicked: (row, path) => {
+                const item = roster.itemAtIndex(row)
+                if (item && item.archived)
+                    win.showArchived = true
+                roster.currentIndex = row
+                searchPanel.close()
+                if (path.length > 0)
+                    ops.openReport(path)
+            }
         }
         TerminalPanel {
             id: terminalPanel

@@ -11,6 +11,10 @@ echo '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsA
 echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"You have hit your usage limit · resets 3pm"}'
 exit 1; fi
 if [ -n "$FIRETEAM_TEST_SLOW" ]; then sleep "$FIRETEAM_TEST_SLOW"; fi
+case "$2" in *"AFTER-ACTION REVIEW"*)
+  printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.01,"result":"Lessons.\n```json\n{\"lessons\": [\"Run the tests with make check, not make test.\", \"The notes file must end with a newline.\"]}\n```"}'
+  exit 0;;
+esac
 case "$2" in *"CAMPAIGN "*", PLANNING"*)
   printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.05,"result":"Three steps.\n```json\n{\"summary\": \"Schema first, then API and UI in parallel.\", \"operations\": [{\"key\": \"schema\", \"codename\": \"stone gate\", \"objective\": \"Design the schema.\", \"cycles\": 1, \"model\": \"haiku\", \"depends\": []}, {\"key\": \"api\", \"codename\": \"swift river\", \"objective\": \"Build the API.\", \"cycles\": 1, \"depends\": [\"schema\"]}, {\"key\": \"ui\", \"codename\": \"pale moon\", \"objective\": \"Build the UI.\", \"cycles\": 1, \"depends\": [\"schema\", \"ghost\"]}]}\n```"}'
   exit 0;;

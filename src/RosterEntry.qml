@@ -55,6 +55,9 @@ Item {
     required property var criteria
     required property var preview
     required property var lastGates
+    required property bool archived
+    // Archived operations stay in the model but off the board, unless asked.
+    readonly property bool hidden: archived && !win.showArchived
     readonly property int waitingOn: questions.length + prompts.length
 
     readonly property bool selected: ListView.isCurrentItem
@@ -62,7 +65,9 @@ Item {
     signal activated()
 
     width: ListView.view ? ListView.view.width : 360
-    height: campaign.length > 0 ? 98 : 84
+    visible: !hidden
+    height: hidden ? 0 : campaign.length > 0 ? 98 : 84
+    opacity: archived ? 0.55 : 1
 
     Shape {
         id: slab

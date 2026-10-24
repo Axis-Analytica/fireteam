@@ -74,5 +74,13 @@
   "Running %n gate(s).": {
     "one": "Running %n gate.",
     "other": "Running %n gates."
+  },
+  "Field manual: %n lesson(s) learned for this project.": {
+    "one": "Field manual: %n lesson learned for this project.",
+    "other": "Field manual: %n lessons learned for this project."
+  },
+  "Promote %n to CLAUDE.md": {
+    "one": "Promote %n to CLAUDE.md",
+    "other": "Promote %n to CLAUDE.md"
   }
 }

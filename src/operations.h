@@ -85,6 +85,8 @@ struct Operation {
     QVariantList criteria;
     QVariantMap preview;
     int gateFixes = 0;
+    // Kept, but off the board.
+    bool archived = false;
     // The campaign this operation belongs to, its key in the campaign's plan,
     // and the operations (by id) it waits for.
     QString campaign;
@@ -130,6 +132,10 @@ class Operations : public QAbstractListModel {
     Q_PROPERTY(QVariantList campaigns READ campaigns NOTIFY campaignsChanged)
     // Whether a Chromium-based browser is installed for preview screenshots.
     Q_PROPERTY(bool browserAvailable READ browserAvailable CONSTANT)
+    // Whether finished operations get an after-action review that feeds the
+    // project's field manual.
+    Q_PROPERTY(bool afterAction READ afterAction WRITE setAfterAction NOTIFY afterActionChanged)
+    Q_PROPERTY(int archivedCount READ archivedCount NOTIFY archivedChanged)
 
 public:
     enum Role {
@@ -139,7 +145,7 @@ public:
         SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole, HistoryRole, CanUndoRollbackRole,
         EventsRole, RequestsRole, AllowedRole, StandingRole, WorktreeRole, WorkdirRole, BranchRole,
         BaseBranchRole, ResumeAtRole, QueueRole, OverwatchRole, ReviewsRole, ProgressRole, ProgressNoteRole,
-        QuestionsRole, PromptsRole, CampaignRole, GatesRole, CriteriaRole, PreviewRole, LastGatesRole
+        QuestionsRole, PromptsRole, CampaignRole, GatesRole, CriteriaRole, PreviewRole, LastGatesRole, ArchivedRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -162,6 +168,27 @@ public:
     QVariantList loadouts() const { return m_loadouts; }
     QVariantList campaigns() const;
     bool browserAvailable() const;
+    bool afterAction() const { return m_afterAction; }
+    void setAfterAction(bool on);
+    int archivedCount() const;
+
+    // Institutional memory: each project's field manual of lessons, the
+    // archive, search across everything operations wrote, replays, and
+    // exports.
+    Q_INVOKABLE QVariantList manuals() const;
+    Q_INVOKABLE QVariantList lessons(const QString &directory) const;
+    Q_INVOKABLE bool addLesson(const QString &directory, const QString &text);
+    Q_INVOKABLE bool editLesson(const QString &directory, const QString &id, const QString &text);
+    Q_INVOKABLE bool removeLesson(const QString &directory, const QString &id);
+    Q_INVOKABLE QString promoteLessons(const QString &directory, const QStringList &ids);
+    Q_INVOKABLE void setArchived(int row, bool archived);
+    Q_INVOKABLE QVariantList search(const QString &query) const;
+    Q_INVOKABLE QVariantList replay(int row) const;
+    Q_INVOKABLE QString exportOperation(int row, const QString &format);
+    Q_INVOKABLE QString exportCampaign(const QString &id, const QString &format);
+    // Shows an exported file: an HTML report in the browser, anything else
+    // in its folder.
+    Q_INVOKABLE void reveal(const QString &path);
 
     // Campaigns: plan with a read-only session, review and edit the plan,
     // approve it into operations, and let them deploy as their dependencies
@@ -263,6 +290,9 @@ signals:
     void usageChanged();
     void loadoutsChanged();
     void campaignsChanged();
+    void afterActionChanged();
+    void archivedChanged();
+    void lessonsChanged(const QString &directory);
     // Something worth telling someone who isn't looking at the board.
     void alert(const QString &opId, const QString &title, const QString &body);
 
@@ -331,6 +361,8 @@ private:
     void loadCampaigns();
     void saveCampaigns() const;
     void campaignChanged();
+    void reviewAfterAction(const QString &id);
+    QString exportDirectory() const;
     void loadSettings();
     void saveSettings() const;
     void launch(const QString &id, const QString &prompt, bool handoff, bool review = false);
@@ -368,4 +400,5 @@ private:
     QHash<QString, QPointer<QProcess>> m_planners;
     QTimer *m_campaignNotice = nullptr;
     QHash<QString, QPointer<Gates>> m_gateRunners;
+    bool m_afterAction = true;
 };

@@ -192,6 +192,9 @@ own.
 | `[` `]` / `J` `K` | In intel: previous or next cycle, and file |
 | `/` | Search the comms |
 | `P` | Field terminal (phone dashboard) |
+| `F` | Field manual |
+| `Shift+R` | Replay the operation |
+| `Ctrl+F` | Search everything |
 | `C` | Campaigns |
 | `S` | Service record |
 | `M` | Switch between the board and the theatre map |
@@ -295,6 +298,27 @@ the desktop.
   waiting on you, a failure, a finished operation) go there too. Use a
   hard-to-guess topic, or your own ntfy server.
 - `fireteam serve` runs the terminal without the window.
+
+## Institutional memory
+
+- **Field manual** (`F`): after each finished operation, a short read-only
+  haiku session (the after-action review) writes down what a future agent in
+  that project should know: how to build and test it, setup it needs,
+  conventions, and pitfalls. Lessons are kept per project in Fireteam's data,
+  not in the project, and every new session there starts with them. Edit,
+  delete, or add lessons. **Promote to CLAUDE.md** appends the ones you choose
+  under a "Notes from Fireteam" heading, for your own Claude sessions too.
+  After-action reviews can be switched off in the same panel.
+- **Replay** (`Shift+R`): an operation's whole run, replayed from its comms on
+  a timeline at 1× to 300×, with cycles and failures marked. Drag to scrub,
+  and use `←`/`→` to step.
+- **Archive**: finished operations can be archived off the board instead of
+  stood down; *Show the archive* brings them back into view.
+- **Search** (`Ctrl+F`): objectives, debriefs, hand-off briefs, reviews and
+  every comms log on disk, across all operations, archived ones included.
+- **Export**: an operation, or a whole campaign, as a single self-contained
+  HTML report (debriefs embedded, screenshots inline) or a Markdown write-up
+  ready for a PR description, saved in `~/Documents/Fireteam/`.
 
 ## Overwatch
 

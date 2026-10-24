@@ -1,5 +1,6 @@
 #include "operations.h"
 #include "fieldlink.h"
+#include "fieldmanual.h"
 #include "gates.h"
 #include "intel.h"
 #include "stream.h"
@@ -56,7 +57,7 @@ QJsonObject Operation::toJson() const {
             {"sessionDir", sessionDir}, {"overwatch", overwatch}, {"reviews", QJsonArray::fromVariantList(reviews)},
             {"campaign", campaign}, {"campaignKey", campaignKey}, {"dependsOn", QJsonArray::fromStringList(dependsOn)},
             {"gates", QJsonArray::fromVariantList(gates)}, {"criteria", QJsonArray::fromVariantList(criteria)},
-            {"preview", QJsonObject::fromVariantMap(preview)}, {"gateFixes", gateFixes}};
+            {"preview", QJsonObject::fromVariantMap(preview)}, {"gateFixes", gateFixes}, {"archived", archived}};
 }
 
 Operation Operation::fromJson(const QJsonObject &o) {
@@ -113,6 +114,7 @@ Operation Operation::fromJson(const QJsonObject &o) {
     op.criteria = o.value("criteria").toArray().toVariantList();
     op.preview = o.value("preview").toObject().toVariantMap();
     op.gateFixes = o.value("gateFixes").toInt();
+    op.archived = o.value("archived").toBool();
     return op;
 }
 
@@ -207,6 +209,7 @@ void Operations::loadSettings() {
     if (file.open(QIODevice::ReadOnly))
         settings = QJsonDocument::fromJson(file.readAll()).object();
     m_maxDeployed = qBound(0, settings.value("maxDeployed").toInt(3), 12);
+    m_afterAction = settings.value("afterAction").toBool(true);
     m_loadouts = settings.contains("loadouts") ? settings.value("loadouts").toArray().toVariantList() : defaultLoadouts();
 }
 
@@ -214,7 +217,7 @@ void Operations::saveSettings() const {
     QSaveFile file(m_dataDirectory + "/settings.json");
     if (!file.open(QIODevice::WriteOnly))
         return;
-    file.write(QJsonDocument(QJsonObject{{"maxDeployed", m_maxDeployed},
+    file.write(QJsonDocument(QJsonObject{{"maxDeployed", m_maxDeployed}, {"afterAction", m_afterAction},
                                          {"loadouts", QJsonArray::fromVariantList(m_loadouts)}}).toJson());
     file.commit();
 }
@@ -343,7 +346,7 @@ QHash<int, QByteArray> Operations::roleNames() const {
             {OverwatchRole, "overwatch"}, {ReviewsRole, "reviews"}, {ProgressRole, "progress"},
             {ProgressNoteRole, "progressNote"}, {QuestionsRole, "questions"}, {PromptsRole, "prompts"},
             {CampaignRole, "campaign"}, {GatesRole, "gates"}, {CriteriaRole, "criteria"}, {PreviewRole, "preview"},
-            {LastGatesRole, "lastGates"}};
+            {LastGatesRole, "lastGates"}, {ArchivedRole, "archived"}};
 }
 
 QVariant Operations::data(const QModelIndex &index, int role) const {
@@ -393,6 +396,7 @@ QVariant Operations::data(const QModelIndex &index, int role) const {
     case ProgressNoteRole: return op.progressNote;
     case QuestionsRole: return op.questions;
     case PromptsRole: return op.prompts;
+    case ArchivedRole: return op.archived;
     case GatesRole: return op.gates;
     case CriteriaRole: return op.criteria;
     case PreviewRole: return op.preview;
@@ -918,7 +922,10 @@ void Operations::startCycle(const QString &id) {
     const double costAtStart = op.costUsd;
     launch(id, Stream::cyclePrompt(op.codename, op.objective, cycle, op.cycles, report, brief,
                                    QFileInfo(report).absolutePath(), orders,
-                                   QStringList{op.standing, Stream::criteriaBlock(op.criteria)}.join("\n\n").trimmed()),
+                                   QStringList{op.standing, Stream::criteriaBlock(op.criteria),
+                                               brief.isEmpty() && !op.sessionId.isEmpty() ? QString()
+                                                   : FieldManual(m_dataDirectory, op.directory).brief()}
+                                       .join("\n\n").trimmed()),
            false);
     Run &run = m_runs[id];
     run.orders = orders;
@@ -1942,8 +1949,10 @@ void Operations::checkLink() {
 }
 
 void Operations::log(Operation &op, const QString &kind, const QString &text) {
-    const QVariantMap entry{{"time", QDateTime::currentDateTime().toString("HH:mm:ss")}, {"kind", kind},
-                            {"text", text}};
+    // "at" is the full moment, for replays; "time" is what the board shows.
+    const QDateTime now = QDateTime::currentDateTime();
+    const QVariantMap entry{{"time", now.toString("HH:mm:ss")}, {"at", double(now.toMSecsSinceEpoch())},
+                            {"kind", kind}, {"text", text}};
     appendComms(op.comms, entry);
     op.events += 1;
     if (op.comms.size() > CommsLimit)
@@ -2314,7 +2323,11 @@ void Operations::scheduleCampaign(const QString &id) {
 }
 
 void Operations::onOperationDone(int row) {
-    if (row < 0 || row >= m_ops.size() || m_ops.at(row).campaign.isEmpty())
+    if (row < 0 || row >= m_ops.size())
+        return;
+    if (m_ops.at(row).status == "complete" && m_afterAction)
+        reviewAfterAction(m_ops.at(row).id);
+    if (m_ops.at(row).campaign.isEmpty())
         return;
     Operation &op = m_ops[row];
     const int c = campaignIndex(op.campaign);

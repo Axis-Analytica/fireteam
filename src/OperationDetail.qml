@@ -26,6 +26,13 @@ Item {
     signal diffRequested(int run)
     signal authorisationRequested()
     signal extractRequested()
+    signal replayRequested()
+
+    Menu {
+        id: exportMenu
+        MenuItem { text: qsTr("HTML report"); onTriggered: ops.reveal(ops.exportOperation(detail.row, "html")) }
+        MenuItem { text: qsTr("Markdown write-up"); onTriggered: ops.reveal(ops.exportOperation(detail.row, "md")) }
+    }
     signal discardRequested()
 
     // Comms filter: all, agent, tools, command, or errors, plus a search.
@@ -88,6 +95,9 @@ Item {
                 // The less frequent actions, as links, so the main row fits.
                 Repeater {
                     model: [
+                        { label: qsTr("Replay"), key: "⇧R", action: "replay" },
+                        { label: qsTr("Export"), key: "", action: "export" },
+                        { label: detail.op && detail.op.archived ? qsTr("Unarchive") : qsTr("Archive"), key: "", action: "archive" },
                         { label: qsTr("Authorised"), key: "A", action: "authorise" },
                         { label: qsTr("Dossier"), key: "D", action: "dossier" },
                         { label: qsTr("Project"), key: "O", action: "project" },
@@ -98,6 +108,7 @@ Item {
                         required property var modelData
                         readonly property bool usable: modelData.action === "dossier" ? detail.op && detail.op.dossier.length > 0
                                                      : modelData.action === "remove" ? detail.op && !detail.live
+                                                     : modelData.action === "archive" ? detail.op && !detail.live && !detail.waiting
                                                      : detail.op !== null
                         text: modelData.label + "  <font color=\"" + Style.faint + "\">" + modelData.key + "</font>"
                         textFormat: Text.StyledText
@@ -112,7 +123,10 @@ Item {
                         TapHandler {
                             enabled: link.usable
                             onTapped: {
-                                if (link.modelData.action === "authorise") detail.authorisationRequested()
+                                if (link.modelData.action === "replay") detail.replayRequested()
+                                else if (link.modelData.action === "export") exportMenu.popup(link, 0, link.height + 4)
+                                else if (link.modelData.action === "archive") ops.setArchived(detail.row, !detail.op.archived)
+                                else if (link.modelData.action === "authorise") detail.authorisationRequested()
                                 else if (link.modelData.action === "dossier") ops.openDossier(detail.row)
                                 else if (link.modelData.action === "project") ops.openProject(detail.row)
                                 else detail.removeRequested()

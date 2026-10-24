@@ -995,6 +995,72 @@ private slots:
         QVERIFY(!terminal.listening());
     }
 
+    void keepsInstitutionalMemory()
+    {
+        QTemporaryDir data, project, bin, home;
+        const QString claude = fakeClaude(bin), log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        // Exports go to Documents; keep them out of the real one.
+        qputenv("FIRETEAM_EXPORT_DIR", home.path().toUtf8());
+        struct Unset { ~Unset() { qunsetenv("FIRETEAM_EXPORT_DIR"); } } unset;
+        Operations ops(data.path(), claude);
+        QVERIFY(ops.afterAction());
+        QCOMPARE(ops.create("first", project.path(), "Write notes", 1, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        // The after-action review fills the project's field manual.
+        QTRY_COMPARE(ops.lessons(project.path()).size(), 2);
+        QCOMPARE(ops.manuals().size(), 1);
+        QVERIFY(QString::fromUtf8(read(log)).contains("--permission-mode\nplan"));
+
+        // The next operation there starts with it.
+        QCOMPARE(ops.create("second", project.path(), "More notes", 1, "restricted", ""), 0);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        const QString second = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts).filter("OPERATION SECOND, CYCLE").first();
+        QVERIFY(second.contains("FIELD MANUAL") && second.contains("make check, not make test"));
+        // Lessons it already has aren't added again.
+        QTRY_VERIFY(ops.at(0).comms.size() > 0);
+        QCOMPARE(ops.lessons(project.path()).size(), 2);
+
+        // Edited, added to, and promoted into CLAUDE.md under one heading.
+        const QString id = ops.lessons(project.path()).first().toMap().value("id").toString();
+        QVERIFY(ops.editLesson(project.path(), id, "Run the tests with make check."));
+        QVERIFY(ops.addLesson(project.path(), "Use tabs in the Makefile."));
+        QVERIFY(!ops.addLesson(project.path(), "use tabs in the makefile"));
+        write(project.filePath("CLAUDE.md"), "# Project\n\nExisting notes.\n");
+        QVERIFY(!ops.promoteLessons(project.path(), {id}).isEmpty());
+        QVERIFY(!ops.promoteLessons(project.path(), {id}).isEmpty());
+        const QString claudeMd = QString::fromUtf8(read(project.filePath("CLAUDE.md")));
+        QVERIFY(claudeMd.startsWith("# Project\n\nExisting notes.\n"));
+        QCOMPARE(claudeMd.count("## Notes from Fireteam"), 1);
+        QCOMPARE(claudeMd.count("- Run the tests with make check."), 1);
+
+        // Search reaches the comms and debriefs; replay has the whole run.
+        const QVariantList hits = ops.search("Moving out");
+        QVERIFY(!hits.isEmpty());
+        QCOMPARE(hits.first().toMap().value("kind").toString(), QString("comms"));
+        QVERIFY(!ops.search("agent debrief").isEmpty());
+        const QVariantList timeline = ops.replay(0);
+        QVERIFY(timeline.size() >= 5);
+        QVERIFY(timeline.last().toMap().value("t").toDouble() >= timeline.first().toMap().value("t").toDouble());
+
+        // Archive, and back.
+        ops.setArchived(1, true);
+        QCOMPARE(ops.archivedCount(), 1);
+        ops.setArchived(1, false);
+        QCOMPARE(ops.archivedCount(), 0);
+
+        // Exports, both kinds.
+        const QString html = ops.exportOperation(1, "html");
+        QVERIFY(QFile::exists(html));
+        QVERIFY(read(html).contains("FIRST") && read(html).contains("<iframe sandbox srcdoc="));
+        const QString md = ops.exportOperation(1, "md");
+        QVERIFY(read(md).contains("## FIRST") && read(md).contains("Write notes"));
+        QVERIFY(html.startsWith(home.path()) && md.startsWith(home.path()));
+    }
+
     void keepsLoadouts()
     {
         QTemporaryDir data;

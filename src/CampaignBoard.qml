@@ -709,6 +709,17 @@ Item {
                         onClicked: ops.openCampaignDossier(board.current)
                     }
                     TacticalButton {
+                        visible: board.campaign !== null && (board.campaign.status === "active" || board.campaign.status === "complete"
+                                                             || board.campaign.status === "blocked")
+                        text: qsTr("Export")
+                        onClicked: campaignExport.popup()
+                        Menu {
+                            id: campaignExport
+                            MenuItem { text: qsTr("HTML report"); onTriggered: ops.reveal(ops.exportCampaign(board.current, "html")) }
+                            MenuItem { text: qsTr("Markdown write-up"); onTriggered: ops.reveal(ops.exportCampaign(board.current, "md")) }
+                        }
+                    }
+                    TacticalButton {
                         visible: board.campaign !== null && board.campaign.status !== "active"
                         text: qsTr("Delete campaign")
                         danger: true
