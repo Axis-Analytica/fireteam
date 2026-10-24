@@ -2250,7 +2250,8 @@ void Operations::onOperationDone(int row) {
         }
     } else if (op.status == "failed" || op.status == "aborted") {
         campaign.status = "blocked";
-        campaign.error = tr("%1 %2. Retry it, then resume the campaign.").arg(op.codename, op.status);
+        campaign.error = op.status == "failed" ? tr("%1 failed. Retry it, then resume the campaign.").arg(op.codename)
+                                               : tr("%1 was aborted. Retry it, then resume the campaign.").arg(op.codename);
         emit alert(QString(), tr("Campaign %1 is blocked").arg(campaign.name), campaign.error);
         saveCampaigns();
         emit campaignsChanged();
