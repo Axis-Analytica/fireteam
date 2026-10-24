@@ -39,6 +39,16 @@ QList<StreamEvent> parseLine(const QByteArray &line) {
         event.text = object.value("model").toString();
         events.append(event);
     } else if (type == "assistant") {
+        // Each turn reports its usage; everything sent in plus what came out
+        // is what the session's context now holds.
+        const QJsonObject usage = object.value("message").toObject().value("usage").toObject();
+        if (!usage.isEmpty()) {
+            StreamEvent event{StreamEvent::Usage};
+            for (const char *key : {"input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+                                    "output_tokens"})
+                event.contextTokens += usage.value(key).toInteger();
+            events.append(event);
+        }
         for (const auto &value : object.value("message").toObject().value("content").toArray()) {
             const QJsonObject block = value.toObject();
             const QString kind = block.value("type").toString();
@@ -57,6 +67,9 @@ QList<StreamEvent> parseLine(const QByteArray &line) {
         event.sessionId = object.value("session_id").toString();
         event.costUsd = object.value("total_cost_usd").toDouble();
         event.turns = object.value("num_turns").toInt();
+        const QJsonObject models = object.value("modelUsage").toObject();
+        for (auto it = models.begin(); it != models.end(); ++it)
+            event.contextWindow = qMax(event.contextWindow, it.value().toObject().value("contextWindow").toInteger());
         event.isError = object.value("is_error").toBool() || object.value("subtype").toString() != "success";
         if (event.text.isEmpty() && event.isError)
             event.text = object.value("subtype").toString();
@@ -72,7 +85,7 @@ QString systemBrief() {
 }
 
 QString cyclePrompt(const QString &codename, const QString &objective, int cycle, int cycles,
-                    const QString &reportPath) {
+                    const QString &reportPath, const QString &handoffBrief, const QString &debriefs) {
     QString orders;
     if (cycle == 1)
         orders = "This is the first cycle. Survey the project, plan the route to the objective, then deliver "
@@ -82,6 +95,10 @@ QString cyclePrompt(const QString &codename, const QString &objective, int cycle
                  "and deliver it.";
     if (cycle == cycles)
         orders += " This is the final cycle: finish, verify, and leave the project in a clean, working state.";
+    if (!handoffBrief.isEmpty())
+        orders += QString("\n\nHANDOFF:\nYou are a fresh session taking over this operation from one whose context "
+                          "grew too large. Before anything else, read the handoff brief at %1. Earlier debriefs are "
+                          "in %2 if you need more detail.").arg(handoffBrief, debriefs);
 
     return QString("OPERATION %1, CYCLE %2 OF %3\n\nOBJECTIVE:\n%4\n\nORDERS:\n%5\n\n"
                    "When this cycle's work is done, write a debrief as one self-contained HTML file to:\n%6\n"
@@ -89,6 +106,27 @@ QString cyclePrompt(const QString &codename, const QString &objective, int cycle
                    "the plan for the next cycle. Use inline CSS only with a dark background, and no external "
                    "resources. End with a two-sentence plain-text summary as your final reply.")
         .arg(codename).arg(cycle).arg(cycles).arg(objective, orders, reportPath);
+}
+
+QString handoffPrompt(const QString &codename, const QString &objective, qint64 contextTokens, int cyclesLeft,
+                      const QString &briefPath) {
+    return QString("OPERATION %1, HANDOFF\n\nOBJECTIVE:\n%2\n\n"
+                   "This session's context has reached %3 tokens, so a fresh session will take over for the "
+                   "remaining %4 cycle(s). It will start with no memory of this one.\n\n"
+                   "Write a handoff brief as Markdown to:\n%5\n"
+                   "Cover how far along the objective is; what has been built, with the key files and how they fit "
+                   "together; decisions made and why; how to build, run, and test; known problems; and the exact "
+                   "next steps. Be complete but concise: the next session reads only this brief and the debriefs. "
+                   "Don't change the project in this step. Reply with one sentence when done.")
+        .arg(codename, objective, tokens(contextTokens)).arg(cyclesLeft).arg(briefPath);
+}
+
+QString tokens(qint64 count) {
+    if (count >= 1000000)
+        return QString::number(count / 1000000.0, 'f', count % 1000000 ? 1 : 0) + "M";
+    if (count >= 1000)
+        return QString::number(qRound64(count / 1000.0)) + "k";
+    return QString::number(count);
 }
 
 static QString page(const QString &title, const QString &body) {

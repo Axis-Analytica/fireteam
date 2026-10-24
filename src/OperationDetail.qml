@@ -111,6 +111,38 @@ Item {
                 done: detail.op ? detail.op.cyclesDone : 0
                 live: detail.live
             }
+            SectionLabel {
+                Layout.fillWidth: true
+                Layout.topMargin: 6
+                text: qsTr("Context")
+                detail: !detail.op ? ""
+                    : qsTr("%1 / %2 · session %3 · %4").arg(Style.tokens(detail.op.context))
+                          .arg(Style.tokens(detail.op.contextWindow)).arg(detail.op.session)
+                          .arg(detail.op.handoffAt > 0 ? qsTr("hand off at %1").arg(Style.tokens(detail.op.handoffAt))
+                                                       : qsTr("no hand-off"))
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+                ContextGauge {
+                    Layout.fillWidth: true
+                    used: detail.op ? detail.op.context : 0
+                    window: detail.op ? detail.op.contextWindow : 1000000
+                    line: detail.op ? detail.op.handoffAt : 0
+                }
+                Text {
+                    visible: detail.op !== null && detail.op.handoffBrief.length > 0
+                    text: qsTr("Handoff brief ↗")
+                    color: theme.accent
+                    font.family: Style.display
+                    font.pixelSize: 11
+                    font.weight: Font.Bold
+                    font.letterSpacing: 2
+                    font.capitalization: Font.AllUppercase
+                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: ops.openReport(detail.op.handoffBrief) }
+                }
+            }
             Text {
                 Layout.fillWidth: true
                 visible: detail.live
@@ -234,7 +266,7 @@ Item {
                 Text {
                     id: objectiveText
                     Layout.fillWidth: true
-                    maximumLineCount: 5
+                    maximumLineCount: 3
                     elide: Text.ElideRight
                     text: detail.op ? detail.op.objective : ""
                     wrapMode: Text.Wrap
@@ -249,7 +281,7 @@ Item {
                 Text {
                     id: sitrepText
                     Layout.fillWidth: true
-                    maximumLineCount: 6
+                    maximumLineCount: 4
                     elide: Text.ElideRight
                     text: detail.op && detail.op.sitrep ? detail.op.sitrep : qsTr("No sitrep yet.")
                     wrapMode: Text.Wrap
@@ -326,7 +358,7 @@ Item {
                 ListView {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.minimumHeight: 40
+                    Layout.minimumHeight: 0
                     clip: true
                     model: detail.op ? detail.op.intel : []
                     ScrollBar.vertical: ScrollBar {}

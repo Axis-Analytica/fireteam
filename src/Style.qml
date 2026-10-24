@@ -37,5 +37,11 @@ QtObject {
         return qsTr("Standby")
     }
 
+    function tokens(n) {
+        if (n >= 1000000) return (n / 1000000).toLocaleString(Qt.locale(), 'f', n % 1000000 ? 1 : 0) + "M"
+        if (n >= 1000) return Math.round(n / 1000) + "k"
+        return "" + Math.round(n)
+    }
+
     function pad(n) { return n < 10 ? "0" + n : "" + n }
 }

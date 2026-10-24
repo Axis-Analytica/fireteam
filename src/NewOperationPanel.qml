@@ -23,6 +23,7 @@ Item {
         error = ""
         cycles = 3
         roe = "restricted"
+        handoff.currentIndex = 1
         visible = true
         enter.restart()
         if (directory.text.length === 0)
@@ -36,7 +37,7 @@ Item {
         if (error.length > 0)
             return
         ops.create(codename.text, directory.text, objective.text, cycles, roe,
-                   model.currentIndex === 0 ? "" : model.currentText)
+                   model.currentIndex === 0 ? "" : model.currentText, handoff.limits[handoff.currentIndex])
         visible = false
         planned(deployNow)
     }
@@ -241,8 +242,26 @@ Item {
                     }
                     ComboBox {
                         id: model
-                        Layout.preferredWidth: 220
+                        Layout.preferredWidth: 200
                         model: [qsTr("Account default"), "opus", "sonnet", "haiku"]
+                    }
+                    Item { Layout.preferredWidth: 12 }
+                    Text {
+                        text: qsTr("Hand off at")
+                        color: Style.dim
+                        font.family: Style.display
+                        font.pixelSize: 12
+                        font.weight: Font.Bold
+                        font.letterSpacing: 3
+                        font.capitalization: Font.AllUppercase
+                    }
+                    ComboBox {
+                        id: handoff
+                        Layout.preferredWidth: 150
+                        // Context sizes at which the next cycle moves to a fresh session.
+                        readonly property var limits: [150000, 250000, 400000, 600000, 0]
+                        model: ["150k", "250k", "400k", "600k", qsTr("Never")]
+                        currentIndex: 1
                     }
                     Item { Layout.fillWidth: true }
                 }

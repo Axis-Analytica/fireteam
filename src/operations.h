@@ -25,6 +25,14 @@ struct Operation {
     QString status = "standby";
     QString sessionId;
     double costUsd = 0;
+    // Context of the current session, and the line past which the next cycle
+    // goes to a fresh session primed with a handoff brief (0 never hands off).
+    qint64 contextTokens = 0;
+    qint64 contextWindow = 1000000;
+    qint64 handoffAt = 250000;
+    int session = 1;
+    QString handoffBrief;
+    QStringList handoffs;
     QString sitrep;
     QString activity;
     QStringList intel;
@@ -49,7 +57,8 @@ public:
     enum Role {
         IdRole = Qt::UserRole + 1, CodenameRole, DirectoryRole, ObjectiveRole, ModelRole, RoeRole,
         CyclesRole, CyclesDoneRole, StatusRole, CostRole, SitrepRole, ActivityRole, IntelRole,
-        ReportsRole, CommsRole, DossierRole, CreatedRole
+        ReportsRole, CommsRole, DossierRole, CreatedRole, ContextRole, ContextWindowRole, HandoffAtRole,
+        SessionRole, HandoffBriefRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -69,7 +78,7 @@ public:
     Q_INVOKABLE QString suggestCodename() const;
     Q_INVOKABLE QString validate(const QString &directory, const QString &objective) const;
     Q_INVOKABLE int create(const QString &codename, const QString &directory, const QString &objective,
-                           int cycles, const QString &roe, const QString &model);
+                           int cycles, const QString &roe, const QString &model, int handoffAt = 250000);
     Q_INVOKABLE void deploy(int row);
     Q_INVOKABLE void abort(int row);
     Q_INVOKABLE void remove(int row);
@@ -83,6 +92,7 @@ public:
     QJsonArray toJson() const;
     QString reportPath(const Operation &op, int cycle) const;
     QString dossierPath(const Operation &op) const;
+    QString handoffPath(const Operation &op) const;
     const Operation &at(int row) const { return m_ops.at(row); }
 
 signals:
@@ -98,10 +108,16 @@ private:
         QStringList actions;
         bool aborting = false;
         bool resultSeen = false;
+        bool handoff = false;
+        bool pastLine = false;
     };
 
     int rowOf(const QString &id) const;
+    void advance(const QString &id);
     void startCycle(const QString &id);
+    void startHandoff(const QString &id);
+    void launch(const QString &id, const QString &prompt, bool handoff);
+    void finishHandoff(const QString &id, const Run &run, int exitCode);
     void readOutput(const QString &id);
     void finishCycle(const QString &id, int exitCode);
     void writeReports(Operation &op, const QStringList &actions);

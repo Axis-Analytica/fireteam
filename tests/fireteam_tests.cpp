@@ -19,8 +19,10 @@ echo '---' >> "$FIRETEAM_TEST_LOG"
 if [ "$1" = auth ]; then echo '{"loggedIn":true,"email":"agent@example.com","subscriptionType":"max"}'; exit 0; fi
 prompt="$2"
 report=$(printf '%s\n' "$prompt" | grep '/debriefs/cycle-')
+brief=$(printf '%s\n' "$prompt" | grep '^/.*/handoffs/session-..\.md$')
 echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"test-model"}'
-echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Moving out."},{"type":"tool_use","name":"Edit","input":{"file_path":"/x/src/main.cpp"}}]}}'
+if [ -n "$brief" ]; then echo '# brief' > "$brief"; echo '{"type":"result","subtype":"success","is_error":false,"result":"Brief written.","session_id":"sess-1","total_cost_usd":0.01}'; exit 0; fi
+echo '{"type":"assistant","message":{"usage":{"input_tokens":'${FIRETEAM_TEST_CONTEXT:-1000}',"output_tokens":0},"content":[{"type":"text","text":"Moving out."},{"type":"tool_use","name":"Edit","input":{"file_path":"/x/src/main.cpp"}}]}}'
 case "$report" in *cycle-01.html) echo '<html>agent debrief</html>' > "$report";; esac
 echo '{"type":"result","subtype":"success","is_error":false,"result":"Cycle done.","session_id":"sess-1","total_cost_usd":0.25,"num_turns":3}'
 )";
@@ -114,6 +116,72 @@ private slots:
         QVERIFY(runs.at(1).contains("--resume\nsess-1"));
         QVERIFY(runs.at(0).contains("--permission-mode\nacceptEdits"));
         QVERIFY(runs.at(0).contains("--model\nsonnet"));
+    }
+
+    void handsOffPastTheContextLine()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = bin.filePath("claude"), log = bin.filePath("args.log");
+        write(claude, FakeClaude);
+        QVERIFY(QFile::setPermissions(claude, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        qputenv("FIRETEAM_TEST_CONTEXT", "6000");
+
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 3, "restricted", "", 5000), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        qunsetenv("FIRETEAM_TEST_CONTEXT");
+
+        const Operation &op = ops.at(0);
+        QCOMPARE(op.status, QString("complete"));
+        QCOMPARE(op.cyclesDone, 3);
+        QCOMPARE(op.session, 3);
+        QCOMPARE(op.handoffs.size(), 2);
+        QCOMPARE(op.contextTokens, 6000);
+        QCOMPARE(op.sitrep, QString("Cycle done."));
+
+        // Cycle, hand-off, fresh cycle, hand-off, fresh cycle. The hand-off
+        // resumes the old session; the cycle after it starts a new one and is
+        // pointed at the brief.
+        const QStringList runs = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts);
+        QCOMPARE(runs.size(), 5);
+        QVERIFY(runs.at(1).contains("HANDOFF") && runs.at(1).contains("--resume\nsess-1"));
+        QVERIFY(!runs.at(2).contains("--resume"));
+        QVERIFY(runs.at(2).contains("handoffs/session-01.md"));
+        QVERIFY(runs.at(4).contains("handoffs/session-02.md"));
+    }
+
+    void neverHandsOffWhenDisabled()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = bin.filePath("claude");
+        write(claude, FakeClaude);
+        QVERIFY(QFile::setPermissions(claude, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        qputenv("FIRETEAM_TEST_CONTEXT", "900000");
+
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 2, "restricted", "", 0), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        qunsetenv("FIRETEAM_TEST_CONTEXT");
+        QCOMPARE(ops.at(0).session, 1);
+        QVERIFY(ops.at(0).handoffs.isEmpty());
+    }
+
+    void readsContextUsage()
+    {
+        auto events = Stream::parseLine(R"({"type":"assistant","message":{"usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":5},"content":[]}})");
+        QCOMPARE(events.size(), 1);
+        QCOMPARE(events.first().kind, StreamEvent::Usage);
+        QCOMPARE(events.first().contextTokens, 1107);
+        events = Stream::parseLine(R"({"type":"result","subtype":"success","result":"ok","modelUsage":{"a":{"contextWindow":200000},"b":{"contextWindow":1000000}}})");
+        QCOMPARE(events.first().contextWindow, 1000000);
+        QCOMPARE(Stream::tokens(251400), QString("251k"));
+        QCOMPARE(Stream::tokens(1000000), QString("1M"));
     }
 
     void reloadMarksLostAgentsInterrupted()

@@ -28,6 +28,20 @@ with an API key (`ANTHROPIC_API_KEY` or an `apiKeyHelper`).
 Everything Fireteam keeps lives in `~/.local/share/fireteam/`. The project
 directory is only touched by the agent itself.
 
+## Context and hand-offs
+
+Each operation shows how full its session's context is, from the token usage
+`claude` reports on every turn, against the model's window. When a cycle ends
+past the operation's hand-off line (150k, 250k by default, 400k, 600k, or
+never), and cycles remain, Fireteam asks the old session for a handoff brief
+(state, decisions, how to build and test, known problems, next steps), then
+starts the next cycle in a fresh session that reads the brief first. Hand-offs
+only happen between cycles, so no work is cut off mid-cycle; inside a cycle,
+Claude Code's own auto-compaction still applies. If no brief gets written, the
+fresh session starts from the last debrief instead.
+
+Briefs are kept in `~/.local/share/fireteam/ops/<id>/handoffs/`.
+
 ## Rules of engagement
 
 | ROE | `claude` permission mode | Meaning |

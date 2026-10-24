@@ -10,13 +10,16 @@
 // stream-json`: something the agent said, a tool it used, or the result that
 // ends a cycle.
 struct StreamEvent {
-    enum Kind { Session, Say, Tool, Result, Error };
+    enum Kind { Session, Say, Tool, Usage, Result, Error };
     StreamEvent(Kind k = Say, const QString &t = {}) : kind(k), text(t) {}
     Kind kind = Say;
     QString text;
     QString sessionId;
     double costUsd = 0;
     int turns = 0;
+    // Usage: the tokens in context as of this turn. Result: the model's window.
+    qint64 contextTokens = 0;
+    qint64 contextWindow = 0;
     bool isError = false;
 };
 
@@ -25,7 +28,10 @@ QList<StreamEvent> parseLine(const QByteArray &line);
 QString describeTool(const QString &name, const QJsonObject &input);
 
 QString cyclePrompt(const QString &codename, const QString &objective, int cycle, int cycles,
-                    const QString &reportPath);
+                    const QString &reportPath, const QString &handoffBrief = {}, const QString &debriefs = {});
+QString handoffPrompt(const QString &codename, const QString &objective, qint64 contextTokens, int cyclesLeft,
+                      const QString &briefPath);
+QString tokens(qint64 count);
 QString systemBrief();
 
 // Written when the agent finished a cycle without leaving its own debrief, so
