@@ -49,6 +49,11 @@ Item {
         repeat: true
         running: replay.visible && replay.playing
         onTriggered: {
+            // Quiet stretches (an agent thinking, a night between cycles) are
+            // skipped: playback jumps to just before the next line.
+            const next = replay.shown < replay.timeline.length ? replay.timeline[replay.shown].t : replay.duration
+            if (next - replay.position > 3 * replay.speed / 10 + 3)
+                replay.position = next - 0.5
             replay.position = Math.min(replay.duration, replay.position + 0.05 * replay.speed)
             if (replay.position >= replay.duration)
                 replay.playing = false
