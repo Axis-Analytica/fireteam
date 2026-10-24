@@ -42,6 +42,9 @@ Item {
                 model: [
                     ["N", qsTr("Plan a new operation")],
                     [qsTr("Space"), qsTr("Deploy, resume, or redeploy the selected operation")],
+                    ["T", qsTr("Send orders to the selected operation")],
+                    ["H", qsTr("Hold after the current cycle, or lift the hold")],
+                    ["E", qsTr("Amend the briefing of an operation that isn't deployed")],
                     ["X", qsTr("Abort the selected operation")],
                     ["↑ ↓  J K", qsTr("Move through the roster")],
                     ["R", qsTr("Open the latest debrief")],

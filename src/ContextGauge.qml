@@ -7,6 +7,8 @@ Item {
     property real used: 0
     property real window: 1000000
     property real line: 250000
+    // Past this the cycle is stopped and handed off on the spot.
+    property real ceiling: 0
 
     readonly property real fraction: window > 0 ? Math.min(1, used / window) : 0
     readonly property color tone: line > 0 && used >= line ? Style.danger
@@ -35,5 +37,14 @@ Item {
         width: 2
         height: parent.height + 8
         color: Style.text
+    }
+    Rectangle {
+        visible: gauge.ceiling > 0 && gauge.window > 0
+        x: parent.width * Math.min(1, gauge.ceiling / gauge.window) - 1
+        y: -4
+        width: 2
+        height: parent.height + 8
+        color: Style.danger
+        opacity: 0.8
     }
 }

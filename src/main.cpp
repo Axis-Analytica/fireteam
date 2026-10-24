@@ -12,6 +12,7 @@
 #include <cstring>
 
 #include "folderpicker.h"
+#include "notifier.h"
 #include "operations.h"
 #include "theme.h"
 #include "translator.h"
@@ -62,6 +63,7 @@ int main(int argc, char *argv[]) {
     Theme theme;
     Operations operations;
     FolderPicker folderPicker;
+    Notifier notifier;
     operations.checkLink();
 
     QQmlApplicationEngine engine;
@@ -70,6 +72,7 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("ops", &operations);
     engine.rootContext()->setContextProperty("folderPicker", &folderPicker);
+    engine.rootContext()->setContextProperty("notifier", &notifier);
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;

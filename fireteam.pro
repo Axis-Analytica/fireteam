@@ -4,14 +4,14 @@ CONFIG += c++17 release
 TARGET = fireteam
 TEMPLATE = app
 
-HEADERS += \
+HEADERS += src/notifier.h \
     src/operations.h \
     src/stream.h \
     src/folderpicker.h \
     src/theme.h \
     src/translator.h
 
-SOURCES += \
+SOURCES += src/notifier.cpp \
     src/main.cpp \
     src/operations.cpp \
     src/stream.cpp \

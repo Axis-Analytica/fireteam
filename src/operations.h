@@ -33,6 +33,10 @@ struct Operation {
     int session = 1;
     QString handoffBrief;
     QStringList handoffs;
+    // Orders from command waiting for the next cycle, and whether to stand the
+    // agent down once its current cycle ends.
+    QStringList orders;
+    bool hold = false;
     QString sitrep;
     QString activity;
     QStringList intel;
@@ -58,7 +62,7 @@ public:
         IdRole = Qt::UserRole + 1, CodenameRole, DirectoryRole, ObjectiveRole, ModelRole, RoeRole,
         CyclesRole, CyclesDoneRole, StatusRole, CostRole, SitrepRole, ActivityRole, IntelRole,
         ReportsRole, CommsRole, DossierRole, CreatedRole, ContextRole, ContextWindowRole, HandoffAtRole,
-        SessionRole, HandoffBriefRole
+        SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -79,7 +83,13 @@ public:
     Q_INVOKABLE QString validate(const QString &directory, const QString &objective) const;
     Q_INVOKABLE int create(const QString &codename, const QString &directory, const QString &objective,
                            int cycles, const QString &roe, const QString &model, int handoffAt = 250000);
+    Q_INVOKABLE bool update(int row, const QString &codename, const QString &objective, int cycles,
+                            const QString &roe, const QString &model, int handoffAt);
     Q_INVOKABLE void deploy(int row);
+    Q_INVOKABLE void sendOrders(int row, const QString &text, bool deployNow);
+    Q_INVOKABLE void clearOrders(int row);
+    Q_INVOKABLE void setHold(int row, bool hold);
+    Q_INVOKABLE int rowOfId(const QString &id) const { return rowOf(id); }
     Q_INVOKABLE void abort(int row);
     Q_INVOKABLE void remove(int row);
     Q_INVOKABLE void abortAll();
@@ -94,12 +104,16 @@ public:
     QString dossierPath(const Operation &op) const;
     QString handoffPath(const Operation &op) const;
     const Operation &at(int row) const { return m_ops.at(row); }
+    // Past this much context a cycle is cut short and handed off on the spot.
+    static qint64 ceiling(const Operation &op);
 
 signals:
     void deployedCountChanged();
     void accountChanged();
     void cycleFinished(int row, int cycle);
     void operationFinished(int row);
+    // Something worth telling someone who isn't looking at the board.
+    void alert(const QString &opId, const QString &title, const QString &body);
 
 private:
     struct Run {
@@ -110,12 +124,16 @@ private:
         bool resultSeen = false;
         bool handoff = false;
         bool pastLine = false;
+        bool ceiling = false;
+        // Orders this cycle carried, put back if it doesn't finish.
+        QStringList orders;
     };
 
     int rowOf(const QString &id) const;
     void advance(const QString &id);
     void startCycle(const QString &id);
-    void startHandoff(const QString &id);
+    void startHandoff(const QString &id, bool midCycle = false);
+    void stand(const QString &id, const QString &status);
     void launch(const QString &id, const QString &prompt, bool handoff);
     void finishHandoff(const QString &id, const Run &run, int exitCode);
     void readOutput(const QString &id);

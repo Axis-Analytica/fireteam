@@ -19,7 +19,7 @@ ApplicationWindow {
 
     // Hyprland tiles windows, so the board has to read in a narrow column too.
     readonly property bool narrow: width < 1100
-    readonly property bool overlayOpen: briefing.visible || help.visible || confirm.visible
+    readonly property bool overlayOpen: briefing.visible || help.visible || confirm.visible || radio.visible
     readonly property var selected: roster.currentItem
 
     function move(step) {
@@ -27,6 +27,9 @@ ApplicationWindow {
             roster.currentIndex = Math.max(0, Math.min(roster.count - 1, roster.currentIndex + step))
     }
     function deploySelected() { if (selected) ops.deploy(roster.currentIndex) }
+    function ordersSelected() { if (selected) radio.open(selected, roster.currentIndex) }
+    function editSelected() { if (selected && selected.status !== "deployed") briefing.edit(selected, roster.currentIndex) }
+    function holdSelected() { if (selected && selected.status === "deployed") ops.setHold(roster.currentIndex, !selected.hold) }
     function abortSelected() {
         if (!selected || selected.status !== "deployed")
             return
@@ -52,6 +55,25 @@ ApplicationWindow {
             Qt.quit()
     }
 
+    // Tell someone who's looking elsewhere; the board already shows it.
+    Connections {
+        target: ops
+        function onAlert(opId, title, body) {
+            if (!win.active)
+                notifier.send(opId, title, body)
+        }
+    }
+    Connections {
+        target: notifier
+        function onActivated(opId) {
+            const row = ops.rowOfId(opId)
+            if (row >= 0)
+                roster.currentIndex = row
+            win.raise()
+            win.requestActivate()
+        }
+    }
+
     onClosing: (close) => {
         if (ops.deployedCount > 0 && !confirm.visible) {
             close.accepted = false
@@ -63,6 +85,9 @@ ApplicationWindow {
     Shortcut { sequence: "Q"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.quit() }
     Shortcut { sequence: "N"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: briefing.open() }
     Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.deploySelected() }
+    Shortcut { sequence: "T"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.ordersSelected() }
+    Shortcut { sequence: "H"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.holdSelected() }
+    Shortcut { sequence: "E"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.editSelected() }
     Shortcut { sequence: "X"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.abortSelected() }
     Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: ops.openLatestReport(roster.currentIndex) }
     Shortcut { sequence: "D"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: ops.openDossier(roster.currentIndex) }
@@ -77,6 +102,7 @@ ApplicationWindow {
         onActivated: {
             if (confirm.visible) confirm.visible = false
             else if (help.visible) help.visible = false
+            else if (radio.visible) radio.close()
             else briefing.close()
         }
     }
@@ -259,6 +285,8 @@ ApplicationWindow {
                     onDeployRequested: win.deploySelected()
                     onAbortRequested: win.abortSelected()
                     onRemoveRequested: win.removeSelected()
+                    onOrdersRequested: win.ordersSelected()
+                    onEditRequested: win.editSelected()
                 }
             }
 
@@ -268,6 +296,7 @@ ApplicationWindow {
                 spacing: 22
                 KeyHint { key: "N"; label: qsTr("Plan") }
                 KeyHint { key: qsTr("Space"); label: qsTr("Deploy") }
+                KeyHint { visible: !win.narrow; key: "T"; label: qsTr("Orders") }
                 KeyHint { visible: !win.narrow; key: "X"; label: qsTr("Abort") }
                 KeyHint { visible: !win.narrow; key: "R"; label: qsTr("Debrief") }
                 KeyHint { key: "?"; label: qsTr("Controls") }
@@ -292,6 +321,15 @@ ApplicationWindow {
                 if (deployNow)
                     ops.deploy(0)
             }
+            onAmended: (row, deployNow) => {
+                if (deployNow)
+                    ops.deploy(row)
+            }
+        }
+        RadioPanel {
+            id: radio
+            anchors.fill: parent
+            onVisibleChanged: if (!visible) board.forceActiveFocus()
         }
         HelpOverlay { id: help; anchors.fill: parent }
         ConfirmPanel { id: confirm; anchors.fill: parent }

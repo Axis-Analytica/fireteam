@@ -28,9 +28,11 @@ QList<StreamEvent> parseLine(const QByteArray &line);
 QString describeTool(const QString &name, const QJsonObject &input);
 
 QString cyclePrompt(const QString &codename, const QString &objective, int cycle, int cycles,
-                    const QString &reportPath, const QString &handoffBrief = {}, const QString &debriefs = {});
+                    const QString &reportPath, const QString &handoffBrief = {}, const QString &debriefs = {},
+                    const QStringList &commandOrders = {});
+// midCycle is the cycle the session was stopped in, or 0 between cycles.
 QString handoffPrompt(const QString &codename, const QString &objective, qint64 contextTokens, int cyclesLeft,
-                      const QString &briefPath);
+                      const QString &briefPath, int midCycle = 0);
 QString tokens(qint64 count);
 QString systemBrief();
 

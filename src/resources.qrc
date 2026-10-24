@@ -11,6 +11,7 @@
         <file alias="Main.qml">Main.qml</file>
         <file alias="NewOperationPanel.qml">NewOperationPanel.qml</file>
         <file alias="OperationDetail.qml">OperationDetail.qml</file>
+        <file alias="RadioPanel.qml">RadioPanel.qml</file>
         <file alias="RosterEntry.qml">RosterEntry.qml</file>
         <file alias="Scanlines.qml">Scanlines.qml</file>
         <file alias="SectionLabel.qml">SectionLabel.qml</file>

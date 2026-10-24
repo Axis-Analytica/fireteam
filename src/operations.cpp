@@ -24,7 +24,8 @@ QJsonObject Operation::toJson() const {
             {"intel", QJsonArray::fromStringList(intel)}, {"reports", QJsonArray::fromStringList(reports)},
             {"sitreps", QJsonArray::fromStringList(sitreps)}, {"created", created.toString(Qt::ISODate)},
             {"contextTokens", contextTokens}, {"contextWindow", contextWindow}, {"handoffAt", handoffAt},
-            {"session", session}, {"handoffBrief", handoffBrief}, {"handoffs", QJsonArray::fromStringList(handoffs)}};
+            {"session", session}, {"handoffBrief", handoffBrief}, {"handoffs", QJsonArray::fromStringList(handoffs)},
+            {"orders", QJsonArray::fromStringList(orders)}, {"hold", hold}};
 }
 
 Operation Operation::fromJson(const QJsonObject &o) {
@@ -57,6 +58,8 @@ Operation Operation::fromJson(const QJsonObject &o) {
     op.session = o.value("session").toInt(1);
     op.handoffBrief = o.value("handoffBrief").toString();
     op.handoffs = strings(o.value("handoffs"));
+    op.orders = strings(o.value("orders"));
+    op.hold = o.value("hold").toBool();
     return op;
 }
 
@@ -109,7 +112,8 @@ QHash<int, QByteArray> Operations::roleNames() const {
             {ActivityRole, "activity"}, {IntelRole, "intel"}, {ReportsRole, "reports"}, {CommsRole, "comms"},
             {DossierRole, "dossier"}, {CreatedRole, "created"}, {ContextRole, "context"},
             {ContextWindowRole, "contextWindow"}, {HandoffAtRole, "handoffAt"}, {SessionRole, "session"},
-            {HandoffBriefRole, "handoffBrief"}};
+            {HandoffBriefRole, "handoffBrief"}, {OrdersRole, "orders"}, {HoldRole, "hold"},
+            {CeilingRole, "ceiling"}};
 }
 
 QVariant Operations::data(const QModelIndex &index, int role) const {
@@ -139,6 +143,9 @@ QVariant Operations::data(const QModelIndex &index, int role) const {
     case HandoffAtRole: return double(op.handoffAt);
     case SessionRole: return op.session;
     case HandoffBriefRole: return op.handoffs.isEmpty() ? QString() : op.handoffs.last();
+    case OrdersRole: return op.orders;
+    case HoldRole: return op.hold;
+    case CeilingRole: return double(ceiling(op));
     }
     return {};
 }
@@ -215,6 +222,39 @@ int Operations::create(const QString &codename, const QString &directory, const 
     return 0;
 }
 
+bool Operations::update(int row, const QString &codename, const QString &objective, int cycles,
+                        const QString &roe, const QString &model, int handoffAt) {
+    if (row < 0 || row >= m_ops.size() || m_ops.at(row).status == "deployed" || objective.trimmed().isEmpty())
+        return false;
+    Operation &op = m_ops[row];
+    // The directory stays: Claude Code keeps a session with the project it
+    // ran in, so moving it would orphan the session.
+    if (!codename.trimmed().isEmpty())
+        op.codename = codename.trimmed().toUpper();
+    op.objective = objective.trimmed();
+    op.cycles = qBound(qMax(1, op.cyclesDone), cycles, 20);
+    op.roe = roe == "free" ? "free" : "restricted";
+    op.model = model.trimmed();
+    op.handoffAt = qMax(0, handoffAt);
+    if (op.status == "complete" && op.cyclesDone < op.cycles)
+        op.status = "standby";
+    log(op, "sys", tr("Briefing amended: %1 cycles, %2, %3.")
+                       .arg(op.cycles).arg(op.roe == "free" ? tr("weapons free") : tr("restricted"))
+                       .arg(op.handoffAt > 0 ? tr("hand off at %1").arg(Stream::tokens(op.handoffAt))
+                                             : tr("no hand-off")));
+    changed(row);
+    save();
+    return true;
+}
+
+qint64 Operations::ceiling(const Operation &op) {
+    if (op.handoffAt <= 0)
+        return 0;
+    // Twice the line leaves a cycle room to finish what it started, and the
+    // cap keeps clear of the window's end, where Claude Code would compact.
+    return qMin(op.handoffAt * 2, op.contextWindow * 9 / 10);
+}
+
 QString Operations::reportPath(const Operation &op, int cycle) const {
     return QString("%1/ops/%2/debriefs/cycle-%3.html").arg(m_dataDirectory, op.id).arg(cycle, 2, 10, QChar('0'));
 }
@@ -247,10 +287,57 @@ void Operations::deploy(int row) {
     if (op.cyclesDone >= op.cycles)
         op.cycles = op.cyclesDone + 1;
     op.status = "deployed";
+    op.hold = false;
     changed(row);
     emit deployedCountChanged();
     save();
     advance(op.id);
+}
+
+void Operations::sendOrders(int row, const QString &text, bool deployNow) {
+    if (row < 0 || row >= m_ops.size() || text.trimmed().isEmpty())
+        return;
+    Operation &op = m_ops[row];
+    op.orders << text.trimmed();
+    log(op, "cmd", text.trimmed());
+    if (op.status == "deployed")
+        log(op, "sys", tr("Orders received. They go out at the start of the next cycle."));
+    changed(row);
+    save();
+    if (deployNow && op.status != "deployed")
+        deploy(row);
+}
+
+void Operations::clearOrders(int row) {
+    if (row < 0 || row >= m_ops.size() || m_ops.at(row).orders.isEmpty())
+        return;
+    Operation &op = m_ops[row];
+    op.orders.clear();
+    log(op, "sys", tr("Queued orders withdrawn."));
+    changed(row);
+    save();
+}
+
+void Operations::setHold(int row, bool hold) {
+    if (row < 0 || row >= m_ops.size() || m_ops.at(row).status != "deployed" || m_ops.at(row).hold == hold)
+        return;
+    Operation &op = m_ops[row];
+    op.hold = hold;
+    log(op, "sys", hold ? tr("Holding after this cycle.") : tr("Hold lifted. The operation carries on."));
+    changed(row);
+    save();
+}
+
+void Operations::stand(const QString &id, const QString &status) {
+    const int row = rowOf(id);
+    Operation &op = m_ops[row];
+    op.status = status;
+    op.hold = false;
+    op.activity.clear();
+    changed(row);
+    save();
+    emit deployedCountChanged();
+    emit operationFinished(row);
 }
 
 void Operations::advance(const QString &id) {
@@ -272,14 +359,20 @@ void Operations::startCycle(const QString &id) {
 
     // Only the first cycle of a fresh session after a hand-off reads the brief.
     const QString brief = op.sessionId.isEmpty() ? op.handoffBrief : QString();
+    const QStringList orders = op.orders;
+    op.orders.clear();
     op.activity = tr("Cycle %1 inbound").arg(cycle);
-    log(op, "sys", tr("Cycle %1 of %2 deployed.").arg(cycle).arg(op.cycles));
+    log(op, "sys", orders.isEmpty() ? tr("Cycle %1 of %2 deployed.").arg(cycle).arg(op.cycles)
+                                    : tr("Cycle %1 of %2 deployed with %n order(s) from command.", "", orders.size())
+                                          .arg(cycle).arg(op.cycles));
+    save();
     launch(id, Stream::cyclePrompt(op.codename, op.objective, cycle, op.cycles, report, brief,
-                                   QFileInfo(report).absolutePath()),
+                                   QFileInfo(report).absolutePath(), orders),
            false);
+    m_runs[id].orders = orders;
 }
 
-void Operations::startHandoff(const QString &id) {
+void Operations::startHandoff(const QString &id, bool midCycle) {
     const int row = rowOf(id);
     Operation &op = m_ops[row];
     const QString brief = handoffPath(op);
@@ -288,7 +381,8 @@ void Operations::startHandoff(const QString &id) {
     op.activity = tr("Handing off");
     log(op, "sys", tr("Context at %1, past the %2 line. Session %3 is writing a handoff brief.")
                        .arg(Stream::tokens(op.contextTokens), Stream::tokens(op.handoffAt)).arg(op.session));
-    launch(id, Stream::handoffPrompt(op.codename, op.objective, op.contextTokens, op.cycles - op.cyclesDone, brief),
+    launch(id, Stream::handoffPrompt(op.codename, op.objective, op.contextTokens, op.cycles - op.cyclesDone, brief,
+                                     midCycle ? op.cyclesDone + 1 : 0),
            true);
 }
 
@@ -376,6 +470,18 @@ void Operations::readOutput(const QString &id) {
                     log(op, "sys", tr("Context at %1, past the %2 line. Handing off after this cycle.")
                                        .arg(Stream::tokens(op.contextTokens), Stream::tokens(op.handoffAt)));
                 }
+                // A cycle that keeps going far past the line is cut short
+                // rather than left to grow toward the end of the window.
+                if (!it->handoff && !it->ceiling && !it->aborting && ceiling(op) > 0
+                    && op.contextTokens >= ceiling(op)) {
+                    it->ceiling = true;
+                    log(op, "error", tr("Context at %1, past the %2 ceiling. Stopping the agent mid-cycle to hand off.")
+                                         .arg(Stream::tokens(op.contextTokens), Stream::tokens(ceiling(op))));
+                    emit alert(op.id, tr("%1 hit the context ceiling").arg(op.codename),
+                               tr("Cycle %1 was stopped at %2 and is handing off to a fresh session.")
+                                   .arg(op.cyclesDone + 1).arg(Stream::tokens(op.contextTokens)));
+                    it->process->terminate();
+                }
                 break;
             case StreamEvent::Result:
                 it->resultSeen = true;
@@ -423,6 +529,18 @@ void Operations::finishCycle(const QString &id, int exitCode) {
     Operation &op = m_ops[row];
     const int cycle = op.cyclesDone + 1;
     op.activity.clear();
+    // A cycle that didn't finish didn't carry out its orders either.
+    if (!run.orders.isEmpty() && (run.aborting || run.ceiling || exitCode != 0 || !run.resultSeen))
+        op.orders = run.orders + op.orders;
+
+    // Stopped at the ceiling before the cycle could finish: the old session
+    // writes a brief and a fresh one picks the same cycle up.
+    if (run.ceiling && !run.resultSeen && !run.aborting) {
+        changed(row);
+        save();
+        startHandoff(id, true);
+        return;
+    }
 
     if (run.aborting) {
         op.status = "aborted";
@@ -445,6 +563,18 @@ void Operations::finishCycle(const QString &id, int exitCode) {
     if (op.status == "deployed" && !more) {
         op.status = "complete";
         log(op, "sys", tr("Operation complete."));
+        emit alert(op.id, tr("%1 complete").arg(op.codename), op.sitrep);
+    } else if (op.status == "failed") {
+        emit alert(op.id, tr("%1 failed in cycle %2").arg(op.codename).arg(cycle),
+                   tr("Check the comms, then retry the cycle."));
+    } else if (more && op.hold) {
+        log(op, "sys", tr("Holding at cycle %1 of %2, as ordered.").arg(op.cyclesDone).arg(op.cycles));
+        emit alert(op.id, tr("%1 is holding").arg(op.codename),
+                   tr("Cycle %1 of %2 done. Resume when ready.").arg(op.cyclesDone).arg(op.cycles));
+        stand(id, "held");
+        return;
+    } else if (more) {
+        emit alert(op.id, tr("%1: cycle %2 of %3 done").arg(op.codename).arg(op.cyclesDone).arg(op.cycles), op.sitrep);
     }
     changed(row);
     save();
@@ -461,12 +591,8 @@ void Operations::finishHandoff(const QString &id, const Run &run, int exitCode) 
     Operation &op = m_ops[row];
     op.activity.clear();
     if (run.aborting) {
-        op.status = "aborted";
         log(op, "error", tr("Aborted during the hand-off."));
-        changed(row);
-        save();
-        emit deployedCountChanged();
-        emit operationFinished(row);
+        stand(id, "aborted");
         return;
     }
 
@@ -475,6 +601,8 @@ void Operations::finishHandoff(const QString &id, const Run &run, int exitCode) 
         op.handoffBrief = brief;
         op.handoffs << brief;
         log(op, "sys", tr("Handoff brief filed. Session %1 takes over.").arg(op.session + 1));
+        emit alert(op.id, tr("%1 handed off").arg(op.codename),
+                   tr("Session %1 takes over from a fresh context.").arg(op.session + 1));
     } else {
         // The old session couldn't write a brief, but its context still has to
         // go; the fresh session starts from the last debrief instead.
@@ -485,6 +613,11 @@ void Operations::finishHandoff(const QString &id, const Run &run, int exitCode) 
     op.sessionId.clear();
     op.session += 1;
     op.contextTokens = 0;
+    if (op.hold) {
+        log(op, "sys", tr("Holding before cycle %1, as ordered.").arg(op.cyclesDone + 1));
+        stand(id, "held");
+        return;
+    }
     changed(row);
     save();
     startCycle(id);
@@ -650,6 +783,7 @@ void Operations::load() {
         // agent; it can be redeployed from the cycle it reached.
         if (op.status == "deployed")
             op.status = "interrupted";
+        op.hold = false;
         QFile comms(m_dataDirectory + "/ops/" + op.id + "/comms.jsonl");
         if (comms.open(QIODevice::ReadOnly)) {
             const QList<QByteArray> lines = comms.readAll().split('\n');

@@ -12,7 +12,9 @@
 
 // A stand-in for claude: prints a stream-json session, records its arguments,
 // and writes the debrief the prompt asks for on the first cycle only, so both
-// the agent's own report and Fireteam's fallback are exercised.
+// the agent's own report and Fireteam's fallback are exercised. When the
+// FIRETEAM_TEST_STALL file exists, one run reports a huge context and then
+// hangs, the way a runaway cycle would.
 static const char *FakeClaude = R"(#!/bin/sh
 printf '%s\n' "$@" >> "$FIRETEAM_TEST_LOG"
 echo '---' >> "$FIRETEAM_TEST_LOG"
@@ -22,6 +24,7 @@ report=$(printf '%s\n' "$prompt" | grep '/debriefs/cycle-')
 brief=$(printf '%s\n' "$prompt" | grep '^/.*/handoffs/session-..\.md$')
 echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"test-model"}'
 if [ -n "$brief" ]; then echo '# brief' > "$brief"; echo '{"type":"result","subtype":"success","is_error":false,"result":"Brief written.","session_id":"sess-1","total_cost_usd":0.01}'; exit 0; fi
+if [ -n "$FIRETEAM_TEST_STALL" ] && [ -f "$FIRETEAM_TEST_STALL" ]; then rm "$FIRETEAM_TEST_STALL"; echo '{"type":"assistant","message":{"usage":{"input_tokens":900000,"output_tokens":0},"content":[]}}'; exec sleep 20; fi
 echo '{"type":"assistant","message":{"usage":{"input_tokens":'${FIRETEAM_TEST_CONTEXT:-1000}',"output_tokens":0},"content":[{"type":"text","text":"Moving out."},{"type":"tool_use","name":"Edit","input":{"file_path":"/x/src/main.cpp"}}]}}'
 case "$report" in *cycle-01.html) echo '<html>agent debrief</html>' > "$report";; esac
 echo '{"type":"result","subtype":"success","is_error":false,"result":"Cycle done.","session_id":"sess-1","total_cost_usd":0.25,"num_turns":3}'
@@ -172,6 +175,131 @@ private slots:
         QVERIFY(ops.at(0).handoffs.isEmpty());
     }
 
+    void ordersGoOutWithTheNextCycle()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin), log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 2, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        QSignalSpy alerts(&ops, &Operations::alert);
+        ops.sendOrders(0, "Use SQLite, not JSON files.", true);
+        QCOMPARE(ops.at(0).status, QString("deployed"));
+        QVERIFY(ops.at(0).orders.isEmpty());
+        QVERIFY(finished.wait(10000));
+
+        // The orders ride with the first cycle only, and the board hears about
+        // each finished cycle.
+        const QStringList runs = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts);
+        QCOMPARE(runs.size(), 2);
+        QVERIFY(runs.at(0).contains("ORDERS FROM COMMAND") && runs.at(0).contains("Use SQLite, not JSON files."));
+        QVERIFY(!runs.at(1).contains("ORDERS FROM COMMAND"));
+        QCOMPARE(alerts.size(), 2);
+
+        // Orders to a finished operation wait for the next deploy unless sent
+        // with it.
+        ops.sendOrders(0, "Add a README.", false);
+        QCOMPARE(ops.at(0).status, QString("complete"));
+        QCOMPARE(ops.at(0).orders, QStringList{"Add a README."});
+        ops.clearOrders(0);
+        QVERIFY(ops.at(0).orders.isEmpty());
+    }
+
+    void keepsOrdersFromAFailedCycle()
+    {
+        QTemporaryDir data, project;
+        Operations ops(data.path(), "/bin/true");
+        QCOMPARE(ops.create("", project.path(), "Build", 1, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.sendOrders(0, "Add a README.", true);
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(ops.at(0).status, QString("failed"));
+        QCOMPARE(ops.at(0).orders, QStringList{"Add a README."});
+    }
+
+    void holdsAfterTheCurrentCycle()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin), log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 3, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        ops.setHold(0, true);
+        QVERIFY(finished.wait(10000));
+        QCOMPARE(ops.at(0).status, QString("held"));
+        QCOMPARE(ops.at(0).cyclesDone, 1);
+        QVERIFY(!ops.at(0).hold);
+        QCOMPARE(ops.deployedCount(), 0);
+
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        QCOMPARE(ops.at(0).status, QString("complete"));
+        QCOMPARE(ops.at(0).cyclesDone, 3);
+    }
+
+    void handsOffMidCycleAtTheCeiling()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin), log = bin.filePath("args.log");
+        const QString stall = bin.filePath("stall");
+        write(stall, "");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        qputenv("FIRETEAM_TEST_STALL", stall.toUtf8());
+
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 1, "restricted", "", 5000), 0);
+        QCOMPARE(Operations::ceiling(ops.at(0)), 10000);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(15000));
+        qunsetenv("FIRETEAM_TEST_STALL");
+
+        // Stopped mid-cycle, briefed, and the same cycle finished by a fresh
+        // session.
+        const Operation &op = ops.at(0);
+        QCOMPARE(op.status, QString("complete"));
+        QCOMPARE(op.cyclesDone, 1);
+        QCOMPARE(op.session, 2);
+        QCOMPARE(op.handoffs.size(), 1);
+        const QStringList runs = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts);
+        QCOMPARE(runs.size(), 3);
+        QVERIFY(runs.at(1).contains("stopped part-way through cycle 1"));
+        QVERIFY(runs.at(1).contains("--resume\nsess-1"));
+        QVERIFY(!runs.at(2).contains("--resume"));
+        QVERIFY(runs.at(2).contains("CYCLE 1 OF 1") && runs.at(2).contains("handoffs/session-01.md"));
+    }
+
+    void amendsABriefing()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 1, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(!ops.update(0, "", "Changed mid-flight", 1, "free", "", 0));
+        QVERIFY(finished.wait(10000));
+
+        QVERIFY(!ops.update(0, "", "  ", 2, "free", "", 0));
+        QVERIFY(ops.update(0, "red fox", "Build, then document", 0, "free", "haiku", 400000));
+        const Operation &op = ops.at(0);
+        QCOMPARE(op.codename, QString("RED FOX"));
+        QCOMPARE(op.cycles, 1);
+        QCOMPARE(op.status, QString("complete"));
+        QCOMPARE(op.roe, QString("free"));
+        QCOMPARE(op.handoffAt, 400000);
+        QVERIFY(ops.update(0, "", "Build, then document", 3, "free", "haiku", 400000));
+        QCOMPARE(ops.at(0).cycles, 3);
+        QCOMPARE(ops.at(0).status, QString("standby"));
+    }
+
     void readsContextUsage()
     {
         auto events = Stream::parseLine(R"({"type":"assistant","message":{"usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":5},"content":[]}})");
@@ -289,6 +417,13 @@ private slots:
         QCOMPARE(Translator::pluralCategory("ja", 1), QString("other"));
     }
 private:
+    static QString fakeClaude(const QTemporaryDir &bin)
+    {
+        const QString claude = bin.filePath("claude");
+        write(claude, FakeClaude);
+        QFile::setPermissions(claude, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        return claude;
+    }
     static void write(const QString &path, const QByteArray &contents)
     {
         QFile file(path);

@@ -2,5 +2,13 @@
   "%n agent(s) still deployed. Quitting stops them mid-cycle; you can resume later.": {
     "one": "%n agent is still deployed. Quitting stops it mid-cycle; you can resume later.",
     "other": "%n agents are still deployed. Quitting stops them mid-cycle; you can resume later."
+  },
+  "%n order(s) queued": {
+    "one": "%n order queued",
+    "other": "%n orders queued"
+  },
+  "Cycle %1 of %2 deployed with %n order(s) from command.": {
+    "one": "Cycle %1 of %2 deployed with an order from command.",
+    "other": "Cycle %1 of %2 deployed with %n orders from command."
   }
 }

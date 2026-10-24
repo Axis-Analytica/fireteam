@@ -16,6 +16,8 @@ Item {
     signal deployRequested()
     signal abortRequested()
     signal removeRequested()
+    signal ordersRequested()
+    signal editRequested()
 
     Material.theme: Material.Dark
     Material.accent: theme.accent
@@ -94,6 +96,17 @@ Item {
                 text: detail.op ? qsTr("≈ $%1 API value").arg(detail.op.cost.toLocaleString(Qt.locale(), 'f', 2)) : ""
                 tone: Style.dim
             }
+            Chip {
+                visible: detail.op !== null && detail.op.orders.length > 0
+                text: detail.op ? qsTr("%n order(s) queued", "", detail.op.orders.length) : ""
+                tone: Style.amber
+            }
+            Chip {
+                visible: detail.live && detail.op.hold
+                text: qsTr("Holding after this cycle")
+                tone: Style.amber
+                solid: true
+            }
             Chip { text: detail.op ? detail.op.directory : ""; tone: Style.dim; mono: true }
         }
 
@@ -118,7 +131,8 @@ Item {
                 detail: !detail.op ? ""
                     : qsTr("%1 / %2 · session %3 · %4").arg(Style.tokens(detail.op.context))
                           .arg(Style.tokens(detail.op.contextWindow)).arg(detail.op.session)
-                          .arg(detail.op.handoffAt > 0 ? qsTr("hand off at %1").arg(Style.tokens(detail.op.handoffAt))
+                          .arg(detail.op.handoffAt > 0 ? qsTr("hand off at %1, ceiling %2").arg(Style.tokens(detail.op.handoffAt))
+                                                             .arg(Style.tokens(detail.op.ceiling))
                                                        : qsTr("no hand-off"))
             }
             RowLayout {
@@ -129,6 +143,7 @@ Item {
                     used: detail.op ? detail.op.context : 0
                     window: detail.op ? detail.op.contextWindow : 1000000
                     line: detail.op ? detail.op.handoffAt : 0
+                    ceiling: detail.op ? detail.op.ceiling : 0
                 }
                 Text {
                     visible: detail.op !== null && detail.op.handoffBrief.length > 0
@@ -198,6 +213,7 @@ Item {
                                 case "error": return Style.danger
                                 case "tool": return theme.accent
                                 case "result": return Style.good
+                                case "cmd": return Style.amber
                                 case "sys": return Style.dim
                                 }
                                 return Style.text
@@ -217,6 +233,7 @@ Item {
                                     case "error": return qsTr("ERR")
                                     case "tool": return qsTr("ACT")
                                     case "result": return qsTr("SITREP")
+                                    case "cmd": return qsTr("CMD")
                                     case "sys": return qsTr("HQ")
                                     }
                                     return qsTr("AGENT")
@@ -230,9 +247,10 @@ Item {
                                 Layout.fillWidth: true
                                 text: line.modelData.text
                                 wrapMode: Text.Wrap
-                                maximumLineCount: line.modelData.kind === "say" ? 12 : 3
+                                maximumLineCount: line.modelData.kind === "say" || line.modelData.kind === "cmd" ? 12 : 3
                                 elide: Text.ElideRight
                                 color: line.modelData.kind === "say" ? Style.text : line.tone
+                                font.bold: line.modelData.kind === "cmd"
                                 opacity: line.modelData.kind === "sys" ? 0.9 : 1
                                 font.family: Style.mono
                                 font.pixelSize: 12
@@ -387,11 +405,26 @@ Item {
             Layout.preferredHeight: childrenRect.height
             spacing: 10
             TacticalButton {
-                text: detail.op && detail.op.cyclesDone >= detail.op.cycles ? qsTr("Redeploy +1") : detail.op && detail.op.cyclesDone > 0 ? qsTr("Resume") : qsTr("Deploy")
+                text: !detail.op ? qsTr("Deploy")
+                    : detail.op.status === "failed" ? qsTr("Retry cycle %1").arg(detail.op.cyclesDone + 1)
+                    : detail.op.cyclesDone >= detail.op.cycles ? qsTr("Redeploy +1")
+                    : detail.op.cyclesDone > 0 ? qsTr("Resume") : qsTr("Deploy")
                 key: qsTr("Space")
                 primary: true
                 enabled: detail.op && !detail.live
                 onClicked: detail.deployRequested()
+            }
+            TacticalButton {
+                text: qsTr("Orders")
+                key: "T"
+                enabled: detail.op !== null
+                onClicked: detail.ordersRequested()
+            }
+            TacticalButton {
+                text: detail.op && detail.op.hold ? qsTr("Lift hold") : qsTr("Hold")
+                key: "H"
+                enabled: detail.live
+                onClicked: ops.setHold(detail.row, !detail.op.hold)
             }
             TacticalButton {
                 text: qsTr("Abort")
@@ -399,6 +432,12 @@ Item {
                 danger: true
                 enabled: detail.live
                 onClicked: detail.abortRequested()
+            }
+            TacticalButton {
+                text: qsTr("Amend")
+                key: "E"
+                enabled: detail.op && !detail.live
+                onClicked: detail.editRequested()
             }
             TacticalButton {
                 text: qsTr("Dossier")

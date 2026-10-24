@@ -85,7 +85,8 @@ QString systemBrief() {
 }
 
 QString cyclePrompt(const QString &codename, const QString &objective, int cycle, int cycles,
-                    const QString &reportPath, const QString &handoffBrief, const QString &debriefs) {
+                    const QString &reportPath, const QString &handoffBrief, const QString &debriefs,
+                    const QStringList &commandOrders) {
     QString orders;
     if (cycle == 1)
         orders = "This is the first cycle. Survey the project, plan the route to the objective, then deliver "
@@ -99,6 +100,10 @@ QString cyclePrompt(const QString &codename, const QString &objective, int cycle
         orders += QString("\n\nHANDOFF:\nYou are a fresh session taking over this operation from one whose context "
                           "grew too large. Before anything else, read the handoff brief at %1. Earlier debriefs are "
                           "in %2 if you need more detail.").arg(handoffBrief, debriefs);
+    if (!commandOrders.isEmpty())
+        orders += "\n\nORDERS FROM COMMAND:\nThe operator sent these since the last cycle. They take priority over "
+                  "the plan above; follow them this cycle and say in the debrief how each was handled.\n- "
+                  + commandOrders.join("\n- ");
 
     return QString("OPERATION %1, CYCLE %2 OF %3\n\nOBJECTIVE:\n%4\n\nORDERS:\n%5\n\n"
                    "When this cycle's work is done, write a debrief as one self-contained HTML file to:\n%6\n"
@@ -109,10 +114,15 @@ QString cyclePrompt(const QString &codename, const QString &objective, int cycle
 }
 
 QString handoffPrompt(const QString &codename, const QString &objective, qint64 contextTokens, int cyclesLeft,
-                      const QString &briefPath) {
+                      const QString &briefPath, int midCycle) {
+    const QString cutShort = midCycle > 0
+        ? QString("You were stopped part-way through cycle %1, so the fresh session will finish that cycle. Record "
+                  "exactly what was in progress: what is half-done, which files are mid-edit, and what is left of "
+                  "this cycle's work.\n\n").arg(midCycle)
+        : QString();
     return QString("OPERATION %1, HANDOFF\n\nOBJECTIVE:\n%2\n\n"
                    "This session's context has reached %3 tokens, so a fresh session will take over for the "
-                   "remaining %4 cycle(s). It will start with no memory of this one.\n\n"
+                   "remaining %4 cycle(s). It will start with no memory of this one.\n\n" + cutShort +
                    "Write a handoff brief as Markdown to:\n%5\n"
                    "Cover how far along the objective is; what has been built, with the key files and how they fit "
                    "together; decisions made and why; how to build, run, and test; known problems; and the exact "

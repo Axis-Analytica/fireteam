@@ -29,6 +29,9 @@ Item {
     required property real handoffAt
     required property int session
     required property string handoffBrief
+    required property var orders
+    required property bool hold
+    required property real ceiling
 
     readonly property bool selected: ListView.isCurrentItem
     readonly property color ink: selected ? theme.accentForeground : Style.text
@@ -113,7 +116,7 @@ Item {
             elide: Text.ElideRight
             text: entry.status === "deployed" && entry.activity.length > 0
                   ? entry.activity
-                  : qsTr("%1 · cycle %2/%3 · ctx %4 · ≈$%5").arg(Style.statusLabel(entry.status).toUpperCase())
+                  : qsTr("%1 · cycle %2/%3 · ctx %4 · ≈$%5").arg((entry.hold && entry.status === "deployed" ? qsTr("Holding next") : Style.statusLabel(entry.status)).toUpperCase())
                         .arg(entry.cyclesDone).arg(entry.cycles).arg(Style.tokens(entry.context))
                         .arg(entry.cost.toLocaleString(Qt.locale(), 'f', 2))
             color: entry.selected ? entry.ink : Style.dim

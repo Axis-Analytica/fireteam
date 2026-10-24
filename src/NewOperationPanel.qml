@@ -3,11 +3,13 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-// The briefing screen for a new operation.
+// The briefing screen for a new operation, and for amending one that isn't
+// deployed.
 Item {
     id: panel
     visible: false
     signal planned(bool deployNow)
+    signal amended(int row, bool deployNow)
 
     Material.theme: Material.Dark
     Material.accent: theme.accent
@@ -16,13 +18,19 @@ Item {
     property string error: ""
     property int cycles: 3
     property string roe: "restricted"
+    // The row being amended, or -1 for a new operation.
+    property int editing: -1
+    property int minimumCycles: 1
 
     function open() {
+        editing = -1
+        minimumCycles = 1
         codename.text = ops.suggestCodename()
         objective.text = ""
         error = ""
         cycles = 3
         roe = "restricted"
+        model.currentIndex = 0
         handoff.currentIndex = 1
         visible = true
         enter.restart()
@@ -31,8 +39,36 @@ Item {
         else
             objective.forceActiveFocus()
     }
+    function edit(op, row) {
+        editing = row
+        // Cycles already run can't be taken back; a finished op gets one more.
+        minimumCycles = Math.max(1, op.cyclesDone)
+        codename.text = op.codename
+        directory.text = op.directory
+        objective.text = op.objective
+        error = ""
+        cycles = Math.max(op.cycles, op.cyclesDone >= op.cycles ? op.cyclesDone + 1 : op.cycles)
+        roe = op.roe
+        model.currentIndex = Math.max(0, model.find(op.model))
+        const at = handoff.limits.indexOf(op.handoffAt)
+        handoff.currentIndex = at >= 0 ? at : 1
+        visible = true
+        enter.restart()
+        objective.forceActiveFocus()
+    }
     function close() { visible = false }
     function submit(deployNow) {
+        if (editing >= 0) {
+            if (objective.text.trim().length === 0) {
+                error = qsTr("Give the fireteam an objective.")
+                return
+            }
+            ops.update(editing, codename.text, objective.text, cycles, roe,
+                       model.currentIndex === 0 ? "" : model.currentText, handoff.limits[handoff.currentIndex])
+            visible = false
+            amended(editing, deployNow)
+            return
+        }
         error = ops.validate(directory.text, objective.text)
         if (error.length > 0)
             return
@@ -96,7 +132,7 @@ Item {
                         font.capitalization: Font.AllUppercase
                     }
                     Text {
-                        text: qsTr("Plan operation")
+                        text: panel.editing >= 0 ? qsTr("Amend briefing") : qsTr("Plan operation")
                         color: Style.text
                         font.family: Style.display
                         font.pixelSize: 34
@@ -127,10 +163,14 @@ Item {
                     TextField {
                         id: directory
                         Layout.fillWidth: true
+                        // Claude Code keeps a session with its project, so an
+                        // operation stays where it started.
+                        enabled: panel.editing < 0
                         placeholderText: qsTr("Project directory")
                         font.family: Style.mono
                     }
                     TacticalButton {
+                        visible: panel.editing < 0
                         text: folderPicker.busy ? qsTr("Waiting…") : qsTr("Browse")
                         enabled: !folderPicker.busy
                         onClicked: folderPicker.pick(qsTr("Choose the project directory"))
@@ -152,7 +192,7 @@ Item {
                 SectionLabel { Layout.fillWidth: true; text: qsTr("Cycles") }
                 RowLayout {
                     spacing: 14
-                    TacticalButton { text: "−"; enabled: panel.cycles > 1; onClicked: panel.cycles-- }
+                    TacticalButton { text: "−"; enabled: panel.cycles > panel.minimumCycles; onClicked: panel.cycles-- }
                     Text {
                         Layout.preferredWidth: 64
                         horizontalAlignment: Text.AlignHCenter
@@ -283,8 +323,16 @@ Item {
                     spacing: 10
                     TacticalButton { text: qsTr("Cancel"); key: "Esc"; onClicked: panel.close() }
                     Item { Layout.fillWidth: true }
-                    TacticalButton { text: qsTr("Hold at standby"); onClicked: panel.submit(false) }
-                    TacticalButton { text: qsTr("Deploy"); key: "Ctrl+Enter"; primary: true; onClicked: panel.submit(true) }
+                    TacticalButton {
+                        text: panel.editing >= 0 ? qsTr("Save") : qsTr("Hold at standby")
+                        onClicked: panel.submit(false)
+                    }
+                    TacticalButton {
+                        text: panel.editing >= 0 ? qsTr("Save and deploy") : qsTr("Deploy")
+                        key: "Ctrl+Enter"
+                        primary: true
+                        onClicked: panel.submit(true)
+                    }
                 }
             }
         }

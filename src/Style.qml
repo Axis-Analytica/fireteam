@@ -21,7 +21,8 @@ QtObject {
         case "complete": return good
         case "failed":
         case "aborted": return danger
-        case "interrupted": return amber
+        case "interrupted":
+        case "held": return amber
         }
         return dim
     }
@@ -33,6 +34,7 @@ QtObject {
         case "failed": return qsTr("Failed")
         case "aborted": return qsTr("Aborted")
         case "interrupted": return qsTr("Interrupted")
+        case "held": return qsTr("Holding")
         }
         return qsTr("Standby")
     }
