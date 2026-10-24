@@ -10,6 +10,8 @@ Item {
     property var op: null
     property int row: -1
     readonly property bool live: op !== null && op.status === "deployed"
+    // In the queue, or held by the plan's usage limit.
+    readonly property bool waiting: op !== null && (op.status === "staged" || op.status === "pinned")
     // Below this width the side column moves under the comms.
     readonly property bool compact: width < 760
     // Short of height (a short window, or the authorisation banner showing),
@@ -23,6 +25,8 @@ Item {
     signal editRequested()
     signal diffRequested(int run)
     signal authorisationRequested()
+    signal extractRequested()
+    signal discardRequested()
 
     // Comms filter: all, agent, tools, command, or errors, plus a search.
     property string commsFilter: "all"
@@ -173,6 +177,12 @@ Item {
                 tone: Style.amber
                 solid: true
             }
+            Chip {
+                visible: detail.op !== null && detail.op.worktree
+                text: !detail.op ? "" : detail.op.branch.length > 0 ? "⎇ " + detail.op.branch : qsTr("⎇ Own worktree on deploy")
+                tone: theme.accent
+                mono: true
+            }
             Chip { text: detail.op ? detail.op.directory : ""; tone: Style.dim; mono: true }
         }
 
@@ -286,6 +296,18 @@ Item {
                 }
                 HoverHandler { id: bannerHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler { onTapped: detail.authorisationRequested() }
+            }
+            Text {
+                Layout.fillWidth: true
+                visible: detail.waiting
+                text: !detail.op ? ""
+                    : detail.op.status === "pinned"
+                      ? qsTr("■ Pinned down by the plan's usage limit · resumes at %1").arg(Qt.formatTime(new Date(detail.op.resumeAt * 1000), "HH:mm"))
+                      : qsTr("■ Staged · %1 in the queue · deploys when a slot opens").arg("#" + detail.op.queue)
+                elide: Text.ElideRight
+                color: Style.amber
+                font.family: Style.mono
+                font.pixelSize: 12
             }
             Text {
                 Layout.fillWidth: true
@@ -587,13 +609,14 @@ Item {
             Layout.preferredHeight: childrenRect.height
             spacing: 10
             TacticalButton {
+                visible: !detail.live && !detail.waiting
                 text: !detail.op ? qsTr("Deploy")
                     : detail.op.status === "failed" ? qsTr("Retry cycle %1").arg(detail.op.cyclesDone + 1)
                     : detail.op.cyclesDone >= detail.op.cycles ? qsTr("Redeploy +1")
                     : detail.op.cyclesDone > 0 ? qsTr("Resume") : qsTr("Deploy")
                 key: qsTr("Space")
                 primary: true
-                enabled: detail.op && !detail.live
+                enabled: detail.op !== null
                 onClicked: detail.deployRequested()
             }
             TacticalButton {
@@ -603,22 +626,23 @@ Item {
                 onClicked: detail.ordersRequested()
             }
             TacticalButton {
+                visible: detail.live
                 text: detail.op && detail.op.hold ? qsTr("Lift hold") : qsTr("Hold")
                 key: "H"
-                enabled: detail.live
                 onClicked: ops.setHold(detail.row, !detail.op.hold)
             }
             TacticalButton {
-                text: qsTr("Abort")
+                visible: detail.live || detail.waiting
+                text: detail.waiting ? qsTr("Leave queue") : qsTr("Abort")
                 key: "X"
                 danger: true
-                enabled: detail.live
                 onClicked: detail.abortRequested()
             }
             TacticalButton {
+                visible: !detail.live
                 text: qsTr("Amend")
                 key: "E"
-                enabled: detail.op && !detail.live
+                enabled: detail.op !== null
                 onClicked: detail.editRequested()
             }
             TacticalButton {
@@ -626,6 +650,18 @@ Item {
                 key: "V"
                 enabled: detail.op !== null && detail.op.history.length > 0
                 onClicked: detail.diffRequested(detail.op.history.length - 1)
+            }
+            TacticalButton {
+                visible: detail.op !== null && detail.op.branch.length > 0 && !detail.live && !detail.waiting
+                text: qsTr("Extract")
+                primary: detail.op !== null && detail.op.status === "complete"
+                onClicked: detail.extractRequested()
+            }
+            TacticalButton {
+                visible: detail.op !== null && detail.op.branch.length > 0 && !detail.live && !detail.waiting
+                text: qsTr("Discard")
+                danger: true
+                onClicked: detail.discardRequested()
             }
         }
     }

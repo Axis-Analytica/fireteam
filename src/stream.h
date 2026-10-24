@@ -14,7 +14,8 @@
 struct StreamEvent {
     // Denied: Claude Code refused a tool call because it needs the operator's
     // approval.
-    enum Kind { Session, Say, Tool, Usage, Result, Error, Denied };
+    // RateLimit: the plan's usage, reported on every run.
+    enum Kind { Session, Say, Tool, Usage, Result, Error, Denied, RateLimit };
     StreamEvent(Kind k = Say, const QString &t = {}) : kind(k), text(t) {}
     Kind kind = Say;
     QString text;
@@ -31,6 +32,12 @@ struct StreamEvent {
     QVariantMap input;
     // Result: every call refused this run, each {tool, input}.
     QVariantList denials;
+    // RateLimit: "allowed", "allowed_warning" or "rejected", when the limit
+    // resets (seconds since the epoch), and each window's {utilization,
+    // resetsAt, status}.
+    QString limitStatus;
+    qint64 resetsAt = 0;
+    QVariantMap windows;
 };
 
 namespace Stream {
@@ -45,10 +52,12 @@ QList<QStringList> rulesFor(const QString &tool, const QVariantMap &input);
 QString ruleFromText(const QString &text);
 // "npm test" for Bash(npm test:*), for showing a rule.
 QString describeRule(const QString &rule);
+// Whether a failed run's text reads as the plan's usage limit.
+bool isUsageLimit(const QString &text);
 
 QString cyclePrompt(const QString &codename, const QString &objective, int cycle, int cycles,
                     const QString &reportPath, const QString &handoffBrief = {}, const QString &debriefs = {},
-                    const QStringList &commandOrders = {});
+                    const QStringList &commandOrders = {}, const QString &standing = {});
 // midCycle is the cycle the session was stopped in, or 0 between cycles.
 QString handoffPrompt(const QString &codename, const QString &objective, qint64 contextTokens, int cyclesLeft,
                       const QString &briefPath, int midCycle = 0);

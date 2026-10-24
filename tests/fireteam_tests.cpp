@@ -24,6 +24,11 @@ prompt="$2"
 report=$(printf '%s\n' "$prompt" | grep '/debriefs/cycle-')
 brief=$(printf '%s\n' "$prompt" | grep '^/.*/handoffs/session-..\.md$')
 echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"test-model"}'
+if [ -n "$FIRETEAM_TEST_LIMIT" ] && [ -f "$FIRETEAM_TEST_LIMIT" ]; then rm "$FIRETEAM_TEST_LIMIT"
+echo '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":'$(( $(date +%s) + 1 ))',"rateLimitType":"five_hour","unifiedWindows":{"five_hour":{"utilization":1.0,"status":"rejected"}}}}'
+echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"You have hit your usage limit · resets 3pm"}'
+exit 1; fi
+if [ -n "$FIRETEAM_TEST_SLOW" ]; then sleep "$FIRETEAM_TEST_SLOW"; fi
 if [ -n "$brief" ]; then echo '# brief' > "$brief"; echo '{"type":"result","subtype":"success","is_error":false,"result":"Brief written.","session_id":"sess-1","total_cost_usd":0.01}'; exit 0; fi
 if [ -n "$FIRETEAM_TEST_STALL" ] && [ -f "$FIRETEAM_TEST_STALL" ]; then rm "$FIRETEAM_TEST_STALL"; echo '{"type":"assistant","message":{"usage":{"input_tokens":900000,"output_tokens":0},"content":[]}}'; exec sleep 20; fi
 if [ -n "$FIRETEAM_TEST_DENY" ] && ! printf '%s\n' "$@" | grep -qx 'Bash(npm test:\*)'; then
@@ -472,6 +477,171 @@ private slots:
         QVERIFY(ops.at(0).allowed.isEmpty());
         QVERIFY(ops.allow(0, "make check", false));
         QCOMPARE(ops.at(0).allowed, QStringList{"Bash(make check:*)"});
+    }
+
+    void queuesPastTheSquadLimit()
+    {
+        QTemporaryDir data, one, two, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        qputenv("FIRETEAM_TEST_SLOW", "0.3");
+        Operations ops(data.path(), claude);
+        ops.setMaxDeployed(1);
+        QCOMPARE(ops.create("", one.path(), "One", 1, "restricted", ""), 0);
+        QCOMPARE(ops.create("", two.path(), "Two", 1, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        ops.deploy(1);
+        QCOMPARE(ops.deployedCount(), 1);
+        QCOMPARE(ops.at(1).status, QString("staged"));
+        QCOMPARE(ops.stagedCount(), 1);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 2, 15000);
+        qunsetenv("FIRETEAM_TEST_SLOW");
+        QCOMPARE(ops.at(0).status, QString("complete"));
+        QCOMPARE(ops.at(1).status, QString("complete"));
+
+        // The limit is kept for next time.
+        Operations reloaded(data.path(), claude);
+        QCOMPARE(reloaded.maxDeployed(), 1);
+    }
+
+    void takesTurnsInOneDirectory()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        qputenv("FIRETEAM_TEST_SLOW", "0.3");
+        Operations ops(data.path(), claude);
+        ops.setMaxDeployed(0);
+        QCOMPARE(ops.create("", project.path(), "One", 1, "restricted", ""), 0);
+        QCOMPARE(ops.create("", project.path(), "Two", 1, "restricted", ""), 0);
+        QCOMPARE(ops.sharing(project.path()).size(), 2);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        ops.deploy(1);
+        QCOMPARE(ops.at(1).status, QString("staged"));
+        QVERIFY(ops.at(1).comms.last().toMap().value("text").toString().contains("same directory"));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 2, 15000);
+        qunsetenv("FIRETEAM_TEST_SLOW");
+        QCOMPARE(ops.at(1).status, QString("complete"));
+    }
+
+    void worksInAWorktreeAndExtracts()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin), log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        QVERIFY(gitIn(project.path(), {"init", "-q", "-b", "main"}));
+        write(project.filePath("app.txt"), "app\n");
+        QVERIFY(gitIn(project.path(), {"add", "-A"}));
+        QVERIFY(gitIn(project.path(), {"-c", "user.name=T", "-c", "user.email=t@x", "commit", "-q", "-m", "start"}));
+
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.repository(project.path()).value("commits").toBool(), true);
+        QCOMPARE(ops.create("red fox", project.path(), "Build", 2, "restricted", "", 250000, true), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(15000));
+        const Operation &op = ops.at(0);
+        QCOMPARE(op.status, QString("complete"));
+        QVERIFY(op.branch.startsWith("fireteam/red-fox-"));
+        QCOMPARE(op.baseBranch, QString("main"));
+        // The agent worked in the worktree; the project is untouched.
+        QVERIFY(QFile::exists(op.workdir + "/notes.txt"));
+        QVERIFY(!QFile::exists(project.filePath("notes.txt")));
+        QCOMPARE(gitOut(project.path(), {"status", "--porcelain"}), QString());
+        // Both cycles ran there, the second resuming the first's session.
+        const QStringList runs = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts);
+        QVERIFY(runs.at(1).contains("--resume\nsess-1"));
+        QCOMPARE(ops.worktreeSummary(0).value("files").toInt(), 1);
+
+        QVERIFY(ops.extract(0));
+        QCOMPARE(read(project.filePath("notes.txt")), QByteArray("line\nline\n"));
+        QCOMPARE(gitOut(project.path(), {"status", "--porcelain"}), QString());
+        QVERIFY(gitOut(project.path(), {"log", "--oneline"}).contains("Extract RED FOX"));
+        QVERIFY(gitOut(project.path(), {"branch", "--list", "fireteam/*"}).isEmpty());
+        QVERIFY(ops.at(0).workdir.isEmpty());
+
+        // Next time: a fresh worktree from the merged work, at the same path,
+        // so the session carries on.
+        ops.deploy(0);
+        QVERIFY(finished.wait(15000));
+        QVERIFY(QFile::exists(ops.at(0).workdir + "/notes.txt"));
+        QVERIFY(QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts).last().contains("--resume\nsess-1"));
+
+        // A conflict is reported and undone, never forced.
+        write(project.filePath("notes.txt"), "mine\n");
+        QVERIFY(gitIn(project.path(), {"-c", "user.name=T", "-c", "user.email=t@x", "commit", "-qam", "mine"}));
+        QVERIFY(!ops.extract(0));
+        QVERIFY(ops.at(0).comms.last().toMap().value("text").toString().contains("notes.txt"));
+        QCOMPARE(gitOut(project.path(), {"status", "--porcelain"}), QString());
+        QCOMPARE(read(project.filePath("notes.txt")), QByteArray("mine\n"));
+        QVERIFY(ops.discard(0));
+        QVERIFY(gitOut(project.path(), {"branch", "--list", "fireteam/*"}).isEmpty());
+    }
+
+    void startsAFreshSessionWhenMovedIntoAWorktree()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin), log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        QVERIFY(gitIn(project.path(), {"init", "-q"}));
+        write(project.filePath("app.txt"), "app\n");
+        QVERIFY(gitIn(project.path(), {"add", "-A"}));
+        QVERIFY(gitIn(project.path(), {"-c", "user.name=T", "-c", "user.email=t@x", "commit", "-q", "-m", "start"}));
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 1, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        QVERIFY(ops.update(0, "", "Build", 2, "restricted", "", 250000, true, "Keep it small."));
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        const QString last = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts).last();
+        QVERIFY(!last.contains("--resume"));
+        QVERIFY(last.contains("HANDOFF") && last.contains("debriefs/cycle-01.html"));
+        QVERIFY(last.contains("STANDING ORDERS") && last.contains("Keep it small."));
+        QCOMPARE(ops.at(0).session, 2);
+    }
+
+    void pinsDownAtTheUsageLimitAndResumes()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin), limit = bin.filePath("limit");
+        write(limit, "");
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        qputenv("FIRETEAM_TEST_LIMIT", limit.toUtf8());
+        qputenv("FIRETEAM_PIN_MARGIN", "0");
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 1, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        QCOMPARE(ops.at(0).status, QString("pinned"));
+        QCOMPARE(ops.at(0).cyclesDone, 0);
+        QCOMPARE(ops.usage().value("status").toString(), QString("rejected"));
+        // After the reset it picks the same cycle up on its own.
+        QTRY_COMPARE_WITH_TIMEOUT(ops.at(0).status, QString("complete"), 15000);
+        qunsetenv("FIRETEAM_TEST_LIMIT");
+        qunsetenv("FIRETEAM_PIN_MARGIN");
+        QCOMPARE(ops.at(0).cyclesDone, 1);
+        QCOMPARE(ops.at(0).history.first().toMap().value("outcome").toString(), QString("pinned"));
+    }
+
+    void keepsLoadouts()
+    {
+        QTemporaryDir data;
+        {
+            Operations ops(data.path(), "/bin/true");
+            QCOMPARE(ops.loadouts().size(), 3);
+            ops.saveLoadout({{"name", "Night shift"}, {"model", "sonnet"}, {"cycles", 6}});
+            ops.saveLoadout({{"name", "night shift"}, {"model", "opus"}, {"cycles", 2}});
+            ops.removeLoadout("Recon");
+            QCOMPARE(ops.loadouts().size(), 3);
+        }
+        Operations reloaded(data.path(), "/bin/true");
+        QCOMPARE(reloaded.loadouts().last().toMap().value("model").toString(), QString("opus"));
+        QCOMPARE(reloaded.loadouts().first().toMap().value("name").toString(), QString("Standard"));
     }
 
     void readsContextUsage()

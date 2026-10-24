@@ -3,6 +3,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
+#include <QVariantMap>
 
 // What an agent changed, read from git without touching the user's work.
 // Snapshots are commits of the whole working tree (untracked files included,
@@ -23,4 +24,19 @@ bool restore(const QString &directory, const QString &target, const QString &cur
 // Deletes every ref under prefix (refs/fireteam/<id>/), letting git collect
 // the snapshots in its own time.
 void forget(const QString &directory, const QString &prefix);
+
+// {git, commits, branch, top} for a directory.
+QVariantMap repository(const QString &directory);
+// A worktree of directory's repository at path, on branch: an existing one,
+// or a new one from HEAD.
+// Returns the worktree's counterpart of directory, or empty with error set.
+QString addWorktree(const QString &directory, const QString &path, const QString &branch, QString *error);
+// Commits everything in directory's work tree, as the user. True with nothing
+// to commit.
+bool commitAll(const QString &directory, const QString &message, QString *error);
+// Merges branch into whatever directory's repository has checked out. Empty
+// on success; "conflicts" (with the files listed) when it was undone for
+// conflicts; otherwise git's error.
+QString merge(const QString &directory, const QString &branch, const QString &message, QStringList *conflicts);
+bool removeWorktree(const QString &directory, const QString &path, const QString &branch, bool deleteBranch);
 }

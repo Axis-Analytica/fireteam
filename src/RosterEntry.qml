@@ -37,6 +37,13 @@ Item {
     required property int events
     required property var requests
     required property var allowed
+    required property string standing
+    required property bool worktree
+    required property string workdir
+    required property string branch
+    required property string baseBranch
+    required property real resumeAt
+    required property int queue
 
     readonly property bool selected: ListView.isCurrentItem
     readonly property color ink: selected ? theme.accentForeground : Style.text
@@ -131,6 +138,8 @@ Item {
                   ? qsTr("⚠ Awaiting authorisation · %1").arg(entry.requests.length)
                   : entry.status === "deployed" && entry.activity.length > 0
                   ? entry.activity
+                  : entry.status === "staged" ? qsTr("STAGED · #%1 in queue · cycle %2/%3").arg(entry.queue).arg(entry.cyclesDone).arg(entry.cycles)
+                  : entry.status === "pinned" ? qsTr("PINNED DOWN · resumes %1").arg(Qt.formatTime(new Date(entry.resumeAt * 1000), "HH:mm"))
                   : qsTr("%1 · cycle %2/%3 · ctx %4 · ≈$%5").arg((entry.hold && entry.status === "deployed" ? qsTr("Holding next") : Style.statusLabel(entry.status)).toUpperCase())
                         .arg(entry.cyclesDone).arg(entry.cycles).arg(Style.tokens(entry.context))
                         .arg(entry.cost.toLocaleString(Qt.locale(), 'f', 2))

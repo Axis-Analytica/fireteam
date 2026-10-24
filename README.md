@@ -98,6 +98,33 @@ When Fireteam isn't the focused window, it sends a desktop notification as
 cycles finish, operations complete or fail, and sessions hand off. Clicking
 one brings Fireteam up on that operation.
 
+## Squads
+
+- **Worktrees**: in a git repository with at least one commit, an operation
+  can deploy into a `git worktree` of its own, on branch
+  `fireteam/<codename>-<id>` from your current branch's last commit, so
+  several agents can work on one repository at once. Uncommitted changes
+  aren't included. Worktrees live in `~/.local/share/fireteam/worktrees/`.
+  **Extract** commits the work and merges the branch into whatever you have
+  checked out; if it conflicts, the merge is undone and the conflicting files
+  listed, never forced. **Discard** deletes the worktree and branch. Standing
+  an operation down commits its work to the branch and keeps the branch.
+- **Taking turns**: operations working in place in the same directory never
+  run at once; the second waits for the first.
+- **Squad size**: the `−`/`+` beside *Squad* in the header sets how many
+  agents may be deployed at once (3 by default, up to 6, or ∞). Past that,
+  operations are **staged** and deploy in order as slots open. `X` takes one
+  out of the queue.
+- **Usage limits**: the header shows your plan's five-hour and seven-day
+  usage as Claude Code reports it. When a run hits the limit, its operation is
+  **pinned down**, nothing else starts, and everything resumes on its own a
+  minute after the reset, picking up the same cycle.
+- **Loadouts**: saved sets of model, rules of engagement, cycles, hand-off
+  line, worktree, and standing orders, picked at the top of the briefing.
+  Recon, Standard, and Heavy come built in; *Save current* adds your own.
+- **Standing orders**: instructions repeated in every cycle's prompt, such as
+  "Run the tests before finishing".
+
 ## Authorisation
 
 Under restricted ROE, Claude Code refuses any command your permission settings

@@ -21,6 +21,36 @@ Item {
     // The row being amended, or -1 for a new operation.
     property int editing: -1
     property int minimumCycles: 1
+    // Deploy into a worktree of its own (needs a repository with a commit).
+    property bool useWorktree: true
+    // The operation being amended already has a worktree, which stays.
+    property bool worktreeLocked: false
+    // {git, commits, branch} for the directory typed, and the operations
+    // already working in place there.
+    property var repo: ({})
+    property var sharing: []
+    readonly property bool worktreeAvailable: repo.commits === true
+    property bool savingLoadout: false
+
+    function refreshRepo() {
+        repo = directory.text.trim().length > 0 ? ops.repository(directory.text) : ({})
+        sharing = directory.text.trim().length > 0 ? ops.sharing(directory.text, editing) : []
+    }
+    function applyLoadout(loadout) {
+        model.currentIndex = Math.max(0, model.find(loadout.model || ""))
+        roe = loadout.roe === "free" ? "free" : "restricted"
+        cycles = Math.max(minimumCycles, Math.min(20, loadout.cycles || 3))
+        const at = handoff.limits.indexOf(loadout.handoffAt)
+        handoff.currentIndex = at >= 0 ? at : 1
+        if (!worktreeLocked)
+            useWorktree = loadout.worktree === true
+        standingField.text = loadout.standing || ""
+    }
+    function currentLoadout(name) {
+        return { name: name, model: model.currentIndex === 0 ? "" : model.currentText, roe: roe, cycles: cycles,
+                 handoffAt: handoff.limits[handoff.currentIndex], worktree: useWorktree, standing: standingField.text }
+    }
+    Timer { id: repoCheck; interval: 300; onTriggered: panel.refreshRepo() }
 
     function open() {
         editing = -1
@@ -32,6 +62,11 @@ Item {
         roe = "restricted"
         model.currentIndex = 0
         handoff.currentIndex = 1
+        useWorktree = true
+        worktreeLocked = false
+        savingLoadout = false
+        standingField.text = ""
+        refreshRepo()
         visible = true
         enter.restart()
         if (directory.text.length === 0)
@@ -52,6 +87,11 @@ Item {
         model.currentIndex = Math.max(0, model.find(op.model))
         const at = handoff.limits.indexOf(op.handoffAt)
         handoff.currentIndex = at >= 0 ? at : 1
+        useWorktree = op.worktree
+        worktreeLocked = op.branch.length > 0
+        savingLoadout = false
+        standingField.text = op.standing
+        refreshRepo()
         visible = true
         enter.restart()
         objective.forceActiveFocus()
@@ -64,7 +104,8 @@ Item {
                 return
             }
             ops.update(editing, codename.text, objective.text, cycles, roe,
-                       model.currentIndex === 0 ? "" : model.currentText, handoff.limits[handoff.currentIndex])
+                       model.currentIndex === 0 ? "" : model.currentText, handoff.limits[handoff.currentIndex],
+                       useWorktree && worktreeAvailable, standingField.text)
             visible = false
             amended(editing, deployNow)
             return
@@ -73,7 +114,8 @@ Item {
         if (error.length > 0)
             return
         ops.create(codename.text, directory.text, objective.text, cycles, roe,
-                   model.currentIndex === 0 ? "" : model.currentText, handoff.limits[handoff.currentIndex])
+                   model.currentIndex === 0 ? "" : model.currentText, handoff.limits[handoff.currentIndex],
+                   useWorktree && worktreeAvailable, standingField.text)
         visible = false
         planned(deployNow)
     }
@@ -142,6 +184,101 @@ Item {
                     }
                 }
 
+                // Loadouts: saved sets of model, rules, cycles, and orders.
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Text {
+                        height: 28
+                        verticalAlignment: Text.AlignVCenter
+                        rightPadding: 4
+                        text: qsTr("Loadout")
+                        color: Style.dim
+                        font.family: Style.display
+                        font.pixelSize: 12
+                        font.weight: Font.Bold
+                        font.letterSpacing: 3
+                        font.capitalization: Font.AllUppercase
+                    }
+                    Repeater {
+                        model: ops.loadouts
+                        delegate: Rectangle {
+                            id: loadoutChip
+                            required property var modelData
+                            width: loadoutRow.implicitWidth + 20
+                            height: 28
+                            color: loadoutHover.hovered ? Qt.rgba(theme.accent.r, theme.accent.g, theme.accent.b, 0.14) : "transparent"
+                            border.color: loadoutHover.hovered ? theme.accent : Style.line
+                            radius: Math.min(4, theme.radius)
+                            Row {
+                                id: loadoutRow
+                                anchors.centerIn: parent
+                                spacing: 8
+                                Text {
+                                    text: loadoutChip.modelData.name
+                                    color: Style.text
+                                    font.family: Style.display
+                                    font.pixelSize: 12
+                                    font.weight: Font.Bold
+                                    font.letterSpacing: 2
+                                    font.capitalization: Font.AllUppercase
+                                }
+                                Text {
+                                    text: (loadoutChip.modelData.model || qsTr("default")) + " · " + loadoutChip.modelData.cycles
+                                    color: Style.faint
+                                    font.family: Style.mono
+                                    font.pixelSize: 10
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                                Text {
+                                    visible: loadoutHover.hovered
+                                    text: "✕"
+                                    color: removeHover.hovered ? Style.danger : Style.dim
+                                    font.pixelSize: 10
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    HoverHandler { id: removeHover }
+                                    TapHandler { onTapped: ops.removeLoadout(loadoutChip.modelData.name) }
+                                }
+                            }
+                            HoverHandler { id: loadoutHover; cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: panel.applyLoadout(loadoutChip.modelData) }
+                        }
+                    }
+                    Text {
+                        height: 28
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: 4
+                        visible: !panel.savingLoadout
+                        text: qsTr("+ Save current")
+                        color: saveHover.hovered ? theme.accent : Style.dim
+                        font.family: Style.display
+                        font.pixelSize: 11
+                        font.weight: Font.Bold
+                        font.letterSpacing: 2
+                        font.capitalization: Font.AllUppercase
+                        HoverHandler { id: saveHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: { panel.savingLoadout = true; loadoutName.forceActiveFocus() } }
+                    }
+                    TextField {
+                        id: loadoutName
+                        visible: panel.savingLoadout
+                        width: 180
+                        height: 34
+                        topPadding: 4
+                        bottomPadding: 4
+                        placeholderText: qsTr("Loadout name")
+                        font.family: Style.display
+                        font.pixelSize: 12
+                        onAccepted: {
+                            if (text.trim().length > 0)
+                                ops.saveLoadout(panel.currentLoadout(text))
+                            text = ""
+                            panel.savingLoadout = false
+                        }
+                        Keys.onEscapePressed: { text = ""; panel.savingLoadout = false }
+                    }
+                }
+
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 10
@@ -168,6 +305,7 @@ Item {
                         enabled: panel.editing < 0
                         placeholderText: qsTr("Project directory")
                         font.family: Style.mono
+                        onTextChanged: repoCheck.restart()
                     }
                     TacticalButton {
                         visible: panel.editing < 0
@@ -304,6 +442,59 @@ Item {
                         currentIndex: 1
                     }
                     Item { Layout.fillWidth: true }
+                }
+
+                SectionLabel { Layout.fillWidth: true; text: qsTr("Deployment") }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+                    Switch {
+                        id: worktreeSwitch
+                        checked: panel.useWorktree && panel.worktreeAvailable
+                        enabled: panel.worktreeAvailable && !panel.worktreeLocked
+                        onToggled: panel.useWorktree = checked
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Text {
+                            text: qsTr("Own worktree")
+                            color: worktreeSwitch.enabled ? Style.text : Style.dim
+                            font.family: Style.display
+                            font.pixelSize: 13
+                            font.weight: Font.Bold
+                            font.letterSpacing: 2
+                            font.capitalization: Font.AllUppercase
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            color: Style.dim
+                            font.family: Style.display
+                            font.pixelSize: 12
+                            text: panel.worktreeLocked ? qsTr("Working on its own branch; extract or discard it to change this.")
+                                : panel.repo.git !== true ? qsTr("Not a git repository, so the agent works in place.")
+                                : panel.repo.commits !== true ? qsTr("The repository has no commits yet; a worktree needs one. Until then the agent works in place.")
+                                : panel.useWorktree ? qsTr("The agent works on its own branch from %1's last commit, so other operations can share the repository. Uncommitted changes aren't included. Extract merges it back.").arg(panel.repo.branch || "HEAD")
+                                : qsTr("The agent works directly in the project directory.")
+                        }
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: !(panel.useWorktree && panel.worktreeAvailable) && panel.sharing.length > 0
+                    text: qsTr("⚠ %1 also works in place here. They'll take turns rather than run at once; give one its own worktree to run both together.").arg(panel.sharing.join(", "))
+                    wrapMode: Text.Wrap
+                    color: Style.amber
+                    font.family: Style.display
+                    font.pixelSize: 12
+                }
+                TextField {
+                    id: standingField
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Standing orders for every cycle (optional), e.g. Run the tests before finishing.")
+                    font.family: Style.display
+                    font.pixelSize: 13
                 }
 
                 Text {

@@ -9,6 +9,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
+#include <algorithm>
 #include <QRandomGenerator>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -40,7 +41,10 @@ QJsonObject Operation::toJson() const {
             {"session", session}, {"handoffBrief", handoffBrief}, {"handoffs", QJsonArray::fromStringList(handoffs)},
             {"orders", QJsonArray::fromStringList(orders)}, {"hold", hold},
             {"history", QJsonArray::fromVariantList(history)}, {"rollbacks", QJsonArray::fromStringList(rollbacks)},
-            {"allowed", QJsonArray::fromStringList(allowed)}, {"requests", QJsonArray::fromVariantList(requests)}};
+            {"allowed", QJsonArray::fromStringList(allowed)}, {"requests", QJsonArray::fromVariantList(requests)},
+            {"standing", standing}, {"worktree", worktree}, {"workdir", workdir}, {"branch", branch},
+            {"baseBranch", baseBranch}, {"baseCommit", baseCommit}, {"stagedAt", stagedAt}, {"resumeAt", resumeAt},
+            {"sessionDir", sessionDir}};
 }
 
 Operation Operation::fromJson(const QJsonObject &o) {
@@ -79,6 +83,15 @@ Operation Operation::fromJson(const QJsonObject &o) {
     op.rollbacks = strings(o.value("rollbacks"));
     op.allowed = strings(o.value("allowed"));
     op.requests = o.value("requests").toArray().toVariantList();
+    op.standing = o.value("standing").toString();
+    op.worktree = o.value("worktree").toBool();
+    op.workdir = o.value("workdir").toString();
+    op.branch = o.value("branch").toString();
+    op.baseBranch = o.value("baseBranch").toString();
+    op.baseCommit = o.value("baseCommit").toString();
+    op.stagedAt = o.value("stagedAt").toInteger();
+    op.resumeAt = o.value("resumeAt").toInteger();
+    op.sessionDir = o.value("sessionDir").toString();
     return op;
 }
 
@@ -105,7 +118,92 @@ Operations::Operations(const QString &dataDirectory, const QString &claude, QObj
                           : dataDirectory),
       m_claude(claude.isEmpty() ? findClaude() : claude) {
     QDir().mkpath(m_dataDirectory);
+    loadSettings();
     load();
+    m_pinTimer = new QTimer(this);
+    m_pinTimer->setSingleShot(true);
+    connect(m_pinTimer, &QTimer::timeout, this, &Operations::schedulePinned);
+    // A slot opening up (or a project clearing) lets the queue move.
+    connect(this, &Operations::deployedCountChanged, this, &Operations::launchStaged, Qt::QueuedConnection);
+    QTimer::singleShot(0, this, &Operations::schedulePinned);
+}
+
+QString Operations::workdir(const Operation &op) {
+    return op.worktree && !op.workdir.isEmpty() ? op.workdir : op.directory;
+}
+
+int Operations::stagedCount() const {
+    int count = 0;
+    for (const auto &op : m_ops)
+        count += op.status == "staged";
+    return count;
+}
+
+void Operations::setMaxDeployed(int max) {
+    max = qBound(0, max, 12);
+    if (max == m_maxDeployed)
+        return;
+    m_maxDeployed = max;
+    saveSettings();
+    emit maxDeployedChanged();
+    QTimer::singleShot(0, this, &Operations::launchStaged);
+}
+
+static QVariantList defaultLoadouts() {
+    return {
+        QVariantMap{{"name", "Recon"}, {"model", "haiku"}, {"roe", "restricted"}, {"cycles", 1}, {"handoffAt", 150000},
+                    {"worktree", false}, {"standing", "Investigate and report; change as little as possible."}},
+        QVariantMap{{"name", "Standard"}, {"model", "sonnet"}, {"roe", "restricted"}, {"cycles", 3},
+                    {"handoffAt", 250000}, {"worktree", true}, {"standing", ""}},
+        QVariantMap{{"name", "Heavy"}, {"model", "opus"}, {"roe", "restricted"}, {"cycles", 5}, {"handoffAt", 400000},
+                    {"worktree", true}, {"standing", "Run the tests at the end of every cycle and fix what fails."}},
+    };
+}
+
+void Operations::loadSettings() {
+    QFile file(m_dataDirectory + "/settings.json");
+    QJsonObject settings;
+    if (file.open(QIODevice::ReadOnly))
+        settings = QJsonDocument::fromJson(file.readAll()).object();
+    m_maxDeployed = qBound(0, settings.value("maxDeployed").toInt(3), 12);
+    m_loadouts = settings.contains("loadouts") ? settings.value("loadouts").toArray().toVariantList() : defaultLoadouts();
+}
+
+void Operations::saveSettings() const {
+    QSaveFile file(m_dataDirectory + "/settings.json");
+    if (!file.open(QIODevice::WriteOnly))
+        return;
+    file.write(QJsonDocument(QJsonObject{{"maxDeployed", m_maxDeployed},
+                                         {"loadouts", QJsonArray::fromVariantList(m_loadouts)}}).toJson());
+    file.commit();
+}
+
+void Operations::saveLoadout(const QVariantMap &loadout) {
+    const QString name = loadout.value("name").toString().trimmed();
+    if (name.isEmpty())
+        return;
+    QVariantMap entry = loadout;
+    entry.insert("name", name);
+    for (int i = 0; i < m_loadouts.size(); ++i)
+        if (m_loadouts.at(i).toMap().value("name").toString().compare(name, Qt::CaseInsensitive) == 0) {
+            m_loadouts[i] = entry;
+            saveSettings();
+            emit loadoutsChanged();
+            return;
+        }
+    m_loadouts.append(entry);
+    saveSettings();
+    emit loadoutsChanged();
+}
+
+void Operations::removeLoadout(const QString &name) {
+    for (int i = 0; i < m_loadouts.size(); ++i)
+        if (m_loadouts.at(i).toMap().value("name").toString() == name) {
+            m_loadouts.removeAt(i);
+            saveSettings();
+            emit loadoutsChanged();
+            return;
+        }
 }
 
 Operations::~Operations() {
@@ -116,9 +214,12 @@ Operations::~Operations() {
         process->kill();
         process->waitForFinished(2000);
     }
-    for (auto &op : m_ops)
+    for (auto &op : m_ops) {
         if (op.status == "deployed")
             op.status = "interrupted";
+        else if (op.status == "staged")
+            op.status = "standby";
+    }
     save();
 }
 
@@ -133,7 +234,9 @@ QHash<int, QByteArray> Operations::roleNames() const {
             {ContextWindowRole, "contextWindow"}, {HandoffAtRole, "handoffAt"}, {SessionRole, "session"},
             {HandoffBriefRole, "handoffBrief"}, {OrdersRole, "orders"}, {HoldRole, "hold"},
             {CeilingRole, "ceiling"}, {HistoryRole, "history"}, {CanUndoRollbackRole, "canUndoRollback"},
-            {EventsRole, "events"}, {RequestsRole, "requests"}, {AllowedRole, "allowed"}};
+            {EventsRole, "events"}, {RequestsRole, "requests"}, {AllowedRole, "allowed"}, {StandingRole, "standing"},
+            {WorktreeRole, "worktree"}, {WorkdirRole, "workdir"}, {BranchRole, "branch"},
+            {BaseBranchRole, "baseBranch"}, {ResumeAtRole, "resumeAt"}, {QueueRole, "queue"}};
 }
 
 QVariant Operations::data(const QModelIndex &index, int role) const {
@@ -171,6 +274,21 @@ QVariant Operations::data(const QModelIndex &index, int role) const {
     case EventsRole: return op.events;
     case RequestsRole: return op.requests;
     case AllowedRole: return op.allowed;
+    case StandingRole: return op.standing;
+    case WorktreeRole: return op.worktree;
+    case WorkdirRole: return workdir(op);
+    case BranchRole: return op.branch;
+    case BaseBranchRole: return op.baseBranch;
+    case ResumeAtRole: return double(op.resumeAt);
+    case QueueRole: {
+        // Place in the queue, from 1, for a staged operation.
+        if (op.status != "staged")
+            return 0;
+        int place = 1;
+        for (const auto &other : m_ops)
+            place += other.status == "staged" && other.stagedAt < op.stagedAt;
+        return place;
+    }
     }
     return {};
 }
@@ -221,7 +339,8 @@ QString Operations::validate(const QString &directory, const QString &objective)
 }
 
 int Operations::create(const QString &codename, const QString &directory, const QString &objective, int cycles,
-                       const QString &roe, const QString &model, int handoffAt) {
+                       const QString &roe, const QString &model, int handoffAt, bool worktree,
+                       const QString &standing) {
     if (!validate(directory, objective).isEmpty())
         return -1;
     Operation op;
@@ -233,22 +352,27 @@ int Operations::create(const QString &codename, const QString &directory, const 
     op.roe = roe == "free" ? "free" : "restricted";
     op.model = model.trimmed();
     op.handoffAt = qMax(0, handoffAt);
+    op.standing = standing.trimmed();
+    // Only a repository with a commit can have a worktree.
+    op.worktree = worktree && Intel::repository(op.directory).value("commits").toBool();
     op.created = QDateTime::currentDateTime();
     QDir().mkpath(m_dataDirectory + "/ops/" + op.id + "/debriefs");
 
     beginInsertRows({}, 0, 0);
     m_ops.prepend(op);
     endInsertRows();
-    log(m_ops.first(), "sys", tr("Operation planned: %1 cycles, %2, %3.")
+    log(m_ops.first(), "sys", tr("Operation planned: %1 cycles, %2, %3, %4.")
                                   .arg(op.cycles).arg(op.roe == "free" ? tr("weapons free") : tr("restricted"))
                                   .arg(op.handoffAt > 0 ? tr("hand off at %1").arg(Stream::tokens(op.handoffAt))
-                                                        : tr("no hand-off")));
+                                                        : tr("no hand-off"))
+                                  .arg(op.worktree ? tr("in its own worktree") : tr("in place")));
     save();
     return 0;
 }
 
 bool Operations::update(int row, const QString &codename, const QString &objective, int cycles,
-                        const QString &roe, const QString &model, int handoffAt) {
+                        const QString &roe, const QString &model, int handoffAt, bool worktree,
+                        const QString &standing) {
     if (row < 0 || row >= m_ops.size() || m_ops.at(row).status == "deployed" || objective.trimmed().isEmpty())
         return false;
     Operation &op = m_ops[row];
@@ -261,6 +385,10 @@ bool Operations::update(int row, const QString &codename, const QString &objecti
     op.roe = roe == "free" ? "free" : "restricted";
     op.model = model.trimmed();
     op.handoffAt = qMax(0, handoffAt);
+    op.standing = standing.trimmed();
+    // An active worktree stays until it's extracted or discarded.
+    if (op.workdir.isEmpty())
+        op.worktree = worktree && Intel::repository(op.directory).value("commits").toBool();
     if (op.status == "complete" && op.cyclesDone < op.cycles)
         op.status = "standby";
     log(op, "sys", tr("Briefing amended: %1 cycles, %2, %3.")
@@ -308,16 +436,241 @@ void Operations::deploy(int row) {
         changed(row);
         return;
     }
+    if (op.status == "staged" || op.status == "pinned")
+        return;
     // A finished operation redeploys for one more cycle on the same session.
     if (op.cyclesDone >= op.cycles)
         op.cycles = op.cyclesDone + 1;
-    op.status = "deployed";
     op.hold = false;
+    start(op.id);
+    if (m_ops.at(rowOf(op.id)).status == "deployed")
+        emit deployed(rowOf(op.id));
+}
+
+bool Operations::canStart(const Operation &op, QString *reason) const {
+    if (m_maxDeployed > 0 && deployedCount() >= m_maxDeployed) {
+        *reason = tr("the squad is at its limit of %n agent(s)", "", m_maxDeployed);
+        return false;
+    }
+    // Two agents working in place in one directory would trample each other.
+    const QString here = QDir::cleanPath(workdir(op));
+    for (const auto &other : m_ops)
+        if (other.id != op.id && other.status == "deployed" && QDir::cleanPath(workdir(other)) == here) {
+            *reason = tr("%1 is working in the same directory").arg(other.codename);
+            return false;
+        }
+    return true;
+}
+
+void Operations::start(const QString &id) {
+    const int row = rowOf(id);
+    Operation &op = m_ops[row];
+    if (!prepareWorktree(op)) {
+        op.status = "failed";
+        changed(row);
+        save();
+        emit operationFinished(row);
+        return;
+    }
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    if (m_limitedUntil > now) {
+        pin(op, m_limitedUntil);
+        changed(row);
+        save();
+        emit deployedCountChanged();
+        return;
+    }
+    QString reason;
+    if (!canStart(op, &reason)) {
+        if (op.status != "staged") {
+            op.status = "staged";
+            op.stagedAt = QDateTime::currentMSecsSinceEpoch();
+            log(op, "sys", tr("Staged: %1. It deploys when that clears.").arg(reason));
+        }
+        changed(row);
+        save();
+        emit deployedCountChanged();
+        return;
+    }
+    op.status = "deployed";
+    op.stagedAt = 0;
+    op.resumeAt = 0;
     changed(row);
     emit deployedCountChanged();
-    emit deployed(row);
     save();
     advance(op.id);
+}
+
+void Operations::launchStaged() {
+    QList<Operation *> queue;
+    for (auto &op : m_ops)
+        if (op.status == "staged")
+            queue << &op;
+    std::sort(queue.begin(), queue.end(), [](const Operation *a, const Operation *b) { return a->stagedAt < b->stagedAt; });
+    for (Operation *op : queue) {
+        QString reason;
+        if (m_limitedUntil > QDateTime::currentSecsSinceEpoch() || !canStart(*op, &reason))
+            continue;
+        log(*op, "sys", tr("Out of the queue and deploying."));
+        start(op->id);
+    }
+    // Rows' places in the queue move along.
+    if (!queue.isEmpty())
+        emit dataChanged(index(0), index(m_ops.size() - 1));
+}
+
+void Operations::pin(Operation &op, qint64 until) {
+    op.status = "pinned";
+    op.resumeAt = until;
+    op.activity.clear();
+    log(op, "error", tr("Pinned down by the plan's usage limit. Resuming at %1.")
+                         .arg(QDateTime::fromSecsSinceEpoch(until).toString("HH:mm")));
+    m_pinTimer->stop();
+    QTimer::singleShot(0, this, &Operations::schedulePinned);
+}
+
+void Operations::schedulePinned() {
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    qint64 next = 0;
+    for (auto &op : m_ops) {
+        if (op.status != "pinned")
+            continue;
+        if (op.resumeAt <= now) {
+            // Back in the queue, so the squad limit still holds.
+            op.status = "staged";
+            op.stagedAt = QDateTime::currentMSecsSinceEpoch();
+            log(op, "sys", tr("The usage limit has reset. Back in the fight."));
+            emit alert(op.id, tr("%1 is moving again").arg(op.codename), tr("The plan's usage limit has reset."));
+            changed(rowOf(op.id));
+        } else if (next == 0 || op.resumeAt < next) {
+            next = op.resumeAt;
+        }
+    }
+    save();
+    if (next > 0)
+        m_pinTimer->start(int(qMin<qint64>((next - now) * 1000 + 500, 3600 * 1000)));
+    launchStaged();
+    emit deployedCountChanged();
+}
+
+bool Operations::prepareWorktree(Operation &op) {
+    if (!op.worktree || (!op.workdir.isEmpty() && QFileInfo(op.workdir).isDir()))
+        return true;
+    const QVariantMap repo = Intel::repository(op.directory);
+    if (!repo.value("commits").toBool()) {
+        log(op, "error", tr("A worktree needs a repository with at least one commit. Commit once, or amend the operation to run in place."));
+        return false;
+    }
+    if (op.branch.isEmpty()) {
+        QString slug = op.codename.toLower();
+        slug.replace(QRegularExpression("[^a-z0-9]+"), "-");
+        op.branch = QString("fireteam/%1-%2").arg(slug, op.id.left(4));
+        op.baseBranch = repo.value("branch").toString();
+    }
+    const QString path = m_dataDirectory + "/worktrees/" + op.id;
+    QDir(path).removeRecursively();
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QString error;
+    const QString workdir = Intel::addWorktree(op.directory, path, op.branch, &error);
+    if (workdir.isEmpty()) {
+        log(op, "error", tr("Couldn't make a worktree: %1").arg(error));
+        return false;
+    }
+    if (op.baseCommit.isEmpty())
+        op.baseCommit = Intel::snapshot(workdir, snapshotRef(op, "base"), QString("Fireteam %1, base").arg(op.codename));
+    op.workdir = workdir;
+    log(op, "sys", tr("Working in its own worktree on branch %1, from %2.")
+                       .arg(op.branch, op.baseBranch.isEmpty() ? tr("the current commit") : op.baseBranch));
+    return true;
+}
+
+void Operations::shelveWorktree(Operation &op) {
+    if (op.workdir.isEmpty())
+        return;
+    // The work is committed to the branch first, so nothing is lost.
+    QString error;
+    if (QFileInfo(op.workdir).isDir())
+        Intel::commitAll(op.workdir, QString("Fireteam %1: work in progress").arg(op.codename), &error);
+    Intel::removeWorktree(op.directory, m_dataDirectory + "/worktrees/" + op.id, op.branch, false);
+    op.workdir.clear();
+}
+
+QVariantMap Operations::repository(const QString &directory) const {
+    return Intel::repository(QDir::cleanPath(directory.trimmed()));
+}
+
+QStringList Operations::sharing(const QString &directory, int exceptRow) const {
+    QStringList names;
+    const QString here = QDir::cleanPath(directory.trimmed());
+    for (int i = 0; i < m_ops.size(); ++i)
+        if (i != exceptRow && !m_ops.at(i).worktree && QDir::cleanPath(m_ops.at(i).directory) == here)
+            names << m_ops.at(i).codename;
+    return names;
+}
+
+QVariantMap Operations::worktreeSummary(int row) {
+    if (row < 0 || row >= m_ops.size() || m_ops.at(row).workdir.isEmpty())
+        return {};
+    Operation &op = m_ops[row];
+    const QString now = Intel::snapshot(op.workdir, snapshotRef(op, "extract"), QString("Fireteam %1, to extract").arg(op.codename));
+    int added = 0, removed = 0;
+    const QVariantList files = Intel::changes(op.workdir, op.baseCommit, now);
+    for (const QVariant &file : files) {
+        added += file.toMap().value("added").toInt();
+        removed += file.toMap().value("removed").toInt();
+    }
+    return {{"files", files.size()}, {"added", added}, {"removed", removed}, {"branch", op.branch},
+            {"target", Intel::repository(op.directory).value("branch").toString()}};
+}
+
+bool Operations::extract(int row) {
+    if (row < 0 || row >= m_ops.size() || m_ops.at(row).workdir.isEmpty() || m_ops.at(row).status == "deployed")
+        return false;
+    Operation &op = m_ops[row];
+    QString error;
+    if (!Intel::commitAll(op.workdir, QString("%1: %2").arg(op.codename, op.objective.section('\n', 0, 0).left(72)), &error)) {
+        log(op, "error", tr("Couldn't commit the worktree: %1").arg(error));
+        changed(row);
+        return false;
+    }
+    QStringList conflicts;
+    const QString result = Intel::merge(op.directory, op.branch, tr("Extract %1 (Fireteam)").arg(op.codename), &conflicts);
+    if (result == "conflicts") {
+        log(op, "error", tr("Extraction stopped: %1 conflicts with your branch in %2. Nothing was changed; merge %3 by hand, or amend the work and try again.")
+                             .arg(op.branch, conflicts.join(", "), op.branch));
+        emit alert(op.id, tr("%1 couldn't be extracted").arg(op.codename), tr("Conflicts in %1").arg(conflicts.join(", ")));
+        changed(row);
+        return false;
+    }
+    if (!result.isEmpty()) {
+        log(op, "error", tr("Extraction stopped; nothing was changed: %1").arg(result.left(400)));
+        changed(row);
+        return false;
+    }
+    Intel::removeWorktree(op.directory, m_dataDirectory + "/worktrees/" + op.id, op.branch, true);
+    log(op, "sys", tr("Extracted: %1 merged into %2. The worktree is gone; the next deploy starts a fresh one.")
+                       .arg(op.branch, Intel::repository(op.directory).value("branch").toString()));
+    op.workdir.clear();
+    op.branch.clear();
+    op.baseCommit.clear();
+    changed(row);
+    save();
+    collectIntel(op.id);
+    return true;
+}
+
+bool Operations::discard(int row) {
+    if (row < 0 || row >= m_ops.size() || m_ops.at(row).branch.isEmpty() || m_ops.at(row).status == "deployed")
+        return false;
+    Operation &op = m_ops[row];
+    Intel::removeWorktree(op.directory, m_dataDirectory + "/worktrees/" + op.id, op.branch, true);
+    log(op, "sys", tr("Worktree and branch %1 discarded. The project wasn't touched.").arg(op.branch));
+    op.workdir.clear();
+    op.branch.clear();
+    op.baseCommit.clear();
+    changed(row);
+    save();
+    return true;
 }
 
 void Operations::sendOrders(int row, const QString &text, bool deployNow) {
@@ -383,6 +736,17 @@ void Operations::startCycle(const QString &id) {
     QDir().mkpath(QFileInfo(report).absolutePath());
     QFile::remove(report);
 
+    // Claude Code keeps sessions per directory, so an operation that has moved
+    // (into a worktree, or back out) starts a fresh session from its notes.
+    if (!op.sessionId.isEmpty() && !op.sessionDir.isEmpty()
+        && QDir::cleanPath(op.sessionDir) != QDir::cleanPath(workdir(op))) {
+        op.sessionId.clear();
+        op.session += 1;
+        op.contextTokens = 0;
+        op.handoffBrief = !op.handoffs.isEmpty() ? op.handoffs.last() : op.reports.isEmpty() ? QString() : op.reports.last();
+        log(op, "sys", tr("Moved to %1, so session %2 starts fresh from the last brief.").arg(workdir(op)).arg(op.session));
+    }
+
     // Only the first cycle of a fresh session after a hand-off reads the brief.
     const QString brief = op.sessionId.isEmpty() ? op.handoffBrief : QString();
     const QStringList orders = op.orders;
@@ -393,11 +757,11 @@ void Operations::startCycle(const QString &id) {
                                           .arg(cycle).arg(op.cycles));
     save();
     // The project as the agent finds it, to diff against when the cycle ends.
-    const QString before = Intel::snapshot(op.directory, snapshotRef(op, QString("run-%1-before").arg(op.history.size() + 1)),
+    const QString before = Intel::snapshot(workdir(op), snapshotRef(op, QString("run-%1-before").arg(op.history.size() + 1)),
                                            QString("Fireteam %1, before cycle %2").arg(op.codename).arg(cycle));
     const double costAtStart = op.costUsd;
     launch(id, Stream::cyclePrompt(op.codename, op.objective, cycle, op.cycles, report, brief,
-                                   QFileInfo(report).absolutePath(), orders),
+                                   QFileInfo(report).absolutePath(), orders, op.standing),
            false);
     Run &run = m_runs[id];
     run.orders = orders;
@@ -437,7 +801,7 @@ void Operations::launch(const QString &id, const QString &prompt, bool handoff) 
         arguments << "--resume" << op.sessionId;
 
     auto *process = new QProcess(this);
-    process->setWorkingDirectory(op.directory);
+    process->setWorkingDirectory(workdir(op));
     // The agent signs in with the same Claude Code login as the terminal. Only
     // the markers of a parent Claude Code session are dropped, so a Fireteam
     // started from inside one doesn't look nested to its agents.
@@ -487,8 +851,10 @@ void Operations::readOutput(const QString &id) {
         for (const auto &event : Stream::parseLine(line)) {
             switch (event.kind) {
             case StreamEvent::Session:
-                if (!event.sessionId.isEmpty())
+                if (!event.sessionId.isEmpty()) {
                     op.sessionId = event.sessionId;
+                    op.sessionDir = workdir(op);
+                }
                 log(op, "sys", tr("Link established%1.").arg(event.text.isEmpty() ? "" : " · " + event.text));
                 break;
             case StreamEvent::Say:
@@ -502,6 +868,17 @@ void Operations::readOutput(const QString &id) {
                     it->tools.insert(event.toolId, {{"tool", event.tool}, {"input", event.input}});
                 log(op, "tool", event.text);
                 break;
+            case StreamEvent::RateLimit: {
+                m_usage = QVariantMap{{"status", event.limitStatus}, {"resetsAt", double(event.resetsAt)},
+                                      {"type", event.text}, {"windows", event.windows},
+                                      {"updated", double(QDateTime::currentSecsSinceEpoch())}};
+                emit usageChanged();
+                if (event.limitStatus == "rejected") {
+                    it->limited = true;
+                    it->resetsAt = event.resetsAt;
+                }
+                break;
+            }
             case StreamEvent::Denied: {
                 const QVariantMap call = it->tools.value(event.toolId);
                 if (!call.isEmpty())
@@ -539,7 +916,10 @@ void Operations::readOutput(const QString &id) {
                     op.contextWindow = event.contextWindow;
                 if (!event.sessionId.isEmpty())
                     op.sessionId = event.sessionId;
-                if (event.isError) {
+                if (event.isError && Stream::isUsageLimit(event.text)) {
+                    it->limited = true;
+                    log(op, "error", tr("Run stopped by the plan's usage limit: %1").arg(event.text));
+                } else if (event.isError) {
                     log(op, "error", tr("Run failed: %1").arg(event.text));
                 } else if (it->handoff) {
                     log(op, "result", event.text);
@@ -579,8 +959,31 @@ void Operations::finishCycle(const QString &id, int exitCode) {
     const int cycle = op.cyclesDone + 1;
     op.activity.clear();
     // A cycle that didn't finish didn't carry out its orders either.
-    if (!run.orders.isEmpty() && (run.aborting || run.ceiling || exitCode != 0 || !run.resultSeen))
+    if (!run.orders.isEmpty() && (run.aborting || run.ceiling || run.limited || exitCode != 0 || !run.resultSeen))
         op.orders = run.orders + op.orders;
+
+    // Stopped by the plan's usage limit: every agent waits for the reset, and
+    // this one picks the same cycle up then.
+    if (run.limited && !run.aborting) {
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+        const qint64 resets = run.resetsAt > now ? run.resetsAt
+                            : m_usage.value("resetsAt").toLongLong() > now ? m_usage.value("resetsAt").toLongLong()
+                            : now + 30 * 60;
+        // A minute's margin past the reset; tests shorten it.
+        m_limitedUntil = resets + qEnvironmentVariableIntValue("FIRETEAM_PIN_MARGIN", nullptr)
+                         + (qEnvironmentVariableIsSet("FIRETEAM_PIN_MARGIN") ? 0 : 60);
+        record(op, run, cycle, "pinned");
+        pin(op, m_limitedUntil);
+        emit alert(op.id, tr("%1 is pinned down").arg(op.codename),
+                   tr("The plan's usage limit was reached. It resumes at %1.")
+                       .arg(QDateTime::fromSecsSinceEpoch(m_limitedUntil).toString("HH:mm")));
+        collectIntel(id);
+        changed(row);
+        save();
+        emit deployedCountChanged();
+        emit operationFinished(row);
+        return;
+    }
 
     // Stopped at the ceiling before the cycle could finish: the old session
     // writes a brief and a fresh one picks the same cycle up.
@@ -690,10 +1093,10 @@ void Operations::record(Operation &op, const Run &run, int cycle, const QString 
     const int index = op.history.size() + 1;
     const QString after = run.before.isEmpty()
         ? QString()
-        : Intel::snapshot(op.directory, snapshotRef(op, QString("run-%1-after").arg(index)),
+        : Intel::snapshot(workdir(op), snapshotRef(op, QString("run-%1-after").arg(index)),
                           QString("Fireteam %1, after cycle %2").arg(op.codename).arg(cycle));
     int added = 0, removed = 0;
-    const QVariantList files = Intel::changes(op.directory, run.before, after);
+    const QVariantList files = Intel::changes(workdir(op), run.before, after);
     for (const QVariant &file : files) {
         added += file.toMap().value("added").toInt();
         removed += file.toMap().value("removed").toInt();
@@ -711,14 +1114,14 @@ QVariantList Operations::cycleChanges(int row, int run) const {
     if (row < 0 || row >= m_ops.size() || run < 0 || run >= m_ops.at(row).history.size())
         return {};
     const QVariantMap entry = m_ops.at(row).history.at(run).toMap();
-    return Intel::changes(m_ops.at(row).directory, entry.value("before").toString(), entry.value("after").toString());
+    return Intel::changes(workdir(m_ops.at(row)), entry.value("before").toString(), entry.value("after").toString());
 }
 
 QString Operations::cycleDiff(int row, int run, const QString &path) const {
     if (row < 0 || row >= m_ops.size() || run < 0 || run >= m_ops.at(row).history.size())
         return {};
     const QVariantMap entry = m_ops.at(row).history.at(run).toMap();
-    return Intel::diff(m_ops.at(row).directory, entry.value("before").toString(), entry.value("after").toString(), path);
+    return Intel::diff(workdir(m_ops.at(row)), entry.value("before").toString(), entry.value("after").toString(), path);
 }
 
 bool Operations::rollback(int row, int run) {
@@ -729,9 +1132,9 @@ bool Operations::rollback(int row, int run) {
     const QVariantMap entry = op.history.at(run).toMap();
     const QString target = entry.value("before").toString();
     // The tree as it is now is kept first, so the rollback can be undone.
-    const QString current = Intel::snapshot(op.directory, snapshotRef(op, QString("rollback-%1").arg(op.rollbacks.size() + 1)),
+    const QString current = Intel::snapshot(workdir(op), snapshotRef(op, QString("rollback-%1").arg(op.rollbacks.size() + 1)),
                                             QString("Fireteam %1, before a rollback").arg(op.codename));
-    if (target.isEmpty() || current.isEmpty() || !Intel::restore(op.directory, target, current)) {
+    if (target.isEmpty() || current.isEmpty() || !Intel::restore(workdir(op), target, current)) {
         log(op, "error", tr("The rollback failed; the project wasn't changed."));
         changed(row);
         return false;
@@ -749,9 +1152,9 @@ bool Operations::undoRollback(int row) {
     if (row < 0 || row >= m_ops.size() || m_ops.at(row).rollbacks.isEmpty() || m_ops.at(row).status == "deployed")
         return false;
     Operation &op = m_ops[row];
-    const QString current = Intel::snapshot(op.directory, snapshotRef(op, "undo"),
+    const QString current = Intel::snapshot(workdir(op), snapshotRef(op, "undo"),
                                             QString("Fireteam %1, before undoing a rollback").arg(op.codename));
-    if (current.isEmpty() || !Intel::restore(op.directory, op.rollbacks.last(), current)) {
+    if (current.isEmpty() || !Intel::restore(workdir(op), op.rollbacks.last(), current)) {
         log(op, "error", tr("Undoing the rollback failed; the project wasn't changed."));
         changed(row);
         return false;
@@ -806,6 +1209,28 @@ bool Operations::grant(Operation &op, const QStringList &rules, bool projectWide
     if (projectWide) {
         // Claude Code's personal settings for the project, read by every
         // session there (Fireteam's or the user's own).
+        // A worktree has its own copy of the file, so it gets the rule too.
+        if (!op.workdir.isEmpty() && QFileInfo(op.workdir).isDir()) {
+            const QString copy = op.workdir + "/.claude/settings.local.json";
+            QFile existing(copy);
+            QJsonObject local;
+            if (existing.open(QIODevice::ReadOnly))
+                local = QJsonDocument::fromJson(existing.readAll()).object();
+            existing.close();
+            QJsonObject localPermissions = local.value("permissions").toObject();
+            QJsonArray localAllow = localPermissions.value("allow").toArray();
+            for (const QString &rule : rules)
+                if (!localAllow.contains(QJsonValue(rule)))
+                    localAllow.append(rule);
+            localPermissions.insert("allow", localAllow);
+            local.insert("permissions", localPermissions);
+            QDir().mkpath(op.workdir + "/.claude");
+            QSaveFile out(copy);
+            if (out.open(QIODevice::WriteOnly)) {
+                out.write(QJsonDocument(local).toJson());
+                out.commit();
+            }
+        }
         const QString path = op.directory + "/.claude/settings.local.json";
         QFile file(path);
         QJsonObject settings;
@@ -915,7 +1340,7 @@ void Operations::collectIntel(const QString &id) {
     // Changed files, from git when the project is a repository. Anything else
     // just leaves the intel empty.
     auto *git = new QProcess(this);
-    git->setWorkingDirectory(m_ops.at(row).directory);
+    git->setWorkingDirectory(workdir(m_ops.at(row)));
     connect(git, &QProcess::finished, this, [this, id, git](int code) {
         const int r = rowOf(id);
         if (r >= 0 && code == 0) {
@@ -935,6 +1360,18 @@ void Operations::collectIntel(const QString &id) {
 void Operations::abort(int row) {
     if (row < 0 || row >= m_ops.size())
         return;
+    // Waiting operations just leave the queue.
+    if (m_ops.at(row).status == "staged" || m_ops.at(row).status == "pinned") {
+        Operation &op = m_ops[row];
+        op.status = "standby";
+        op.stagedAt = 0;
+        op.resumeAt = 0;
+        log(op, "sys", tr("Stood down from the queue."));
+        changed(row);
+        save();
+        emit deployedCountChanged();
+        return;
+    }
     auto it = m_runs.find(m_ops.at(row).id);
     if (it == m_runs.end() || !it->process)
         return;
@@ -955,6 +1392,8 @@ void Operations::abortAll() {
 void Operations::remove(int row) {
     if (row < 0 || row >= m_ops.size() || m_ops.at(row).status == "deployed")
         return;
+    // A worktree's work is committed to its branch, which stays.
+    shelveWorktree(m_ops[row]);
     // Only Fireteam's own records go: its data and its hidden snapshot refs.
     // The project's files, branches, and index are never touched.
     QDir(m_dataDirectory + "/ops/" + m_ops.at(row).id).removeRecursively();
@@ -980,7 +1419,7 @@ bool Operations::openLatestReport(int row) {
 }
 
 bool Operations::openProject(int row) {
-    return row >= 0 && row < m_ops.size() && QDesktopServices::openUrl(QUrl::fromLocalFile(m_ops.at(row).directory));
+    return row >= 0 && row < m_ops.size() && QDesktopServices::openUrl(QUrl::fromLocalFile(workdir(m_ops.at(row))));
 }
 
 void Operations::checkLink() {
@@ -1049,6 +1488,9 @@ void Operations::load() {
         // agent; it can be redeployed from the cycle it reached.
         if (op.status == "deployed")
             op.status = "interrupted";
+        // The queue is per run of the app; pinned operations keep waiting.
+        else if (op.status == "staged")
+            op.status = "standby";
         op.hold = false;
         QFile comms(m_dataDirectory + "/ops/" + op.id + "/comms.jsonl");
         if (comms.open(QIODevice::ReadOnly)) {

@@ -60,6 +60,7 @@ Item {
                     ["Ctrl+Enter", qsTr("Deploy from the briefing")],
                     ["Esc", qsTr("Close a panel")],
                     ["?", qsTr("Show or hide these controls")],
+                    ["X", qsTr("On a staged or pinned operation: take it out of the queue")],
                     ["Q", qsTr("Quit")]
                 ]
                 delegate: RowLayout {

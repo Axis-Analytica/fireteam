@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QPointer>
 #include <QProcess>
+#include <QTimer>
 #include <QVariantList>
 
 // One development effort handed to a Claude Code agent: a project directory,
@@ -24,6 +25,8 @@ struct Operation {
     int cyclesDone = 0;
     QString status = "standby";
     QString sessionId;
+    // Where that session ran: Claude Code keeps sessions per directory.
+    QString sessionDir;
     double costUsd = 0;
     // Context of the current session, and the line past which the next cycle
     // goes to a fresh session primed with a handoff brief (0 never hands off).
@@ -48,6 +51,20 @@ struct Operation {
     // (lists of rules granted together), tool, summary, cycle, time}.
     QStringList allowed;
     QVariantList requests;
+    // Orders that hold for every cycle.
+    QString standing;
+    // Run in a git worktree of its own on branch, made from baseBranch, so
+    // operations can share a repository. workdir is where the agent works:
+    // the worktree while it's active, otherwise the directory.
+    bool worktree = false;
+    QString workdir;
+    QString branch;
+    QString baseBranch;
+    QString baseCommit;
+    // When a staged operation joined the queue, and when a pinned-down one
+    // (stopped by the plan's usage limit) resumes, in seconds since the epoch.
+    qint64 stagedAt = 0;
+    qint64 resumeAt = 0;
     // Comms lines this session, which the board turns into an activity pulse.
     // Not saved.
     int events = 0;
@@ -70,6 +87,12 @@ class Operations : public QAbstractListModel {
     Q_PROPERTY(QString account READ account NOTIFY accountChanged)
     Q_PROPERTY(QString linkStatus READ linkStatus NOTIFY accountChanged)
     Q_PROPERTY(QString dataDirectory READ dataDirectory CONSTANT)
+    Q_PROPERTY(int stagedCount READ stagedCount NOTIFY deployedCountChanged)
+    // How many agents may be deployed at once; 0 is no limit.
+    Q_PROPERTY(int maxDeployed READ maxDeployed WRITE setMaxDeployed NOTIFY maxDeployedChanged)
+    // The plan's usage from the latest run: {status, resetsAt, windows}.
+    Q_PROPERTY(QVariantMap usage READ usage NOTIFY usageChanged)
+    Q_PROPERTY(QVariantList loadouts READ loadouts NOTIFY loadoutsChanged)
 
 public:
     enum Role {
@@ -77,7 +100,8 @@ public:
         CyclesRole, CyclesDoneRole, StatusRole, CostRole, SitrepRole, ActivityRole, IntelRole,
         ReportsRole, CommsRole, DossierRole, CreatedRole, ContextRole, ContextWindowRole, HandoffAtRole,
         SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole, HistoryRole, CanUndoRollbackRole,
-        EventsRole, RequestsRole, AllowedRole
+        EventsRole, RequestsRole, AllowedRole, StandingRole, WorktreeRole, WorkdirRole, BranchRole,
+        BaseBranchRole, ResumeAtRole, QueueRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -93,13 +117,31 @@ public:
     QString account() const { return m_account; }
     QString linkStatus() const { return m_linkStatus; }
     QString dataDirectory() const { return m_dataDirectory; }
+    int stagedCount() const;
+    int maxDeployed() const { return m_maxDeployed; }
+    void setMaxDeployed(int max);
+    QVariantMap usage() const { return m_usage; }
+    QVariantList loadouts() const { return m_loadouts; }
 
     Q_INVOKABLE QString suggestCodename() const;
     Q_INVOKABLE QString validate(const QString &directory, const QString &objective) const;
     Q_INVOKABLE int create(const QString &codename, const QString &directory, const QString &objective,
-                           int cycles, const QString &roe, const QString &model, int handoffAt = 250000);
+                           int cycles, const QString &roe, const QString &model, int handoffAt = 250000,
+                           bool worktree = false, const QString &standing = {});
     Q_INVOKABLE bool update(int row, const QString &codename, const QString &objective, int cycles,
-                            const QString &roe, const QString &model, int handoffAt);
+                            const QString &roe, const QString &model, int handoffAt, bool worktree = false,
+                            const QString &standing = {});
+    // {git, commits, branch} for the briefing, and other operations working
+    // in place in the same directory.
+    Q_INVOKABLE QVariantMap repository(const QString &directory) const;
+    Q_INVOKABLE QStringList sharing(const QString &directory, int exceptRow = -1) const;
+    // Worktree operations: what the branch holds against where it started,
+    // merging it back, and throwing it away.
+    Q_INVOKABLE QVariantMap worktreeSummary(int row);
+    Q_INVOKABLE bool extract(int row);
+    Q_INVOKABLE bool discard(int row);
+    Q_INVOKABLE void saveLoadout(const QVariantMap &loadout);
+    Q_INVOKABLE void removeLoadout(const QString &name);
     Q_INVOKABLE void deploy(int row);
     Q_INVOKABLE void sendOrders(int row, const QString &text, bool deployNow);
     Q_INVOKABLE void clearOrders(int row);
@@ -131,6 +173,8 @@ public:
     QString dossierPath(const Operation &op) const;
     QString handoffPath(const Operation &op) const;
     const Operation &at(int row) const { return m_ops.at(row); }
+    // Where the agent works: its worktree, or the project directory.
+    static QString workdir(const Operation &op);
     // Past this much context a cycle is cut short and handed off on the spot.
     static qint64 ceiling(const Operation &op);
 
@@ -141,6 +185,9 @@ signals:
     void operationFinished(int row);
     // The operator sent an operation in (not each cycle that follows).
     void deployed(int row);
+    void maxDeployedChanged();
+    void usageChanged();
+    void loadoutsChanged();
     // Something worth telling someone who isn't looking at the board.
     void alert(const QString &opId, const QString &title, const QString &body);
 
@@ -161,6 +208,9 @@ private:
         double costAtStart = 0;
         // Tool calls this run by id, to name the call behind a refusal.
         QHash<QString, QVariantMap> tools;
+        // The plan's usage limit stopped this run, until resetsAt.
+        bool limited = false;
+        qint64 resetsAt = 0;
     };
 
     int rowOf(const QString &id) const;
@@ -168,6 +218,17 @@ private:
     void startCycle(const QString &id);
     void startHandoff(const QString &id, bool midCycle = false);
     void stand(const QString &id, const QString &status);
+    // Starts a deployment now, or stages it when the squad is full or the
+    // project is busy, or pins it down while the plan is at its limit.
+    void start(const QString &id);
+    bool canStart(const Operation &op, QString *reason) const;
+    void launchStaged();
+    void pin(Operation &op, qint64 until);
+    void schedulePinned();
+    bool prepareWorktree(Operation &op);
+    void shelveWorktree(Operation &op);
+    void loadSettings();
+    void saveSettings() const;
     void launch(const QString &id, const QString &prompt, bool handoff);
     void finishHandoff(const QString &id, const Run &run, int exitCode);
     void readOutput(const QString &id);
@@ -189,4 +250,10 @@ private:
     QString m_linkStatus = "checking";
     QList<Operation> m_ops;
     QHash<QString, Run> m_runs;
+    int m_maxDeployed = 3;
+    QVariantMap m_usage;
+    // The plan's limit is shared by every agent: until then, nothing starts.
+    qint64 m_limitedUntil = 0;
+    QVariantList m_loadouts;
+    QTimer *m_pinTimer = nullptr;
 };

@@ -46,6 +46,10 @@ ApplicationWindow {
     function authoriseSelected() { if (selected) authorisation.open(selected, roster.currentIndex) }
     function holdSelected() { if (selected && selected.status === "deployed") ops.setHold(roster.currentIndex, !selected.hold) }
     function abortSelected() {
+        if (selected && (selected.status === "staged" || selected.status === "pinned")) {
+            ops.abort(roster.currentIndex)
+            return
+        }
         if (!selected || selected.status !== "deployed")
             return
         const row = roster.currentIndex
@@ -58,8 +62,29 @@ ApplicationWindow {
             return
         const row = roster.currentIndex
         confirm.ask(qsTr("Stand down %1?").arg(selected.codename),
-                    qsTr("The operation, its comms and its debriefs are deleted from Fireteam. The project itself isn't touched."),
+                    selected.branch.length > 0
+                    ? qsTr("The operation, its comms and its debriefs are deleted from Fireteam. Its worktree's work is committed to branch %1, which stays in your repository.").arg(selected.branch)
+                    : qsTr("The operation, its comms and its debriefs are deleted from Fireteam. The project itself isn't touched."),
                     qsTr("Stand down"), () => ops.remove(row))
+    }
+    function extractSelected() {
+        if (!selected || selected.branch.length === 0)
+            return
+        const row = roster.currentIndex
+        const summary = ops.worktreeSummary(row)
+        confirm.ask(qsTr("Extract %1?").arg(selected.codename),
+                    qsTr("Commits the worktree and merges %1 (%2 files, +%3 −%4) into %5 in your repository. If it conflicts with your branch, nothing is changed and the conflicts are listed.")
+                        .arg(summary.branch).arg(summary.files).arg(summary.added).arg(summary.removed)
+                        .arg(summary.target || qsTr("the checked-out commit")),
+                    qsTr("Extract"), () => ops.extract(row))
+    }
+    function discardSelected() {
+        if (!selected || selected.branch.length === 0)
+            return
+        const row = roster.currentIndex
+        confirm.ask(qsTr("Discard %1's work?").arg(selected.codename),
+                    qsTr("The worktree and branch %1 are deleted, with everything the agent did there. Your own branch isn't touched.").arg(selected.branch),
+                    qsTr("Discard"), () => ops.discard(row))
     }
     function quit() {
         if (ops.deployedCount > 0)
@@ -262,25 +287,105 @@ ApplicationWindow {
                     }
                 }
                 Rectangle { visible: win.width > 820; implicitWidth: 1; implicitHeight: 44; color: Style.line }
+                // The plan's usage, from the latest run's report.
                 ColumnLayout {
-                    spacing: 0
+                    visible: win.width > 980 && ops.usage.windows !== undefined
+                    spacing: 4
                     Text {
                         Layout.alignment: Qt.AlignRight
-                        text: qsTr("Deployed")
-                        color: Style.dim
+                        text: ops.usage.status === "rejected" ? qsTr("Plan · limit reached") : qsTr("Plan usage")
+                        color: ops.usage.status === "rejected" ? Style.danger : Style.dim
                         font.family: Style.display
                         font.pixelSize: 11
                         font.weight: Font.Bold
                         font.letterSpacing: 3
                         font.capitalization: Font.AllUppercase
                     }
+                    Repeater {
+                        model: [["five_hour", qsTr("5H")], ["seven_day", qsTr("7D")]]
+                        delegate: RowLayout {
+                            id: usageRow
+                            required property var modelData
+                            readonly property var window: ops.usage.windows ? ops.usage.windows[modelData[0]] : undefined
+                            readonly property real used: window ? window.utilization : 0
+                            visible: window !== undefined
+                            Layout.alignment: Qt.AlignRight
+                            spacing: 6
+                            Text {
+                                text: usageRow.modelData[1]
+                                color: Style.dim
+                                font.family: Style.mono
+                                font.pixelSize: 10
+                            }
+                            Rectangle {
+                                implicitWidth: 70
+                                implicitHeight: 5
+                                color: Qt.rgba(1, 1, 1, 0.08)
+                                Rectangle {
+                                    width: parent.width * Math.min(1, usageRow.used)
+                                    height: parent.height
+                                    color: usageRow.used >= 0.9 ? Style.danger : usageRow.used >= 0.7 ? Style.amber : theme.accent
+                                }
+                            }
+                            Text {
+                                Layout.preferredWidth: 30
+                                horizontalAlignment: Text.AlignRight
+                                text: Math.round(usageRow.used * 100) + "%"
+                                color: Style.text
+                                font.family: Style.mono
+                                font.pixelSize: 10
+                            }
+                        }
+                    }
+                }
+                Rectangle { visible: win.width > 980 && ops.usage.windows !== undefined; implicitWidth: 1; implicitHeight: 44; color: Style.line }
+                // Deployed against the squad's limit, with the queue behind it.
+                ColumnLayout {
+                    spacing: 0
+                    RowLayout {
+                        Layout.alignment: Qt.AlignRight
+                        spacing: 8
+                        Text {
+                            text: "−"
+                            color: squadLess.hovered ? theme.accent : Style.faint
+                            font.family: Style.mono
+                            font.pixelSize: 13
+                            HoverHandler { id: squadLess; cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: ops.maxDeployed = ops.maxDeployed === 0 ? 6 : Math.max(1, ops.maxDeployed - 1) }
+                        }
+                        Text {
+                            text: qsTr("Squad")
+                            color: Style.dim
+                            font.family: Style.display
+                            font.pixelSize: 11
+                            font.weight: Font.Bold
+                            font.letterSpacing: 3
+                            font.capitalization: Font.AllUppercase
+                        }
+                        Text {
+                            text: "+"
+                            color: squadMore.hovered ? theme.accent : Style.faint
+                            font.family: Style.mono
+                            font.pixelSize: 13
+                            HoverHandler { id: squadMore; cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: ops.maxDeployed = ops.maxDeployed === 0 || ops.maxDeployed >= 6 ? 0 : ops.maxDeployed + 1 }
+                        }
+                    }
                     Text {
                         Layout.alignment: Qt.AlignRight
-                        text: Style.pad(ops.deployedCount) + " / " + Style.pad(roster.count)
+                        text: Style.pad(ops.deployedCount) + " / " + (ops.maxDeployed === 0 ? "∞" : Style.pad(ops.maxDeployed))
                         color: ops.deployedCount > 0 ? theme.accent : Style.text
                         font.family: Style.mono
                         font.pixelSize: 24
                         font.bold: true
+                    }
+                    Text {
+                        Layout.alignment: Qt.AlignRight
+                        visible: ops.stagedCount > 0
+                        text: qsTr("+%1 staged").arg(ops.stagedCount)
+                        color: Style.amber
+                        font.family: Style.mono
+                        font.pixelSize: 10
                     }
                 }
                 Rectangle { visible: !win.narrow; implicitWidth: 1; implicitHeight: 44; color: Style.line }
@@ -362,6 +467,8 @@ ApplicationWindow {
                     onEditRequested: win.editSelected()
                     onDiffRequested: (run) => win.diffSelected(run)
                     onAuthorisationRequested: win.authoriseSelected()
+                    onExtractRequested: win.extractSelected()
+                    onDiscardRequested: win.discardSelected()
                 }
             }
 

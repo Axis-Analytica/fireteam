@@ -185,6 +185,14 @@ QList<StreamEvent> parseLine(const QByteArray &line) {
                 events.append(event);
             }
         }
+    } else if (type == "rate_limit_event") {
+        const QJsonObject info = object.value("rate_limit_info").toObject();
+        StreamEvent event{StreamEvent::RateLimit};
+        event.limitStatus = info.value("status").toString();
+        event.resetsAt = info.value("resetsAt").toInteger();
+        event.text = info.value("rateLimitType").toString();
+        event.windows = info.value("unifiedWindows").toObject().toVariantMap();
+        events.append(event);
     } else if (type == "result") {
         StreamEvent event{StreamEvent::Result};
         event.text = object.value("result").toString().trimmed();
@@ -207,6 +215,12 @@ QList<StreamEvent> parseLine(const QByteArray &line) {
     return events;
 }
 
+bool isUsageLimit(const QString &text) {
+    static const QRegularExpression limit(R"(usage limit|limit reached|hit your limit|rate limit|resets? (at )?\d)",
+                                          QRegularExpression::CaseInsensitiveOption);
+    return text.contains(limit);
+}
+
 QString systemBrief() {
     return "You are one agent on a fireteam, working unattended through a series of development cycles. "
            "No one will answer questions mid-cycle, so make sensible decisions, note them, and keep moving. "
@@ -219,7 +233,7 @@ QString systemBrief() {
 
 QString cyclePrompt(const QString &codename, const QString &objective, int cycle, int cycles,
                     const QString &reportPath, const QString &handoffBrief, const QString &debriefs,
-                    const QStringList &commandOrders) {
+                    const QStringList &commandOrders, const QString &standing) {
     QString orders;
     if (cycle == 1)
         orders = "This is the first cycle. Survey the project, plan the route to the objective, then deliver "
@@ -233,6 +247,8 @@ QString cyclePrompt(const QString &codename, const QString &objective, int cycle
         orders += QString("\n\nHANDOFF:\nYou are a fresh session taking over this operation from one whose context "
                           "grew too large. Before anything else, read the handoff brief at %1. Earlier debriefs are "
                           "in %2 if you need more detail.").arg(handoffBrief, debriefs);
+    if (!standing.trimmed().isEmpty())
+        orders += "\n\nSTANDING ORDERS:\nThese hold for every cycle of this operation.\n" + standing.trimmed();
     if (!commandOrders.isEmpty())
         orders += "\n\nORDERS FROM COMMAND:\nThe operator sent these since the last cycle. They take priority over "
                   "the plan above; follow them this cycle and say in the debrief how each was handled.\n- "
