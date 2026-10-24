@@ -46,6 +46,11 @@ Item {
     required property int queue
     required property string overwatch
     required property var reviews
+    required property int progress
+    required property string progressNote
+    required property var questions
+    required property var prompts
+    readonly property int waitingOn: questions.length + prompts.length
 
     readonly property bool selected: ListView.isCurrentItem
     readonly property color ink: selected ? theme.accentForeground : Style.text
@@ -136,7 +141,9 @@ Item {
         Text {
             Layout.fillWidth: true
             elide: Text.ElideRight
-            text: entry.requests.length > 0
+            text: entry.waitingOn > 0
+                  ? qsTr("◉ Waiting on you · %1").arg(entry.questions.length > 0 ? qsTr("question") : qsTr("permission"))
+                  : entry.requests.length > 0
                   ? qsTr("⚠ Awaiting authorisation · %1").arg(entry.requests.length)
                   : entry.status === "deployed" && entry.activity.length > 0
                   ? entry.activity
@@ -145,9 +152,9 @@ Item {
                   : qsTr("%1 · cycle %2/%3 · ctx %4 · ≈$%5").arg((entry.hold && entry.status === "deployed" ? qsTr("Holding next") : Style.statusLabel(entry.status)).toUpperCase())
                         .arg(entry.cyclesDone).arg(entry.cycles).arg(Style.tokens(entry.context))
                         .arg(entry.cost.toLocaleString(Qt.locale(), 'f', 2))
-            color: entry.selected ? entry.ink : entry.requests.length > 0 ? Style.amber : Style.dim
+            color: entry.selected ? entry.ink : entry.waitingOn > 0 ? Style.danger : entry.requests.length > 0 ? Style.amber : Style.dim
             opacity: entry.selected ? 0.8 : 1
-            font.bold: entry.requests.length > 0
+            font.bold: entry.requests.length > 0 || entry.waitingOn > 0
             font.family: Style.mono
             font.pixelSize: 11
         }

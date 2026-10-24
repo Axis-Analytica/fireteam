@@ -156,8 +156,9 @@ Item {
                 solid: true
             }
             Chip {
-                text: detail.op && detail.op.roe === "free" ? qsTr("ROE · weapons free") : qsTr("ROE · restricted")
-                tone: detail.op && detail.op.roe === "free" ? Style.danger : Style.dim
+                text: !detail.op ? "" : detail.op.roe === "free" ? qsTr("ROE · weapons free")
+                    : detail.op.roe === "supervised" ? qsTr("ROE · supervised") : qsTr("ROE · restricted")
+                tone: detail.op && detail.op.roe === "free" ? Style.danger : detail.op && detail.op.roe === "supervised" ? theme.accent : Style.dim
             }
             Chip { text: detail.op && detail.op.model ? detail.op.model : qsTr("Default model"); tone: Style.dim }
             Chip {
@@ -266,6 +267,48 @@ Item {
                     TapHandler { onTapped: ops.openReport(detail.op.handoffBrief) }
                 }
             }
+            // The agent has stopped mid-cycle for the operator: louder still.
+            Rectangle {
+                id: waitBanner
+                readonly property int count: detail.op ? detail.op.questions.length + detail.op.prompts.length : 0
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                visible: count > 0
+                implicitHeight: 48
+                color: Qt.rgba(Style.danger.r, Style.danger.g, Style.danger.b, waitHover.hovered ? 0.22 : 0.14)
+                border.color: Style.danger
+                border.width: 2
+                radius: Math.min(4, theme.radius)
+                SequentialAnimation on opacity {
+                    running: waitBanner.visible
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 0.7; duration: 600 }
+                    NumberAnimation { to: 1; duration: 600 }
+                }
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 10
+                    spacing: 12
+                    Text { text: "◉"; color: Style.danger; font.pixelSize: 16 }
+                    Text {
+                        Layout.fillWidth: true
+                        text: !detail.op || waitBanner.count === 0 ? ""
+                            : detail.op.questions.length > 0
+                              ? qsTr("Waiting on you · %1").arg(detail.op.questions[0].question)
+                              : qsTr("Waiting on you · permission for %1").arg(detail.op.prompts[0].summary)
+                        elide: Text.ElideRight
+                        color: Style.text
+                        font.family: Style.mono
+                        font.pixelSize: 12
+                        font.bold: true
+                        textFormat: Text.PlainText
+                    }
+                    KeyHint { key: "A"; label: qsTr("Respond") }
+                }
+                HoverHandler { id: waitHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: detail.authorisationRequested() }
+            }
             // Refused commands waiting on the operator, impossible to miss.
             Rectangle {
                 id: authBanner
@@ -320,6 +363,34 @@ Item {
                 color: Style.amber
                 font.family: Style.mono
                 font.pixelSize: 12
+            }
+            // The agent's own progress report, when it has sent one.
+            RowLayout {
+                Layout.fillWidth: true
+                visible: detail.live && detail.op.progress >= 0
+                spacing: 10
+                Rectangle {
+                    Layout.preferredWidth: 120
+                    implicitHeight: 6
+                    radius: 3
+                    color: Qt.rgba(1, 1, 1, 0.07)
+                    Rectangle {
+                        width: parent.width * Math.max(0, detail.op ? detail.op.progress : 0) / 100
+                        height: parent.height
+                        radius: 3
+                        color: theme.accent
+                        Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: detail.op ? qsTr("%1% · %2").arg(detail.op.progress).arg(detail.op.progressNote) : ""
+                    elide: Text.ElideRight
+                    color: Style.dim
+                    font.family: Style.mono
+                    font.pixelSize: 11
+                    textFormat: Text.PlainText
+                }
             }
             Text {
                 Layout.fillWidth: true
@@ -440,6 +511,8 @@ Item {
                                 case "cmd": return Style.amber
                                 case "denied": return Style.amber
                                 case "review": return Style.good
+                                case "report": return theme.accent
+                                case "ask": return Style.danger
                                 case "sys": return Style.dim
                                 }
                                 return Style.text
@@ -462,6 +535,8 @@ Item {
                                     case "cmd": return qsTr("CMD")
                                     case "denied": return qsTr("BLOCK")
                                     case "review": return qsTr("REVIEW")
+                                    case "report": return qsTr("REPORT")
+                                    case "ask": return qsTr("ASK")
                                     case "sys": return qsTr("HQ")
                                     }
                                     return qsTr("AGENT")
@@ -475,7 +550,7 @@ Item {
                                 Layout.fillWidth: true
                                 text: line.modelData.text
                                 wrapMode: Text.Wrap
-                                maximumLineCount: ["say", "cmd", "review"].indexOf(line.modelData.kind) >= 0 ? 12 : 3
+                                maximumLineCount: ["say", "cmd", "review", "ask"].indexOf(line.modelData.kind) >= 0 ? 12 : 3
                                 elide: Text.ElideRight
                                 color: line.modelData.kind === "say" ? Style.text : line.tone
                                 font.bold: line.modelData.kind === "cmd"

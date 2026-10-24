@@ -21,6 +21,7 @@ ApplicationWindow {
     readonly property bool narrow: width < 1100
     readonly property bool overlayOpen: briefing.visible || help.visible || confirm.visible || radio.visible || intel.visible
                                         || insertion.visible || authorisation.visible || serviceRecord.visible
+                                        || waitingPanel.visible
     // The theatre map in place of the roster and detail.
     property bool mapView: false
     readonly property var selected: roster.currentItem
@@ -43,7 +44,16 @@ ApplicationWindow {
                     qsTr("Every file in the repository goes back to how it was when cycle %1 started, including changes made since by you. The current state is snapshotted first, so Undo rollback puts it all back.").arg(entry.cycle),
                     qsTr("Roll back"), () => ops.rollback(row, run))
     }
-    function authoriseSelected() { if (selected) authorisation.open(selected, roster.currentIndex) }
+    // A: what the agent is waiting on right now, or else refused commands and
+    // standing approvals.
+    function authoriseSelected() {
+        if (!selected)
+            return
+        if (selected.questions.length + selected.prompts.length > 0)
+            waitingPanel.open(selected, roster.currentIndex)
+        else
+            authorisation.open(selected, roster.currentIndex)
+    }
     function holdSelected() { if (selected && selected.status === "deployed") ops.setHold(roster.currentIndex, !selected.hold) }
     function abortSelected() {
         if (selected && (selected.status === "staged" || selected.status === "pinned")) {
@@ -110,6 +120,9 @@ ApplicationWindow {
         function onAlert(opId, title, body) {
             if (!win.active)
                 notifier.send(opId, title, body)
+        }
+        function onWaiting(row) {
+            Sfx.play("radio")
         }
         function onDeployed(row) {
             const op = roster.itemAtIndex(row)
@@ -190,6 +203,7 @@ ApplicationWindow {
             else if (help.visible) help.visible = false
             else if (intel.visible) intel.close()
             else if (authorisation.visible) authorisation.close()
+            else if (waitingPanel.visible) waitingPanel.close()
             else if (serviceRecord.visible) serviceRecord.close()
             else if (radio.visible) radio.close()
             else briefing.close()
@@ -554,6 +568,11 @@ ApplicationWindow {
             anchors.fill: parent
             onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
             onResumeRequested: ops.deploy(row)
+        }
+        WaitingPanel {
+            id: waitingPanel
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
         }
         ServiceRecord {
             id: serviceRecord

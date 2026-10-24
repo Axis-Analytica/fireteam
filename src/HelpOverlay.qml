@@ -44,7 +44,7 @@ Item {
                     [qsTr("Space"), qsTr("Deploy, resume, or redeploy the selected operation")],
                     ["T", qsTr("Send orders to the selected operation")],
                     ["H", qsTr("Hold after the current cycle, or lift the hold")],
-                    ["A", qsTr("Approve or deny commands the agent was refused")],
+                    ["A", qsTr("Respond to an agent waiting on you, or review refused commands")],
                     ["E", qsTr("Amend the briefing of an operation that isn't deployed")],
                     ["X", qsTr("Abort the selected operation")],
                     ["↑ ↓  J K", qsTr("Move through the roster")],

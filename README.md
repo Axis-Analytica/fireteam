@@ -125,6 +125,24 @@ one brings Fireteam up on that operation.
 - **Standing orders**: instructions repeated in every cycle's prompt, such as
   "Run the tests before finishing".
 
+## Field link
+
+Every agent gets a field link back to camp: a small MCP server built into
+Fireteam (`fireteam mcp`, started by Claude Code for each run) that talks to
+the board over a local socket.
+
+- **Sitreps**: the agent reports progress at milestones; the board shows a
+  progress bar and a REPORT line in the comms.
+- **Requests for orders**: when a decision is genuinely yours, the agent asks
+  and waits. The operation turns red ("Waiting on you"), a radio call sounds,
+  and a notification goes out. `A` opens the question with the agent's
+  suggested answers as buttons, or type your own. Unanswered after 30
+  minutes, the agent goes with its own judgement.
+- **Supervised ROE** (the default): edits are free, and any other command not
+  already allowed comes to you live, mid-cycle, while the agent waits:
+  **Approve once**, **Always** (for this operation, as a rule), or **Deny**.
+  Unanswered after 20 minutes, it's refused.
+
 ## Authorisation
 
 Under restricted ROE, Claude Code refuses any command your permission settings
@@ -154,6 +172,7 @@ own.
 
 | ROE | `claude` permission mode | Meaning |
 | --- | --- | --- |
+| Supervised | `acceptEdits` + Fireteam's permission prompt | Edits files; anything else not pre-approved is put to you live |
 | Restricted | `acceptEdits` | Edits files; other commands follow your Claude Code permission settings, and anything not pre-approved is refused |
 | Weapons free | `bypassPermissions` | Runs any command without asking |
 

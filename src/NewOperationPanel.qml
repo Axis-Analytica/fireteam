@@ -17,7 +17,7 @@ Item {
 
     property string error: ""
     property int cycles: 3
-    property string roe: "restricted"
+    property string roe: "supervised"
     // The row being amended, or -1 for a new operation.
     property int editing: -1
     property int minimumCycles: 1
@@ -38,7 +38,7 @@ Item {
     }
     function applyLoadout(loadout) {
         model.currentIndex = Math.max(0, model.find(loadout.model || ""))
-        roe = loadout.roe === "free" ? "free" : "restricted"
+        roe = ["free", "supervised", "restricted"].indexOf(loadout.roe) >= 0 ? loadout.roe : "supervised"
         cycles = Math.max(minimumCycles, Math.min(20, loadout.cycles || 3))
         const at = handoff.limits.indexOf(loadout.handoffAt)
         handoff.currentIndex = at >= 0 ? at : 1
@@ -61,7 +61,7 @@ Item {
         objective.text = ""
         error = ""
         cycles = 3
-        roe = "restricted"
+        roe = "supervised"
         model.currentIndex = 0
         handoff.currentIndex = 1
         useWorktree = true
@@ -364,6 +364,8 @@ Item {
                         model: [
                             { key: "restricted", title: qsTr("Restricted"),
                               body: qsTr("Edits files freely. Other commands follow your Claude Code permission settings; anything not pre-approved is refused.") },
+                            { key: "supervised", title: qsTr("Supervised"),
+                              body: qsTr("Edits files freely. Any other command not already allowed comes to you live, mid-cycle, while the agent waits.") },
                             { key: "free", title: qsTr("Weapons free"),
                               body: qsTr("Full autonomy: runs any command without asking. Only for projects you can afford to have changed.") }
                         ]
@@ -373,6 +375,7 @@ Item {
                             readonly property bool chosen: panel.roe === modelData.key
                             readonly property color tone: modelData.key === "free" ? Style.danger : theme.accent
                             Layout.fillWidth: true
+                            Layout.fillHeight: true
                             Layout.preferredWidth: 1
                             implicitHeight: cardText.implicitHeight + 28
                             radius: theme.radius

@@ -172,9 +172,9 @@ static QVariantList defaultLoadouts() {
     return {
         QVariantMap{{"name", "Recon"}, {"model", "haiku"}, {"roe", "restricted"}, {"cycles", 1}, {"handoffAt", 150000},
                     {"worktree", false}, {"standing", "Investigate and report; change as little as possible."}},
-        QVariantMap{{"name", "Standard"}, {"model", "sonnet"}, {"roe", "restricted"}, {"cycles", 3},
+        QVariantMap{{"name", "Standard"}, {"model", "sonnet"}, {"roe", "supervised"}, {"cycles", 3},
                     {"handoffAt", 250000}, {"worktree", true}, {"standing", ""}},
-        QVariantMap{{"name", "Heavy"}, {"model", "opus"}, {"roe", "restricted"}, {"cycles", 5}, {"handoffAt", 400000},
+        QVariantMap{{"name", "Heavy"}, {"model", "opus"}, {"roe", "supervised"}, {"cycles", 5}, {"handoffAt", 400000},
                     {"worktree", true}, {"standing", "Run the tests at the end of every cycle and fix what fails."}},
     };
 }
@@ -1494,6 +1494,7 @@ void Operations::onQuestion(const QString &opId, const QString &requestId, const
     op.activity = tr("Awaiting orders");
     log(op, "ask", text);
     emit alert(op.id, tr("%1 is asking for orders").arg(op.codename), text);
+    emit waiting(row);
     changed(row);
     QTimer::singleShot(QuestionTimeoutMs, this, [this, opId, requestId] {
         const int r = rowOf(opId);
@@ -1536,6 +1537,7 @@ void Operations::onAuthorise(const QString &opId, const QString &requestId, cons
     op.activity = tr("Requesting permission: %1").arg(summary);
     log(op, "denied", tr("Requesting permission, waiting: %1").arg(summary));
     emit alert(op.id, tr("%1 requests permission").arg(op.codename), summary);
+    emit waiting(row);
     changed(row);
     QTimer::singleShot(PromptTimeoutMs, this, [this, opId, requestId] {
         const int r = rowOf(opId);

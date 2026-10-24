@@ -219,6 +219,8 @@ signals:
     // The operator sent an operation in (not each cycle that follows).
     void deployed(int row);
     void maxDeployedChanged();
+    // An agent has stopped to ask the operator something, over the field link.
+    void waiting(int row);
     void usageChanged();
     void loadoutsChanged();
     // Something worth telling someone who isn't looking at the board.

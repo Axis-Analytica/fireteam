@@ -29,12 +29,13 @@ QtObject {
     }
 
     readonly property var effects: ({ tick: tick, select: select, open: open, deploy: deploy,
-                                      done: done, complete: complete, fail: fail })
+                                      done: done, complete: complete, fail: fail, radio: radio })
     property SoundEffect tick: SoundEffect { source: "qrc:/sounds/tick.wav"; volume: 0.35 }
     property SoundEffect select: SoundEffect { source: "qrc:/sounds/select.wav"; volume: 0.5 }
     property SoundEffect open: SoundEffect { source: "qrc:/sounds/open.wav"; volume: 0.5 }
     property SoundEffect deploy: SoundEffect { source: "qrc:/sounds/deploy.wav"; volume: 0.6 }
     property SoundEffect done: SoundEffect { source: "qrc:/sounds/done.wav"; volume: 0.55 }
     property SoundEffect complete: SoundEffect { source: "qrc:/sounds/complete.wav"; volume: 0.6 }
+    property SoundEffect radio: SoundEffect { source: "qrc:/sounds/radio.wav"; volume: 0.55 }
     property SoundEffect fail: SoundEffect { source: "qrc:/sounds/fail.wav"; volume: 0.55 }
 }

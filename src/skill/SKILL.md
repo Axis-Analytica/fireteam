@@ -31,7 +31,8 @@ fireteam plan --dir ~/Work/app --objective "Add CSV export with tests" \
 ```
 
 Options: `--codename`, `--cycles N` (1–20), `--model opus|sonnet|haiku`,
-`--roe restricted|free`, `--handoff 250000` (0 never hands off),
+`--roe supervised|restricted|free` (supervised puts each new command to the
+operator live), `--handoff 250000` (0 never hands off),
 `--in-place` (the default is a git worktree of its own when the repository
 has a commit), `--standing "orders for every cycle"`,
 `--overwatch off|review|fix`, `--deploy`.

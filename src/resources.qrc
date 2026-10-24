@@ -15,6 +15,8 @@
         <file alias="sounds/done.wav">sounds/done.wav</file>
         <file alias="sounds/complete.wav">sounds/complete.wav</file>
         <file alias="sounds/fail.wav">sounds/fail.wav</file>
+        <file alias="sounds/radio.wav">sounds/radio.wav</file>
+        <file alias="WaitingPanel.qml">WaitingPanel.qml</file>
         <file alias="ConfirmPanel.qml">ConfirmPanel.qml</file>
         <file alias="Crosshair.qml">Crosshair.qml</file>
         <file alias="ContextGauge.qml">ContextGauge.qml</file>
