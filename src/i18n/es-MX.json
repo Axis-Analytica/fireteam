@@ -711,5 +711,20 @@
   "graphify is installed": "graphify está instalado",
   "graphify isn't installed": "graphify no está instalado",
   "graphify reads a project's code and maps how its files and symbols connect, locally and with no API key. Fireteam can install it in its own folder, or install graphifyy yourself with uv or pip.": "graphify lee el código de un proyecto y mapea cómo se conectan sus archivos y símbolos, localmente y sin clave de API. Fireteam puede instalarlo en su propia carpeta, o puedes instalar graphifyy tú mismo con uv o pip.",
-  "graphify stopped.": "graphify se detuvo."
+  "graphify stopped.": "graphify se detuvo.",
+  "All files": "Todos los archivos",
+  "Map its symbols": "Mapear sus símbolos",
+  "Symbol in this file": "Símbolo en este archivo",
+  "Symbol elsewhere: click to open its file": "Símbolo en otro lugar: haz clic para abrir su archivo",
+  "◉ Being edited now": "◉ En edición ahora",
+  "%n symbol(s) here": {
+    "one": "%n símbolo aquí",
+    "many": "%n símbolos aquí",
+    "other": "%n símbolos aquí"
+  },
+  "%n linked elsewhere": {
+    "one": "%n vinculado en otro lugar",
+    "many": "%n vinculados en otro lugar",
+    "other": "%n vinculados en otro lugar"
+  }
 }

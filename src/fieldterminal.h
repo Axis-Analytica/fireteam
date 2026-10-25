@@ -79,6 +79,7 @@ private:
     bool authorised(const Request &request) const;
     QJsonObject state() const;
     QJsonObject operation(int row) const;
+    QJsonObject graph(int row) const;
     QJsonObject act(int row, const QString &action, const QJsonObject &body);
     void broadcast();
     void load();

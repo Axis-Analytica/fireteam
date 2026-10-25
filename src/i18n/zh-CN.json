@@ -669,5 +669,16 @@
   "graphify is installed": "graphify 已安装",
   "graphify isn't installed": "graphify 未安装",
   "graphify reads a project's code and maps how its files and symbols connect, locally and with no API key. Fireteam can install it in its own folder, or install graphifyy yourself with uv or pip.": "graphify 读取项目代码，并在本地绘制文件与符号之间的关联地图，无需 API 密钥。Fireteam 可将其安装在自己的文件夹中，你也可以用 uv 或 pip 自行安装 graphifyy。",
-  "graphify stopped.": "graphify 已停止。"
+  "graphify stopped.": "graphify 已停止。",
+  "All files": "所有文件",
+  "Map its symbols": "绘制其符号图",
+  "Symbol in this file": "此文件中的符号",
+  "Symbol elsewhere: click to open its file": "其他位置的符号：点击打开其文件",
+  "◉ Being edited now": "◉ 正在编辑",
+  "%n symbol(s) here": {
+    "other": "此处 %n 个符号"
+  },
+  "%n linked elsewhere": {
+    "other": "其他位置 %n 个关联"
+  }
 }

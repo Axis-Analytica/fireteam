@@ -296,6 +296,10 @@ void FieldTerminal::handle(QTcpSocket *socket, const Request &request) {
             replyJson(socket, 200, operation(row));
             return;
         }
+        if (parts.size() == 4 && parts.at(3) == "graph" && request.method == "GET") {
+            replyJson(socket, 200, graph(row));
+            return;
+        }
         if (parts.size() == 4 && request.method == "POST") {
             const QJsonObject result = act(row, parts.at(3), QJsonDocument::fromJson(request.body).object());
             replyJson(socket, result.contains("error") ? 409 : 200, result);
@@ -408,4 +412,32 @@ void FieldTerminal::push(const QString &title, const QString &body) {
 
 void FieldTerminal::testPush() {
     push("Fireteam", tr("Field terminal test: alerts will arrive here."));
+}
+
+// The operation's project as a map for a small screen: files as [path, x, y,
+// symbols], links as index pairs, and how many cycles this operation and the
+// others changed each file, with what's being edited now.
+QJsonObject FieldTerminal::graph(int row) const {
+    const Operation &op = m_ops.at(row);
+    const QVariantMap map = m_ops.graph(op.directory);
+    QJsonArray files, links;
+    for (const QVariant &value : map.value("files").toList()) {
+        const QVariantMap file = value.toMap();
+        files.append(QJsonArray{file.value("path").toString(), qRound(file.value("x").toDouble() * 1000) / 1000.0,
+                                qRound(file.value("y").toDouble() * 1000) / 1000.0, file.value("symbols").toInt()});
+    }
+    for (const QVariant &value : map.value("links").toList())
+        links.append(QJsonArray{value.toMap().value("a").toInt(), value.toMap().value("b").toInt()});
+    QJsonObject mine, others, live;
+    const QVariantMap activity = map.value("activity").toMap();
+    for (auto it = activity.cbegin(); it != activity.cend(); ++it)
+        for (const QVariant &entry : it.value().toList()) {
+            QJsonObject &target = entry.toMap().value("opId").toString() == op.id ? mine : others;
+            target.insert(it.key(), target.value(it.key()).toInt() + entry.toMap().value("cycles").toInt());
+        }
+    const QVariantMap editing = m_ops.graphLive(op.directory);
+    for (auto it = editing.cbegin(); it != editing.cend(); ++it)
+        live.insert(it.key(), it.value().toMap().value("codename").toString());
+    return {{"state", map.value("state").toString()}, {"files", files}, {"links", links},
+            {"mine", mine}, {"others", others}, {"live", live}};
 }

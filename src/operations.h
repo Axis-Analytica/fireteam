@@ -248,6 +248,11 @@ public:
     // ready or failed; error} and activity: {path: [{opId, codename, cycles}]}.
     Q_INVOKABLE QVariantMap graph(const QString &directory);
     Q_INVOKABLE QVariantMap graphFileDetail(const QString &directory, const QString &path) const;
+    // One file's symbols and the symbols they're linked to elsewhere, laid out.
+    Q_INVOKABLE QVariantMap graphSymbols(const QString &directory, const QString &path) const;
+    // Files being edited right now by deployed operations in a project:
+    // {path: {opId, codename, at}}, at in ms since the epoch.
+    Q_INVOKABLE QVariantMap graphLive(const QString &directory) const;
     // Every project an operation has worked in, or that has a graph:
     // [{directory, state, files}].
     Q_INVOKABLE QVariantList graphProjects() const;
@@ -316,6 +321,7 @@ signals:
     void archivedChanged();
     void lessonsChanged(const QString &directory);
     void graphChanged(const QString &directory);
+    void liveWorkChanged(const QString &directory);
     void graphsChanged();
     // Something worth telling someone who isn't looking at the board.
     void alert(const QString &opId, const QString &title, const QString &body);
@@ -338,6 +344,8 @@ private:
         double costAtStart = 0;
         // Tool calls this run by id, to name the call behind a refusal.
         QHash<QString, QVariantMap> tools;
+        // Files this run has edited, from the project's root, with when (ms).
+        QHash<QString, qint64> touched;
         // The plan's usage limit stopped this run, until resetsAt.
         bool limited = false;
         qint64 resetsAt = 0;

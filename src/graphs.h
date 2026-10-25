@@ -32,6 +32,10 @@ QVariantMap view(const QString &graphJson);
 // The symbols in one file and the files it's linked to, from the same graph:
 // {symbols: [{label, line, degree}], neighbours: [{path, weight}]}.
 QVariantMap fileDetail(const QString &graphJson, const QString &path);
+// One file's symbols and the symbols elsewhere they're linked to (the most
+// connected 48), laid out: {path, nodes: [{label, path, line, own, degree, x,
+// y}], links: [{a, b, relation}]}.
+QVariantMap symbolView(const QString &graphJson, const QString &path);
 // What an agent gets: the project's shape in a few lines, and how to ask the
 // graph more. Empty without a view.
 QString brief(const QVariantMap &view, const QString &graphJson, const QString &executable);

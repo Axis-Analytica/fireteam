@@ -18,6 +18,20 @@ Item {
     property int selected: -1
     property int hovered: -1
     property var detail: ({})
+    // Files deployed agents are editing right now, and the clock that ages them.
+    property var live: ({})
+    property real now: Date.now()
+    // Inside one file: its symbols and what they reach, in place of the files.
+    property string focusFile: ""
+    property var symbols: ({})
+    property int symbolHovered: -1
+    readonly property var symbolNodes: symbols.nodes || []
+    readonly property var symbolLinks: symbols.links || []
+    // Only the busiest symbols are named until zoomed in, or in focus.
+    readonly property real labelDegree: {
+        const degrees = symbolNodes.map(n => n.degree).sort((a, b) => b - a)
+        return degrees.length > 16 ? degrees[15] : 0
+    }
 
     // theme.accent is a name ("#ffd60a"); as a colour its channels can be read.
     readonly property color accent: theme.accent
@@ -74,20 +88,51 @@ Item {
         enter.restart()
         stage.fit()
     }
-    function close() { visible = false }
+    // Esc steps out of a file's symbols first.
+    function close() {
+        if (focusFile.length > 0) leaveFile()
+        else visible = false
+    }
+    function enterFile(path) {
+        if (path.length === 0) return
+        // The drawer shows the file whose symbols are on the map.
+        const index = indexOf(path)
+        selected = index
+        detail = index >= 0 ? ops.graphFileDetail(project, path) : ({})
+        focusFile = path
+        symbols = ops.graphSymbols(project, path)
+        symbolHovered = -1
+        stage.fit()
+        edges.requestPaint()
+    }
+    function leaveFile() {
+        const path = focusFile
+        focusFile = ""
+        symbols = ({})
+        stage.fit()
+        select(indexOf(path))
+    }
     function load(directory) {
         if (directory !== project) {
             selected = -1
             hovered = -1
             detail = ({})
         }
+        if (directory !== project)
+            focusFile = ""
         project = directory
         graph = directory.length > 0 ? ops.graph(directory) : ({})
+        live = directory.length > 0 ? ops.graphLive(directory) : ({})
         if (selected >= files.length)
             selected = -1
         edges.requestPaint()
     }
     function select(index) {
+        // Inside a file, picking another opens that one's symbols instead.
+        if (focusFile.length > 0 && index >= 0) {
+            enterFile(files[index].path)
+            return
+        }
         selected = index
         detail = index >= 0 ? ops.graphFileDetail(project, files[index].path) : ({})
         edges.requestPaint()
@@ -102,6 +147,10 @@ Item {
 
     Connections {
         target: ops
+        function onLiveWorkChanged(directory) {
+            if (panel.visible && directory === panel.project)
+                panel.live = ops.graphLive(directory)
+        }
         function onGraphChanged(directory) {
             panel.projects = ops.graphProjects()
             if (panel.visible && directory === panel.project)
@@ -109,6 +158,8 @@ Item {
         }
     }
     onFocusIndexChanged: edges.requestPaint()
+    onSymbolHoveredChanged: edges.requestPaint()
+    Timer { interval: 1000; repeat: true; running: panel.visible && Object.keys(panel.live).length > 0; onTriggered: panel.now = Date.now() }
     onWorkByChanged: edges.requestPaint()
 
     Rectangle {
@@ -380,7 +431,23 @@ Item {
                         onPaint: {
                             const ctx = getContext("2d")
                             ctx.reset()
-                            const files = panel.files, w = width, h = height
+                            const w = width, h = height
+                            if (panel.focusFile.length > 0) {
+                                const nodes = panel.symbolNodes, focus = panel.symbolHovered
+                                for (const link of panel.symbolLinks) {
+                                    const a = nodes[link.a], b = nodes[link.b]
+                                    if (!a || !b) continue
+                                    const lit = focus >= 0 && (link.a === focus || link.b === focus)
+                                    ctx.strokeStyle = lit ? panel.css(accent, 0.85) : panel.css(ink, a.own && b.own ? 0.2 : 0.09)
+                                    ctx.lineWidth = (lit ? 1.4 : 1) / stage.scale
+                                    ctx.beginPath()
+                                    ctx.moveTo(a.x * w, a.y * h)
+                                    ctx.lineTo(b.x * w, b.y * h)
+                                    ctx.stroke()
+                                }
+                                return
+                            }
+                            const files = panel.files
                             // A dashed ring around each community of three files or more.
                             const groups = {}
                             files.forEach(f => (groups[f.community] = groups[f.community] || []).push(f))
@@ -416,7 +483,7 @@ Item {
 
                     // Community names, at each ring's top.
                     Repeater {
-                        model: panel.graph.communities || []
+                        model: panel.focusFile.length > 0 ? [] : panel.graph.communities || []
                         delegate: Text {
                             required property var modelData
                             required property int index
@@ -439,7 +506,7 @@ Item {
 
                     // The files.
                     Repeater {
-                        model: panel.files
+                        model: panel.focusFile.length > 0 ? [] : panel.files
                         delegate: Item {
                             id: node
                             required property var modelData
@@ -449,6 +516,9 @@ Item {
                             readonly property bool near: panel.neighbours[index] === true
                             readonly property bool dimmed: panel.focusIndex >= 0 && !chosen && !near && panel.focusIndex !== index
                             readonly property real size: (5 + Math.sqrt(modelData.symbols) * 1.7) / stage.scale
+                            readonly property var editing: panel.live[modelData.path]
+                            // Edited in the last half minute: still warm.
+                            readonly property bool fresh: editing !== undefined && panel.now - editing.at < 30000
                             x: modelData.x * stage.width - size / 2
                             y: modelData.y * stage.height - size / 2
                             width: size
@@ -466,6 +536,25 @@ Item {
                                 border.color: node.chosen ? theme.accent : Style.bg
                                 border.width: 1 / stage.scale
                             }
+                            // Being edited: a ring that keeps opening out while it's fresh.
+                            Rectangle {
+                                id: ring
+                                visible: node.editing !== undefined
+                                anchors.centerIn: parent
+                                width: parent.width * (node.fresh ? ringScale : 1.8)
+                                height: width
+                                color: "transparent"
+                                border.color: panel.accent
+                                border.width: 1.5 / stage.scale
+                                opacity: node.fresh ? 1.6 - ringScale * 0.45 : 0.7
+                                property real ringScale: 1.3
+                                NumberAnimation on ringScale {
+                                    running: node.fresh
+                                    from: 1.3; to: 3.4; duration: 1300
+                                    loops: Animation.Infinite
+                                    easing.type: Easing.OutCubic
+                                }
+                            }
                             Brackets {
                                 visible: node.chosen
                                 anchors.fill: parent
@@ -475,14 +564,14 @@ Item {
                             }
                             // Names show for the bigger files, and for what's in focus.
                             Text {
-                                visible: node.chosen || node.near || nodeHover.hovered || node.heat > 0
+                                visible: node.chosen || node.near || nodeHover.hovered || node.heat > 0 || node.editing !== undefined
                                          || node.modelData.symbols * stage.scale >= 24
                                 x: parent.width + 5 / stage.scale
                                 y: (parent.height - height * scale) / 2
                                 scale: 1 / stage.scale
                                 transformOrigin: Item.TopLeft
-                                text: panel.baseName(node.modelData.path)
-                                color: node.chosen ? theme.accent : node.heat > 0 ? Style.text : node.near ? Style.text2 : Style.dim
+                                text: panel.baseName(node.modelData.path) + (node.editing !== undefined ? "  ◉ " + node.editing.codename : "")
+                                color: node.chosen || node.editing !== undefined ? theme.accent : node.heat > 0 ? Style.text : node.near ? Style.text2 : Style.dim
                                 font.family: Style.mono
                                 font.variableAxes: Style.narrow
                                 font.pixelSize: 10
@@ -493,7 +582,56 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                                 onHoveredChanged: panel.hovered = hovered ? node.index : (panel.hovered === node.index ? -1 : panel.hovered)
                             }
-                            TapHandler { onTapped: panel.select(node.chosen ? -1 : node.index) }
+                            TapHandler {
+                                onTapped: panel.select(node.chosen ? -1 : node.index)
+                                onDoubleTapped: panel.enterFile(node.modelData.path)
+                            }
+                        }
+                    }
+
+                    // Inside a file: its own symbols in ink, what they reach elsewhere
+                    // smaller and dimmer, named for their file.
+                    Repeater {
+                        model: panel.focusFile.length > 0 ? panel.symbolNodes : []
+                        delegate: Item {
+                            id: symbol
+                            required property var modelData
+                            required property int index
+                            readonly property bool near: panel.symbolHovered >= 0 && panel.symbolLinks.some(l =>
+                                (l.a === panel.symbolHovered && l.b === index) || (l.b === panel.symbolHovered && l.a === index))
+                            readonly property real size: (modelData.own ? 6 + Math.sqrt(modelData.degree) * 1.4 : 5) / stage.scale
+                            x: modelData.x * stage.width - size / 2
+                            y: modelData.y * stage.height - size / 2
+                            width: size
+                            height: size
+                            opacity: panel.symbolHovered >= 0 && panel.symbolHovered !== index && !near ? 0.35 : 1
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: symbol.modelData.own ? 0 : width / 2
+                                color: symbol.modelData.own ? (panel.heat(symbol.modelData.path) > 0 ? panel.accent : Style.text) : Style.dim
+                            }
+                            Text {
+                                visible: symbolHover.hovered || symbol.near
+                                         || symbol.modelData.degree * stage.scale * stage.scale >= Math.max(1, panel.labelDegree)
+                                x: parent.width + 5 / stage.scale
+                                y: (parent.height - height * scale) / 2
+                                scale: 1 / stage.scale
+                                transformOrigin: Item.TopLeft
+                                text: symbol.modelData.own ? symbol.modelData.label
+                                    : symbol.modelData.label + "  " + panel.baseName(symbol.modelData.path)
+                                color: symbolHover.hovered ? theme.accent : symbol.modelData.own ? Style.text2 : Style.dim
+                                font.family: Style.mono
+                                font.variableAxes: Style.narrow
+                                font.pixelSize: 10
+                            }
+                            HoverHandler {
+                                id: symbolHover
+                                margin: 4
+                                cursorShape: symbol.modelData.own ? Qt.ArrowCursor : Qt.PointingHandCursor
+                                onHoveredChanged: panel.symbolHovered = hovered ? symbol.index : (panel.symbolHovered === symbol.index ? -1 : panel.symbolHovered)
+                            }
+                            // A symbol elsewhere opens its own file.
+                            TapHandler { onTapped: if (!symbol.modelData.own) panel.enterFile(symbol.modelData.path) }
                         }
                     }
                 }
@@ -507,6 +645,31 @@ Item {
                     onWheel: (event) => stage.zoom(event.angleDelta.y > 0 ? 1.15 : 1 / 1.15, event.x, event.y)
                 }
 
+                // Inside a file: where you are, and the way back.
+                RowLayout {
+                    visible: panel.focusFile.length > 0
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.margins: 12
+                    spacing: 10
+                    TacticalButton { text: qsTr("All files"); key: "Esc"; implicitHeight: 30; onClicked: panel.leaveFile() }
+                    Text {
+                        text: panel.baseName(panel.project) + "  /  " + panel.focusFile
+                        color: Style.text2
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 12
+                    }
+                    Text {
+                        text: "# " + qsTr("%n symbol(s) here", "", panel.symbolNodes.filter(n => n.own).length)
+                              + " · " + qsTr("%n linked elsewhere", "", panel.symbolNodes.filter(n => !n.own).length)
+                        color: Style.dim
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 11
+                    }
+                }
+
                 // Legend and zoom, in the corner.
                 Row {
                     anchors.left: parent.left
@@ -515,10 +678,11 @@ Item {
                     spacing: 14
                     visible: panel.files.length > 0
                     Repeater {
-                        model: [
-                            { swatch: Style.text2, label: qsTr("File, sized by its symbols") },
-                            { swatch: theme.accent, label: panel.workBy === "" ? qsTr("Changed by operations") : qsTr("Changed by this operation") }
-                        ]
+                        model: panel.focusFile.length > 0
+                            ? [{ swatch: Style.text, label: qsTr("Symbol in this file") }, { swatch: Style.dim, label: qsTr("Symbol elsewhere: click to open its file") }]
+                            : [{ swatch: Style.text2, label: qsTr("File, sized by its symbols") },
+                               { swatch: theme.accent, label: panel.workBy === "" ? qsTr("Changed by operations") : qsTr("Changed by this operation") }]
+                              .concat(Object.keys(panel.live).length > 0 ? [{ swatch: theme.accent, label: qsTr("◉ Being edited now") }] : [])
                         delegate: Row {
                             required property var modelData
                             spacing: 6
@@ -700,6 +864,13 @@ Item {
                 }
                 TacticalButton {
                     Layout.fillWidth: true
+                    visible: panel.focusFile.length === 0
+                    text: qsTr("Map its symbols")
+                    primary: true
+                    onClicked: panel.enterFile(parent.file.path)
+                }
+                TacticalButton {
+                    Layout.fillWidth: true
                     text: qsTr("Open file")
                     onClicked: Qt.openUrlExternally("file://" + panel.project + "/" + parent.file.path)
                 }
@@ -710,4 +881,5 @@ Item {
     Shortcut { enabled: panel.visible; sequences: ["+", "="]; context: Qt.ApplicationShortcut; onActivated: stage.zoom(1.3, frame.width / 2, frame.height / 2) }
     Shortcut { enabled: panel.visible; sequence: "-"; context: Qt.ApplicationShortcut; onActivated: stage.zoom(1 / 1.3, frame.width / 2, frame.height / 2) }
     Shortcut { enabled: panel.visible; sequence: "0"; context: Qt.ApplicationShortcut; onActivated: stage.fit() }
+    Shortcut { enabled: panel.visible && panel.selected >= 0 && panel.focusFile.length === 0; sequences: ["Return", "Enter"]; context: Qt.ApplicationShortcut; onActivated: panel.enterFile(panel.files[panel.selected].path) }
 }

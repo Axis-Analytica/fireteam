@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QPointF>
 #include <QRandomGenerator>
+#include <QSet>
 #include <QStandardPaths>
 #include <QtMath>
 #include <algorithm>
@@ -308,6 +309,73 @@ QVariantMap fileDetail(const QString &graphJson, const QString &path) {
     for (int i = 0; i < ranked.size() && i < 12; ++i)
         neighbourList << QVariantMap{{"path", ranked[i].second}, {"weight", ranked[i].first}};
     return {{"symbols", symbolList}, {"neighbours", neighbourList}};
+}
+
+QVariantMap symbolView(const QString &graphJson, const QString &path) {
+    const QJsonObject graph = readJson(graphJson);
+    QHash<QString, QJsonObject> nodes;
+    for (const QJsonValue &value : graph.value("nodes").toArray())
+        nodes.insert(value.toObject().value("id").toString(), value.toObject());
+    QHash<QString, int> degree;
+    const QJsonArray links = graph.value("links").toArray();
+    for (const QJsonValue &value : links) {
+        degree[value.toObject().value("source").toString()] += 1;
+        degree[value.toObject().value("target").toString()] += 1;
+    }
+    QStringList own, outside;
+    for (auto it = nodes.cbegin(); it != nodes.cend(); ++it)
+        if (it->value("source_file").toString() == path)
+            own << it.key();
+    std::sort(own.begin(), own.end());
+    const QSet<QString> mine(own.cbegin(), own.cend());
+    QSet<QString> seen;
+    for (const QJsonValue &value : links) {
+        const QString a = value.toObject().value("source").toString(), b = value.toObject().value("target").toString();
+        const QString other = mine.contains(a) && !mine.contains(b) ? b : mine.contains(b) && !mine.contains(a) ? a : QString();
+        if (!other.isEmpty() && nodes.contains(other) && !seen.contains(other)) {
+            seen.insert(other);
+            outside << other;
+        }
+    }
+    std::sort(outside.begin(), outside.end(), [&](const QString &x, const QString &y) {
+        return degree.value(x) > degree.value(y) || (degree.value(x) == degree.value(y) && x < y);
+    });
+    outside = outside.mid(0, 48);
+    const QStringList ids = own + outside;
+    QHash<QString, int> index;
+    for (int i = 0; i < ids.size(); ++i)
+        index.insert(ids[i], i);
+    QList<QPair<int, int>> edges;
+    QList<double> weights;
+    QVariantList linkList;
+    QSet<quint64> joined;
+    for (const QJsonValue &value : links) {
+        const QJsonObject link = value.toObject();
+        if (!index.contains(link.value("source").toString()) || !index.contains(link.value("target").toString()))
+            continue;
+        int a = index.value(link.value("source").toString()), b = index.value(link.value("target").toString());
+        if (a == b || joined.contains((quint64(std::min(a, b)) << 32) | quint64(std::max(a, b))))
+            continue;
+        joined.insert((quint64(std::min(a, b)) << 32) | quint64(std::max(a, b)));
+        edges << qMakePair(a, b);
+        weights << 1;
+        linkList << QVariantMap{{"a", a}, {"b", b}, {"relation", link.value("relation").toString()}};
+    }
+    // The file's own symbols gather in the middle, what they reach around them.
+    QList<int> groups;
+    for (const QString &id : ids)
+        groups << (mine.contains(id) ? 0 : 1 + int(qHash(nodes.value(id).value("source_file").toString()) % 6));
+    QList<QPointF> points(ids.size());
+    layout(points, groups, edges, weights);
+    QVariantList list;
+    for (int i = 0; i < ids.size(); ++i) {
+        const QJsonObject node = nodes.value(ids[i]);
+        list << QVariantMap{{"label", node.value("label").toString()}, {"path", node.value("source_file").toString()},
+                            {"line", node.value("source_location").toString().mid(1).toInt()},
+                            {"own", mine.contains(ids[i])}, {"degree", degree.value(ids[i])},
+                            {"x", points[i].x()}, {"y", points[i].y()}};
+    }
+    return {{"path", path}, {"nodes", list}, {"links", linkList}};
 }
 
 QString brief(const QVariantMap &view, const QString &graphJson, const QString &executable) {

@@ -114,6 +114,11 @@ textarea{min-height:84px;resize:vertical;display:block}
 .criteria div{margin:4px 0}
 .met{color:var(--good)}.unmet{color:var(--danger)}.claimed{color:var(--amber)}
 .toast{position:fixed;left:16px;right:16px;bottom:max(16px,env(safe-area-inset-bottom));background:var(--panel);color:var(--text);border:1px solid var(--line-strong);border-left:2px solid var(--accent);padding:12px 14px;font:500 14px var(--body);display:none;max-width:688px;margin:0 auto}
+.map{background:var(--bg);padding:0;overflow:hidden}
+.map svg{display:block;width:100%;height:auto}
+.map .note{padding:8px 12px;border-top:1px solid var(--line);font:11px var(--mono);font-stretch:87.5%;color:var(--dim)}
+@keyframes pulse{from{r:6;opacity:1}to{r:22;opacity:0}}
+.map .ring{fill:none;stroke:var(--accent);stroke-width:1.5;animation:pulse 1.3s ease-out infinite}
 </style>
 </head>
 <body>
@@ -129,9 +134,10 @@ textarea{min-height:84px;resize:vertical;display:block}
 // The token arrives in the address's fragment when pairing, which browsers
 // never send to the server; it's kept for next time.
 const fromHash = location.hash.slice(1);
-if (fromHash) { try { localStorage.setItem("fireteam-token", fromHash) } catch (e) {} history.replaceState(null, "", location.pathname) }
+if (fromHash) { try { localStorage.setItem("fireteam-token", fromHash) } catch (e) {} history.replaceState(null, "", location.pathname + location.search) }
 let token = fromHash; try { token = token || localStorage.getItem("fireteam-token") || "" } catch (e) {}
-let current = null;
+// ?op=<id> opens straight onto an operation.
+let current = new URLSearchParams(location.search).get("op");
 const main = document.getElementById("main");
 
 function el(tag, props, ...children) {
@@ -187,6 +193,42 @@ async function renderList() {
       op.status === "deployed" && op.progress >= 0 ? el("div", { class: "progress" }, el("i", { style: "width:" + op.progress + "%" })) : null);
   }));
 }
+// The project's knowledge graph: this operation's files in the accent, others'
+// work dimmer, and what's being edited now pulsing.
+const SVG = "http://www.w3.org/2000/svg";
+function svg(tag, attrs, ...children) {
+  const node = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+  node.append(...children.filter(Boolean));
+  return node;
+}
+async function drawMap(box, id) {
+  const g = await api("/api/op/" + id + "/graph").catch(() => ({}));
+  if (!g.files || !g.files.length) {
+    box.replaceChildren(el("div", { class: "note" }, g.state === "building" ? "Mapping the project…" : "No map of this project yet. Map it from the board (G)."));
+    return;
+  }
+  const W = 1000, H = 640, X = x => 30 + x * (W - 60), Y = y => 20 + y * (H - 40);
+  const ink = getComputedStyle(document.documentElement).getPropertyValue("--text2").trim() || "#c9c8c1";
+  const lines = g.links.map(([a, b]) => svg("line", { x1: X(g.files[a][1]), y1: Y(g.files[a][2]), x2: X(g.files[b][1]), y2: Y(g.files[b][2]),
+    stroke: ink, "stroke-opacity": g.mine[g.files[a][0]] && g.mine[g.files[b][0]] ? 0.35 : 0.12, "stroke-width": 1.2 }));
+  const most = Math.max(1, ...Object.values(g.mine));
+  const nodes = g.files.map(([path, x, y, symbols]) => {
+    const size = 7 + Math.sqrt(symbols) * 2.2, mine = g.mine[path], other = g.others[path], live = g.live[path];
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    return svg("g", {},
+      live ? svg("circle", { class: "ring", cx: X(x), cy: Y(y), r: 6 }) : null,
+      svg("rect", { x: X(x) - size / 2, y: Y(y) - size / 2, width: size, height: size,
+        fill: mine || live ? "var(--accent)" : ink, "fill-opacity": mine ? 0.45 + 0.55 * mine / most : other ? 0.5 : 0.28 },
+        svg("title", {}, path + (mine ? " · " + mine + " cycle(s) by this operation" : "") + (live ? " · being edited by " + live : ""))),
+      mine || live ? svg("text", { x: X(x) + size / 2 + 6, y: Y(y) + 7, fill: "var(--text)", "font-size": 22, "font-family": "Martian Mono, monospace" }, name) : null);
+  });
+  // Counted on the map only: graphify doesn't map every kind of file.
+  const touched = g.files.filter(f => g.mine[f[0]]).length, editing = Object.keys(g.live).length;
+  box.replaceChildren(svg("svg", { viewBox: "0 0 " + W + " " + H }, ...lines, ...nodes),
+    el("div", { class: "note" }, "# " + g.files.length + " files · " + touched + " changed by this operation" + (editing ? " · " + editing + " being edited now" : "")));
+}
+
 async function renderOp(id) {
   const op = await api("/api/op/" + id);
   if (!op.id) { current = null; return renderList() }
@@ -212,6 +254,9 @@ async function renderOp(id) {
     el("div", { class: "row" }, el("button", { class: "act danger", onclick: () => act("deny", { request: i }) }, "Deny"),
       el("button", { class: "act primary", onclick: () => act("approve", { request: i, rule: 0 }) }, "Approve " + (r.choices[0] || []).join(" + "))))));
   parts.push(el("h2", {}, "Objective"), el("div", { class: "box" }, op.objective));
+  const map = el("div", { class: "box map" });
+  parts.push(el("h2", {}, "Map"), map);
+  drawMap(map, id);
   if (op.criteria.length) parts.push(el("h2", {}, "Criteria"), el("div", { class: "box criteria" }, ...op.criteria.map(c =>
     el("div", { class: c.state }, (c.state === "met" ? "● " : c.state === "unmet" ? "✕ " : c.state === "claimed" ? "◐ " : "○ ") + c.text))));
   if (op.gates) parts.push(el("h2", {}, "Gates"), el("div", { class: "box mono" }, ...op.gates.map(g => el("div", { class: g.passed ? "met" : "unmet" }, (g.passed ? "✓ " : "✕ ") + g.name + "  " + g.command))));

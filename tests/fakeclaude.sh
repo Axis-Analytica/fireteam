@@ -34,6 +34,7 @@ echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"
 echo '{"type":"result","subtype":"success","is_error":false,"result":"Blocked on npm test.","session_id":"sess-1","permission_denials":[{"tool_name":"Bash","tool_use_id":"t1","tool_input":{"command":"npm test"}}]}'
 exit 0
 fi
+if [ -n "$FIRETEAM_TEST_EDIT" ]; then echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"e1","name":"Edit","input":{"file_path":"'"$PWD"'/src/live.cpp"}}]}}'; sleep 1; fi
 echo '{"type":"assistant","message":{"usage":{"input_tokens":'${FIRETEAM_TEST_CONTEXT:-1000}',"output_tokens":0},"content":[{"type":"text","text":"Moving out."},{"type":"tool_use","name":"Edit","input":{"file_path":"/x/src/main.cpp"}}]}}'
 if [ -n "$FIRETEAM_TEST_PER_OP" ]; then name=$(printf '%s\n' "$2" | head -1 | sed 's/^OPERATION \(.*\), CYCLE.*/\1/' | tr ' A-Z' '-a-z'); echo "line" >> "notes-$name.txt"; else echo "line" >> notes.txt; fi
 case "$report" in *cycle-01.html) echo '<html>agent debrief</html>' > "$report";; esac

@@ -774,5 +774,26 @@
   "graphify is installed": "graphify مثبّت",
   "graphify isn't installed": "graphify غير مثبّت",
   "graphify reads a project's code and maps how its files and symbols connect, locally and with no API key. Fireteam can install it in its own folder, or install graphifyy yourself with uv or pip.": "يقرأ graphify شيفرة المشروع ويرسم خريطة لكيفية ترابط ملفاته ورموزه، محليًا ودون مفتاح API. يمكن لـ Fireteam تثبيته في مجلده الخاص، أو ثبّت graphifyy بنفسك باستخدام uv أو pip.",
-  "graphify stopped.": "توقف graphify."
+  "graphify stopped.": "توقف graphify.",
+  "All files": "كل الملفات",
+  "Map its symbols": "ارسم رموزه",
+  "Symbol in this file": "رمز في هذا الملف",
+  "Symbol elsewhere: click to open its file": "رمز في مكان آخر: انقر لفتح ملفه",
+  "◉ Being edited now": "◉ قيد التحرير الآن",
+  "%n symbol(s) here": {
+    "zero": "لا رموز هنا",
+    "one": "رمز واحد هنا",
+    "two": "رمزان هنا",
+    "few": "%n رموز هنا",
+    "many": "%n رمزًا هنا",
+    "other": "%n رمز هنا"
+  },
+  "%n linked elsewhere": {
+    "zero": "لا روابط في مكان آخر",
+    "one": "رابط واحد في مكان آخر",
+    "two": "رابطان في مكان آخر",
+    "few": "%n روابط في مكان آخر",
+    "many": "%n رابطًا في مكان آخر",
+    "other": "%n رابط في مكان آخر"
+  }
 }

@@ -1076,6 +1076,18 @@ void Operations::readOutput(const QString &id) {
                 op.activity = event.text;
                 it->actions << event.text;
                 log(op, "tool", event.text);
+                // An edit lights its file on the knowledge graph while the cycle runs.
+                if (QStringList{"Edit", "Write", "MultiEdit", "NotebookEdit"}.contains(event.tool)) {
+                    const QString path = event.input.value("file_path", event.input.value("notebook_path")).toString();
+                    if (!path.isEmpty()) {
+                        const QString relative = QDir::cleanPath(QFileInfo(path).isAbsolute()
+                            ? QDir(workdir(op)).relativeFilePath(path) : path);
+                        if (!relative.startsWith("..")) {
+                            it->touched.insert(relative, QDateTime::currentMSecsSinceEpoch());
+                            emit liveWorkChanged(QDir::cleanPath(op.directory));
+                        }
+                    }
+                }
                 break;
             case StreamEvent::RateLimit: {
                 m_usage = QVariantMap{{"status", event.limitStatus}, {"resetsAt", double(event.resetsAt)},
@@ -1165,6 +1177,8 @@ void Operations::finishCycle(const QString &id, int exitCode) {
     }
     const Run run = *it;
     m_runs.erase(it);
+    if (!run.touched.isEmpty())
+        emit liveWorkChanged(QDir::cleanPath(m_ops.at(row).directory));
     // Whatever the agent was waiting on went with it.
     m_ops[row].questions.clear();
     m_ops[row].prompts.clear();
@@ -2821,4 +2835,21 @@ void Operations::installGraphify() {
     });
     process->start("/bin/sh", {"-c", "\"$0\" -m venv \"$1\" && \"$1/bin/pip\" install --quiet --disable-pip-version-check graphifyy",
                                python, target});
+}
+
+QVariantMap Operations::graphSymbols(const QString &directory, const QString &path) const {
+    return Graphs::symbolView(Graphs::graphFile(m_dataDirectory, QDir::cleanPath(directory)), path);
+}
+
+QVariantMap Operations::graphLive(const QString &directory) const {
+    QVariantMap live;
+    for (auto it = m_runs.cbegin(); it != m_runs.cend(); ++it) {
+        const int row = rowOf(it.key());
+        if (row < 0 || QDir::cleanPath(m_ops.at(row).directory) != QDir::cleanPath(directory))
+            continue;
+        for (auto file = it->touched.cbegin(); file != it->touched.cend(); ++file)
+            live.insert(file.key(), QVariantMap{{"opId", m_ops.at(row).id}, {"codename", m_ops.at(row).codename},
+                                                {"at", double(file.value())}});
+    }
+    return live;
 }

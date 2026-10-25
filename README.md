@@ -347,6 +347,14 @@ shown*, or press *Map* (`G`) on an operation, to see only its work. Click a file
 for its symbols, the files it's linked to, and who changed it. Drag to pan,
 scroll or `+` `-` to zoom, `0` to fit.
 
+- **Live**: while a cycle runs, every file its agent edits pulses with a ring
+  and the operation's callsign, warm for half a minute after each edit.
+- **Inside a file**: double-click a file (or select it and press `Enter`) for a
+  map of its own symbols and the symbols elsewhere they reach; click one of
+  those to step into its file, and `Esc` for all files again.
+- **On the phone**: an operation's page in the field terminal shows the
+  project's map, with that operation's files lit and live edits pulsing.
+
 - The graph is kept in Fireteam's data folder, never in the project.
 - A project is mapped when its first operation deploys, and the map is redrawn
   after each cycle in the project and after each extraction.

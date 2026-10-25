@@ -1296,6 +1296,28 @@ private slots:
         qunsetenv("FIRETEAM_GRAPHIFY");
     }
 
+    void showsFilesBeingEditedLive()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        qputenv("FIRETEAM_TEST_EDIT", "1");
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 1, "restricted", "", 250000, false), 0);
+        QSignalSpy live(&ops, &Operations::liveWorkChanged);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(live.wait(5000));
+        QCOMPARE(live.first().first().toString(), QDir::cleanPath(project.path()));
+        // Paths are the project's own; an edit outside it doesn't count.
+        const QVariantMap editing = ops.graphLive(project.path());
+        QCOMPARE(editing.keys(), QStringList{"src/live.cpp"});
+        QCOMPARE(editing.value("src/live.cpp").toMap().value("codename").toString(), ops.at(0).codename);
+        QVERIFY(finished.wait(10000));
+        QVERIFY(ops.graphLive(project.path()).isEmpty());
+        qunsetenv("FIRETEAM_TEST_EDIT");
+    }
+
     void themeTintsTheGroundTowardTheAccent()
     {
         QTemporaryDir dir;

@@ -669,5 +669,16 @@
   "graphify is installed": "graphify はインストール済みです",
   "graphify isn't installed": "graphify はインストールされていません",
   "graphify reads a project's code and maps how its files and symbols connect, locally and with no API key. Fireteam can install it in its own folder, or install graphifyy yourself with uv or pip.": "graphify はプロジェクトのコードを読み、ファイルとシンボルのつながりをローカルで、API キーなしでマップします。Fireteam が専用フォルダにインストールすることも、uv や pip で graphifyy を自分でインストールすることもできます。",
-  "graphify stopped.": "graphify が停止しました。"
+  "graphify stopped.": "graphify が停止しました。",
+  "All files": "すべてのファイル",
+  "Map its symbols": "シンボルをマップ",
+  "Symbol in this file": "このファイルのシンボル",
+  "Symbol elsewhere: click to open its file": "他の場所のシンボル：クリックでそのファイルを開く",
+  "◉ Being edited now": "◉ 編集中",
+  "%n symbol(s) here": {
+    "other": "ここに %n シンボル"
+  },
+  "%n linked elsewhere": {
+    "other": "他の場所に %n 件のリンク"
+  }
 }
