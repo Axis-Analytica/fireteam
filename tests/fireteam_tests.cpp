@@ -412,6 +412,10 @@ private slots:
         QCOMPARE(bash("npm test; echo \"exit=$?\"; cat log.txt; git -C . rev-parse | head -1"), (Choices{{"Bash(npm test:*)"}}));
         QCOMPARE(bash("cd app && npm install && npm run build"), (Choices{{"Bash(npm install:*)", "Bash(npm run build:*)"}}));
         QCOMPARE(Stream::rulesFor("WebFetch", {{"url", "https://docs.example.com/a"}}), (Choices{{"WebFetch(domain:docs.example.com)"}}));
+        // A heredoc's body is the file it writes, not more commands.
+        QCOMPARE(bash("mkdir -p src && cat > src/store.cpp <<'EOF'\nint main() {\n    QString s; if (!s.contains(';')) return 1;\n}\nEOF\nmake test"),
+                 (Choices{{"Bash(mkdir:*)", "Bash(make test:*)"}}));
+        QCOMPARE(bash("git commit -m \"Fix; then | more\" && bin/test"), (Choices{{"Bash(git commit:*)", "Bash(bin/test:*)"}}));
         QCOMPARE(Stream::ruleFromText("npm test"), QString("Bash(npm test:*)"));
         QCOMPARE(Stream::ruleFromText("Bash(make)"), QString("Bash(make)"));
         QCOMPARE(Stream::ruleFromText("WebSearch"), QString("WebSearch"));

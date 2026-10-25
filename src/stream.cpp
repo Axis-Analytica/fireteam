@@ -20,7 +20,7 @@ static const QStringList Runners{"npm", "pnpm", "yarn", "bun", "npx", "bunx", "c
 
 // Commands that only read, which Claude Code lets through on its own, so a
 // chained command's approval doesn't need them.
-static const QStringList ReadOnly{"echo", "printf", "cat", "head", "tail", "ls", "pwd", "wc", "grep", "rg", "find",
+static const QStringList ReadOnly{"echo", "printf", "cat", "head", "sed", "awk", "nl", "less", "xxd", "tail", "ls", "pwd", "wc", "grep", "rg", "find",
                                   "sort", "uniq", "which", "type", "true", "false", "test", "[", "date", "whoami",
                                   "basename", "dirname", "realpath", "readlink", "stat", "file", "diff", "cut", "tr",
                                   "cd", "tree", "du", "df", "less", "more", "column", "jq"};
@@ -56,18 +56,38 @@ static QString prefixFor(const QString &command, bool *readOnly = nullptr) {
     return words.mid(0, keep).join(' ');
 }
 
+// A command's own words, without the text it feeds in: heredoc bodies and
+// quoted strings carry code and prose whose ; and | aren't separators.
+static QString commandWords(const QString &command) {
+    QString text = command;
+    static const QRegularExpression heredoc(R"(<<-?\s*(['"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(\n|$))",
+                                            QRegularExpression::DotMatchesEverythingOption);
+    text.replace(heredoc, "<<HEREDOC\n");
+    static const QRegularExpression quoted(R"('[^']*'|"(?:[^"\\]|\\.)*")");
+    text.replace(quoted, "STRING");
+    return text;
+}
+
 QList<QStringList> rulesFor(const QString &tool, const QVariantMap &input) {
     if (tool == "Bash") {
-        const QString command = input.value("command").toString().simplified();
+        const QString raw = input.value("command").toString();
+        const QString command = raw.simplified();
         if (command.isEmpty())
             return {{tool}};
         // Claude Code checks each part of a chained command on its own, so a
         // chain is approved part by part, leaving out the parts that only read.
-        static const QRegularExpression separators(R"(\s*(?:&&|\|\||;|\|)\s*)");
-        const QStringList parts = command.split(separators, Qt::SkipEmptyParts);
+        // Only the command's own words are split: not what a heredoc or a
+        // quoted string feeds it.
+        static const QRegularExpression separators(R"(\s*(?:&&|\|\||;|\||\n)\s*)");
+        const QStringList parts = commandWords(raw).split(separators, Qt::SkipEmptyParts);
+        // A part that doesn't start like a program (a stray brace, a keyword
+        // fragment) isn't one.
+        static const QRegularExpression program(R"(^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*[A-Za-z0-9_./~-]+(\s|$))");
         if (parts.size() > 1) {
             QStringList rules;
             for (const QString &part : parts) {
+                if (!program.match(part.trimmed()).hasMatch())
+                    continue;
                 bool readOnly = false;
                 const QString prefix = prefixFor(part, &readOnly);
                 const QString rule = QString("Bash(%1:*)").arg(prefix);
