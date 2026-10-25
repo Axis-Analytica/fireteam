@@ -726,5 +726,8 @@
     "one": "%n ligado em outro lugar",
     "many": "%n ligados em outro lugar",
     "other": "%n ligados em outro lugar"
-  }
+  },
+  "Turn": "Girar",
+  "Stop turning": "Parar de girar",
+  "Shake": "Sacudir"
 }

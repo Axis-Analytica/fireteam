@@ -11,6 +11,7 @@
         <file alias="Prefs.qml">Prefs.qml</file>
         <file alias="OptionsPanel.qml">OptionsPanel.qml</file>
         <file alias="GraphPanel.qml">GraphPanel.qml</file>
+        <file alias="graphsim.js">graphsim.js</file>
         <file alias="ServiceRecord.qml">ServiceRecord.qml</file>
         <file alias="TacticalMap.qml">TacticalMap.qml</file>
         <file alias="sounds/tick.wav">sounds/tick.wav</file>

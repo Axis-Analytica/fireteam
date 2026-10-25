@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import "graphsim.js" as Sim
 
 // A project's knowledge graph, as a survey of its files: each file a square
 // sized by what it holds, lines where files lean on each other, dashed rings
@@ -26,6 +27,48 @@ Item {
     property var symbols: ({})
     property int symbolHovered: -1
     readonly property var symbolNodes: symbols.nodes || []
+    // The live layout: a force simulation of whatever is on the map (files, or
+    // one file's symbols), in two dimensions or three, and where it puts each
+    // node this frame.
+    property var sim: null
+    property var screen: []
+    property int dragIndex: -1
+    property bool orbiting: false
+    property real yaw: 0.6
+    property real pitch: 0.35
+    readonly property bool threeD: Prefs.graph3d
+    readonly property bool simRunning: visible && sim !== null
+        && (!Sim.settled(sim) || dragIndex >= 0 || (threeD && Prefs.graphSpin && !orbiting))
+    function restartSim() {
+        sim = focusFile.length > 0 ? Sim.create(symbolNodes, symbolLinks, threeD)
+                                   : files.length > 0 ? Sim.create(files, links, threeD) : null
+        screen = sim ? Sim.project(sim, yaw, pitch) : []
+        edges.requestPaint()
+    }
+    function hold(index, holding) {
+        if (!sim || !sim.nodes[index]) return
+        sim.nodes[index].pinned = holding
+        sim.held = holding
+        dragIndex = holding ? index : -1
+        Sim.warm(sim, holding ? 0.3 : 0.15)
+    }
+    function dragTo(index, point) {
+        if (!sim) return
+        Sim.dragTo(sim, index, point.x / stage.width, point.y / stage.height, yaw, pitch)
+        Sim.warm(sim, 0.12)
+    }
+    function reproject() {
+        screen = sim ? Sim.project(sim, yaw, pitch) : []
+        edges.requestPaint()
+    }
+    // A node's place this frame, falling back to the laid-out map.
+    function at(index, node) {
+        const p = screen[index]
+        return p ? p : { x: node.x, y: node.y, depth: 0, scale: 1 }
+    }
+    // Nearer is brighter in 3D.
+    function nearness(depth) { return threeD ? Math.max(0.3, Math.min(1, 0.55 + depth * 0.45)) : 1 }
+    onThreeDChanged: if (visible) { restartSim(); stage.fit() }
     readonly property var symbolLinks: symbols.links || []
     // Only the busiest symbols are named until zoomed in, or in focus.
     readonly property real labelDegree: {
@@ -103,13 +146,14 @@ Item {
         symbols = ops.graphSymbols(project, path)
         symbolHovered = -1
         stage.fit()
-        edges.requestPaint()
+        restartSim()
     }
     function leaveFile() {
         const path = focusFile
         focusFile = ""
         symbols = ({})
         stage.fit()
+        restartSim()
         select(indexOf(path))
     }
     function load(directory) {
@@ -125,7 +169,8 @@ Item {
         live = directory.length > 0 ? ops.graphLive(directory) : ({})
         if (selected >= files.length)
             selected = -1
-        edges.requestPaint()
+        if (focusFile.length === 0)
+            restartSim()
     }
     function select(index) {
         // Inside a file, picking another opens that one's symbols instead.
@@ -160,6 +205,19 @@ Item {
     onFocusIndexChanged: edges.requestPaint()
     onSymbolHoveredChanged: edges.requestPaint()
     Timer { interval: 1000; repeat: true; running: panel.visible && Object.keys(panel.live).length > 0; onTriggered: panel.now = Date.now() }
+    // The simulation's clock: it runs while the layout is still moving, while
+    // a node is held, and while the 3D view turns on its own.
+    Timer {
+        interval: 16
+        repeat: true
+        running: panel.simRunning
+        onTriggered: {
+            Sim.step(panel.sim)
+            if (panel.threeD && Prefs.graphSpin && !panel.orbiting && panel.dragIndex < 0)
+                panel.yaw += 0.0035
+            panel.reproject()
+        }
+    }
     onWorkByChanged: edges.requestPaint()
 
     Rectangle {
@@ -435,10 +493,11 @@ Item {
                             if (panel.focusFile.length > 0) {
                                 const nodes = panel.symbolNodes, focus = panel.symbolHovered
                                 for (const link of panel.symbolLinks) {
-                                    const a = nodes[link.a], b = nodes[link.b]
-                                    if (!a || !b) continue
+                                    if (!nodes[link.a] || !nodes[link.b]) continue
+                                    const a = panel.at(link.a, nodes[link.a]), b = panel.at(link.b, nodes[link.b])
                                     const lit = focus >= 0 && (link.a === focus || link.b === focus)
-                                    ctx.strokeStyle = lit ? panel.css(accent, 0.85) : panel.css(ink, a.own && b.own ? 0.2 : 0.09)
+                                    const fade = panel.nearness((a.depth + b.depth) / 2)
+                                    ctx.strokeStyle = lit ? panel.css(accent, 0.85) : panel.css(ink, (nodes[link.a].own && nodes[link.b].own ? 0.2 : 0.09) * fade)
                                     ctx.lineWidth = (lit ? 1.4 : 1) / stage.scale
                                     ctx.beginPath()
                                     ctx.moveTo(a.x * w, a.y * h)
@@ -448,9 +507,12 @@ Item {
                                 return
                             }
                             const files = panel.files
-                            // A dashed ring around each community of three files or more.
+                            const placed = files.map((f, i) => panel.at(i, f))
+                            // A dashed ring around each community of three files or
+                            // more (flat only: in depth they'd only cross).
                             const groups = {}
-                            files.forEach(f => (groups[f.community] = groups[f.community] || []).push(f))
+                            if (!panel.threeD)
+                                files.forEach((f, i) => (groups[f.community] = groups[f.community] || []).push(placed[i]))
                             ctx.setLineDash([3, 5])
                             ctx.lineWidth = 1 / stage.scale
                             for (const id in groups) {
@@ -467,10 +529,11 @@ Item {
                             ctx.setLineDash([])
                             const focus = panel.focusIndex
                             for (const link of panel.links) {
-                                const a = files[link.a], b = files[link.b]
+                                const a = placed[link.a], b = placed[link.b]
                                 if (!a || !b) continue
                                 const lit = focus >= 0 && (link.a === focus || link.b === focus)
-                                ctx.strokeStyle = lit ? panel.css(accent, 0.85) : panel.css(ink, focus >= 0 ? 0.05 : 0.11)
+                                const fade = panel.nearness((a.depth + b.depth) / 2)
+                                ctx.strokeStyle = lit ? panel.css(accent, 0.85) : panel.css(ink, (focus >= 0 ? 0.05 : 0.11) * fade * (panel.threeD ? 1.4 : 1))
                                 ctx.lineWidth = (lit ? 1.4 : 1) / stage.scale
                                 ctx.beginPath()
                                 ctx.moveTo(a.x * w, a.y * h)
@@ -487,7 +550,7 @@ Item {
                         delegate: Text {
                             required property var modelData
                             required property int index
-                            readonly property var members: panel.files.filter(f => f.community === modelData.id)
+                            readonly property var members: panel.threeD ? [] : panel.files.map((f, i) => f.community === modelData.id ? panel.at(i, f) : null).filter(f => f)
                             readonly property real cx: members.length ? members.reduce((s, f) => s + f.x, 0) / members.length : 0
                             readonly property real cy: members.length ? members.reduce((s, f) => s + f.y, 0) / members.length : 0
                             readonly property real r: members.length ? Math.max(...members.map(f => Math.hypot(f.x - cx, f.y - cy))) + 0.035 : 0
@@ -515,16 +578,17 @@ Item {
                             readonly property bool chosen: panel.selected === index
                             readonly property bool near: panel.neighbours[index] === true
                             readonly property bool dimmed: panel.focusIndex >= 0 && !chosen && !near && panel.focusIndex !== index
-                            readonly property real size: (5 + Math.sqrt(modelData.symbols) * 1.7) / stage.scale
+                            readonly property var place: panel.at(index, modelData)
+                            readonly property real size: (5 + Math.sqrt(modelData.symbols) * 1.7) * place.scale / stage.scale
                             readonly property var editing: panel.live[modelData.path]
                             // Edited in the last half minute: still warm.
                             readonly property bool fresh: editing !== undefined && panel.now - editing.at < 30000
-                            x: modelData.x * stage.width - size / 2
-                            y: modelData.y * stage.height - size / 2
+                            x: place.x * stage.width - size / 2
+                            y: place.y * stage.height - size / 2
                             width: size
                             height: size
-                            z: chosen ? 3 : near ? 2 : 1
-                            opacity: dimmed ? 0.35 : 1
+                            z: (chosen ? 30 : near ? 20 : 10) + place.depth * 5
+                            opacity: (dimmed ? 0.35 : 1) * panel.nearness(place.depth)
 
                             Rectangle {
                                 anchors.fill: parent
@@ -564,8 +628,10 @@ Item {
                             }
                             // Names show for the bigger files, and for what's in focus.
                             Text {
-                                visible: node.chosen || node.near || nodeHover.hovered || node.heat > 0 || node.editing !== undefined
-                                         || node.modelData.symbols * stage.scale >= 24
+                                // The far side of a 3D map goes unnamed unless it's in focus.
+                                visible: node.chosen || node.near || nodeHover.hovered || node.editing !== undefined
+                                         || ((node.heat > 0 || node.modelData.symbols * stage.scale >= 24)
+                                             && (!panel.threeD || node.place.depth > -0.25))
                                 x: parent.width + 5 / stage.scale
                                 y: (parent.height - height * scale) / 2
                                 scale: 1 / stage.scale
@@ -586,6 +652,12 @@ Item {
                                 onTapped: panel.select(node.chosen ? -1 : node.index)
                                 onDoubleTapped: panel.enterFile(node.modelData.path)
                             }
+                            // Grab a file and the map follows it on its springs.
+                            DragHandler {
+                                target: null
+                                onActiveChanged: panel.hold(node.index, active)
+                                onCentroidChanged: if (active) panel.dragTo(node.index, node.mapToItem(stage, centroid.position))
+                            }
                         }
                     }
 
@@ -599,12 +671,14 @@ Item {
                             required property int index
                             readonly property bool near: panel.symbolHovered >= 0 && panel.symbolLinks.some(l =>
                                 (l.a === panel.symbolHovered && l.b === index) || (l.b === panel.symbolHovered && l.a === index))
-                            readonly property real size: (modelData.own ? 6 + Math.sqrt(modelData.degree) * 1.4 : 5) / stage.scale
-                            x: modelData.x * stage.width - size / 2
-                            y: modelData.y * stage.height - size / 2
+                            readonly property var place: panel.at(index, modelData)
+                            readonly property real size: (modelData.own ? 6 + Math.sqrt(modelData.degree) * 1.4 : 5) * place.scale / stage.scale
+                            x: place.x * stage.width - size / 2
+                            y: place.y * stage.height - size / 2
                             width: size
                             height: size
-                            opacity: panel.symbolHovered >= 0 && panel.symbolHovered !== index && !near ? 0.35 : 1
+                            z: 10 + place.depth * 5
+                            opacity: (panel.symbolHovered >= 0 && panel.symbolHovered !== index && !near ? 0.35 : 1) * panel.nearness(place.depth)
                             Rectangle {
                                 anchors.fill: parent
                                 radius: symbol.modelData.own ? 0 : width / 2
@@ -612,7 +686,8 @@ Item {
                             }
                             Text {
                                 visible: symbolHover.hovered || symbol.near
-                                         || symbol.modelData.degree * stage.scale * stage.scale >= Math.max(1, panel.labelDegree)
+                                         || (symbol.modelData.degree * stage.scale * stage.scale >= Math.max(1, panel.labelDegree)
+                                             && (!panel.threeD || symbol.place.depth > -0.25))
                                 x: parent.width + 5 / stage.scale
                                 y: (parent.height - height * scale) / 2
                                 scale: 1 / stage.scale
@@ -632,14 +707,30 @@ Item {
                             }
                             // A symbol elsewhere opens its own file.
                             TapHandler { onTapped: if (!symbol.modelData.own) panel.enterFile(symbol.modelData.path) }
+                            DragHandler {
+                                target: null
+                                onActiveChanged: panel.hold(symbol.index, active)
+                                onCentroidChanged: if (active) panel.dragTo(symbol.index, symbol.mapToItem(stage, centroid.position))
+                            }
                         }
                     }
                 }
 
+                // Dragging empty ground pans the flat map, and turns the 3D one.
                 DragHandler {
-                    target: stage
+                    id: ground
+                    target: panel.threeD ? null : stage
                     acceptedButtons: Qt.LeftButton
                     cursorShape: active ? Qt.ClosedHandCursor : Qt.ArrowCursor
+                    property point last
+                    onActiveChanged: { panel.orbiting = active && panel.threeD; last = translation }
+                    onTranslationChanged: {
+                        if (!panel.threeD || !active) return
+                        panel.yaw += (translation.x - last.x) * 0.008
+                        panel.pitch = Math.max(-1.45, Math.min(1.45, panel.pitch + (translation.y - last.y) * 0.008))
+                        last = translation
+                        panel.reproject()
+                    }
                 }
                 WheelHandler {
                     onWheel: (event) => stage.zoom(event.angleDelta.y > 0 ? 1.15 : 1 / 1.15, event.x, event.y)
@@ -670,12 +761,13 @@ Item {
                     }
                 }
 
-                // Legend and zoom, in the corner.
-                Row {
-                    anchors.left: parent.left
-                    anchors.bottom: parent.bottom
+                // The legend top right, clear of the controls along the foot.
+                Column {
+                    anchors.right: parent.right
+                    anchors.top: parent.top
                     anchors.margins: 12
-                    spacing: 14
+                    anchors.topMargin: panel.focusFile.length > 0 ? 52 : 12
+                    spacing: 6
                     visible: panel.files.length > 0
                     Repeater {
                         model: panel.focusFile.length > 0
@@ -685,6 +777,7 @@ Item {
                               .concat(Object.keys(panel.live).length > 0 ? [{ swatch: theme.accent, label: qsTr("◉ Being edited now") }] : [])
                         delegate: Row {
                             required property var modelData
+                            anchors.right: parent ? parent.right : undefined
                             spacing: 6
                             Rectangle { width: 8; height: 8; anchors.verticalCenter: parent.verticalCenter; color: modelData.swatch }
                             Text { text: modelData.label; color: Style.dim; font.family: Style.body; font.pixelSize: 11 }
@@ -697,6 +790,20 @@ Item {
                     anchors.margins: 10
                     spacing: 6
                     visible: panel.files.length > 0
+                    TacticalButton { text: "2D"; implicitWidth: 40; implicitHeight: 30; primary: !panel.threeD; onClicked: Prefs.graph3d = false }
+                    TacticalButton { text: "3D"; key: "3"; implicitHeight: 30; primary: panel.threeD; onClicked: Prefs.graph3d = true }
+                    TacticalButton {
+                        visible: panel.threeD
+                        text: Prefs.graphSpin ? qsTr("Stop turning") : qsTr("Turn")
+                        implicitHeight: 30
+                        onClicked: Prefs.graphSpin = !Prefs.graphSpin
+                    }
+                    TacticalButton {
+                        text: qsTr("Shake")
+                        implicitHeight: 30
+                        onClicked: if (panel.sim) Sim.warm(panel.sim, 0.8)
+                    }
+                    Item { width: 8; height: 1 }
                     TacticalButton { text: "−"; implicitWidth: 34; implicitHeight: 30; onClicked: stage.zoom(1 / 1.3, frame.width / 2, frame.height / 2) }
                     TacticalButton { text: qsTr("Fit"); implicitHeight: 30; onClicked: stage.fit() }
                     TacticalButton { text: "+"; implicitWidth: 34; implicitHeight: 30; onClicked: stage.zoom(1.3, frame.width / 2, frame.height / 2) }
@@ -881,5 +988,6 @@ Item {
     Shortcut { enabled: panel.visible; sequences: ["+", "="]; context: Qt.ApplicationShortcut; onActivated: stage.zoom(1.3, frame.width / 2, frame.height / 2) }
     Shortcut { enabled: panel.visible; sequence: "-"; context: Qt.ApplicationShortcut; onActivated: stage.zoom(1 / 1.3, frame.width / 2, frame.height / 2) }
     Shortcut { enabled: panel.visible; sequence: "0"; context: Qt.ApplicationShortcut; onActivated: stage.fit() }
+    Shortcut { enabled: panel.visible; sequence: "3"; context: Qt.ApplicationShortcut; onActivated: Prefs.graph3d = !Prefs.graph3d }
     Shortcut { enabled: panel.visible && panel.selected >= 0 && panel.focusFile.length === 0; sequences: ["Return", "Enter"]; context: Qt.ApplicationShortcut; onActivated: panel.enterFile(panel.files[panel.selected].path) }
 }

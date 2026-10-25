@@ -703,5 +703,8 @@
   "%n linked elsewhere": {
     "one": "%n forbundet andetsteds",
     "other": "%n forbundet andetsteds"
-  }
+  },
+  "Turn": "Drej",
+  "Stop turning": "Stop drejning",
+  "Shake": "Ryst"
 }

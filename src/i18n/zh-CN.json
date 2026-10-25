@@ -680,5 +680,8 @@
   },
   "%n linked elsewhere": {
     "other": "其他位置 %n 个关联"
-  }
+  },
+  "Turn": "旋转",
+  "Stop turning": "停止旋转",
+  "Shake": "摇动"
 }

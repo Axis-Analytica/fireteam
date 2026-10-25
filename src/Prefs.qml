@@ -14,4 +14,7 @@ Settings {
     property bool motion: true
     // The loadout a new briefing starts from; empty for none.
     property string defaultLoadout: ""
+    // The knowledge graph in three dimensions, turning slowly when left alone.
+    property bool graph3d: false
+    property bool graphSpin: true
 }

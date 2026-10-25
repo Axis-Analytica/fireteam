@@ -347,6 +347,11 @@ shown*, or press *Map* (`G`) on an operation, to see only its work. Click a file
 for its symbols, the files it's linked to, and who changed it. Drag to pan,
 scroll or `+` `-` to zoom, `0` to fit.
 
+- **Hands on**: the map is a live simulation. Drag any file (or symbol) and
+  what it's linked to follows on springs, then settles; *Shake* stirs it.
+- **3D** (`3`): the graph in three dimensions. Drag empty space to orbit,
+  scroll to zoom; it turns slowly on its own until you stop it. Nearer files
+  are bigger and brighter, and the far side goes unnamed until you point at it.
 - **Live**: while a cycle runs, every file its agent edits pulses with a ring
   and the operation's callsign, warm for half a minute after each edit.
 - **Inside a file**: double-click a file (or select it and press `Enter`) for a

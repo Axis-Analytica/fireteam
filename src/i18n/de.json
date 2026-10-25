@@ -703,5 +703,8 @@
   "%n linked elsewhere": {
     "one": "%n anderswo verknüpft",
     "other": "%n anderswo verknüpft"
-  }
+  },
+  "Turn": "Drehen",
+  "Stop turning": "Drehen stoppen",
+  "Shake": "Schütteln"
 }

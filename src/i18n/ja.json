@@ -680,5 +680,8 @@
   },
   "%n linked elsewhere": {
     "other": "他の場所に %n 件のリンク"
-  }
+  },
+  "Turn": "回転",
+  "Stop turning": "回転を止める",
+  "Shake": "揺らす"
 }
