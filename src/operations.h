@@ -9,8 +9,11 @@
 #include <QPointer>
 #include <QProcess>
 #include <QTimer>
+#include <memory>
 
 class FieldLink;
+namespace Engines { class Parser; }
+struct StreamEvent;
 class Gates;
 #include <QVariantList>
 
@@ -24,6 +27,8 @@ struct Operation {
     QString directory;
     QString objective;
     QString model;
+    // The agent CLI it runs on: "claude", "codex", "gemini" or "opencode".
+    QString engine = "claude";
     QString roe = "restricted";
     int cycles = 3;
     int cyclesDone = 0;
@@ -154,6 +159,9 @@ class Operations : public QAbstractListModel {
     // Built-in recipes and the operator's own: [{name, objective, criteria,
     // loadout, builtin}].
     Q_PROPERTY(QVariantList recipes READ recipes NOTIFY recipesChanged)
+    // The agent CLIs installed: [{key, label, path, capabilities}] (Claude
+    // Code always listed).
+    Q_PROPERTY(QVariantList engines READ engines NOTIFY enginesChanged)
 
 public:
     enum Role {
@@ -163,7 +171,8 @@ public:
         SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole, HistoryRole, CanUndoRollbackRole,
         EventsRole, RequestsRole, AllowedRole, StandingRole, WorktreeRole, WorkdirRole, BranchRole,
         BaseBranchRole, ResumeAtRole, QueueRole, OverwatchRole, ReviewsRole, ProgressRole, ProgressNoteRole,
-        QuestionsRole, PromptsRole, CampaignRole, GatesRole, CriteriaRole, PreviewRole, LastGatesRole, ArchivedRole, ControlsRole
+        QuestionsRole, PromptsRole, CampaignRole, GatesRole, CriteriaRole, PreviewRole, LastGatesRole, ArchivedRole, ControlsRole,
+        EngineRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -189,6 +198,12 @@ public:
     bool afterAction() const { return m_afterAction; }
     void setAfterAction(bool on);
     int archivedCount() const;
+    QVariantList engines() const { return m_engines; }
+    // The engine an operation runs on, while it isn't deployed. Sessions
+    // don't cross engines, so the next cycle starts a fresh one.
+    Q_INVOKABLE void setEngine(int row, const QString &key);
+    // Overwatch on another engine and model (empty: the operation's own).
+    Q_INVOKABLE void setReviewEngine(int row, const QString &key, const QString &model);
 
     // Institutional memory: each project's field manual of lessons, the
     // archive, search across everything operations wrote, replays, and
@@ -359,6 +374,7 @@ signals:
     void liveWorkChanged(const QString &directory);
     void inboxChanged();
     void recipesChanged();
+    void enginesChanged();
     void graphsChanged();
     // Something worth telling someone who isn't looking at the board.
     void alert(const QString &opId, const QString &title, const QString &body);
@@ -386,6 +402,11 @@ private:
         // The plan's usage limit stopped this run, until resetsAt.
         bool limited = false;
         qint64 resetsAt = 0;
+        // The engine this run is on, its reader (shared, as runs are copied),
+        // and files written for it, deleted when it ends.
+        QString engine = "claude";
+        std::shared_ptr<Engines::Parser> parser;
+        QStringList tempFiles;
     };
 
     int rowOf(const QString &id) const;
@@ -441,7 +462,8 @@ private:
     void finishReview(const QString &id, const Run &run, int exitCode);
     void writeDossier(const Operation &op);
     void finishHandoff(const QString &id, const Run &run, int exitCode);
-    void readOutput(const QString &id);
+    void readOutput(const QString &id, bool ended = false);
+    void handleEvent(Run &run, Operation &op, const StreamEvent &event);
     void finishCycle(const QString &id, int exitCode);
     void writeReports(Operation &op, const QStringList &actions);
     void record(Operation &op, const Run &run, int cycle, const QString &outcome);
@@ -474,6 +496,8 @@ private:
     bool m_afterAction = true;
     bool m_graphsAuto = true;
     QVariantList m_recipes;
+    QVariantList m_engines;
+    void refreshEngines();
     QTimer *m_scheduleTimer = nullptr;
     void checkSchedules();
     // True when the operation is at or past a budget, which it then explains.

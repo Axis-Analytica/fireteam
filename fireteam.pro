@@ -16,6 +16,7 @@ HEADERS += src/notifier.h \
     src/intel.h \
     src/operations.h \
     src/stream.h \
+    src/engines.h \
     src/folderpicker.h \
     src/theme.h \
     src/translator.h
@@ -34,6 +35,7 @@ SOURCES += src/notifier.cpp \
     src/main.cpp \
     src/operations.cpp \
     src/stream.cpp \
+    src/engines.cpp \
     src/folderpicker.cpp \
     src/theme.cpp \
     src/translator.cpp

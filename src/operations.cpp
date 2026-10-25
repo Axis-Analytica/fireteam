@@ -1,4 +1,5 @@
 #include "operations.h"
+#include "engines.h"
 #include "fieldlink.h"
 #include "fieldmanual.h"
 #include "graphs.h"
@@ -59,7 +60,7 @@ QJsonObject Operation::toJson() const {
             {"campaign", campaign}, {"campaignKey", campaignKey}, {"dependsOn", QJsonArray::fromStringList(dependsOn)},
             {"gates", QJsonArray::fromVariantList(gates)}, {"criteria", QJsonArray::fromVariantList(criteria)},
             {"preview", QJsonObject::fromVariantMap(preview)}, {"gateFixes", gateFixes}, {"archived", archived},
-            {"controls", QJsonObject::fromVariantMap(controls)}};
+            {"controls", QJsonObject::fromVariantMap(controls)}, {"engine", engine}};
 }
 
 Operation Operation::fromJson(const QJsonObject &o) {
@@ -75,6 +76,7 @@ Operation Operation::fromJson(const QJsonObject &o) {
     op.directory = o.value("directory").toString();
     op.objective = o.value("objective").toString();
     op.model = o.value("model").toString();
+    op.engine = Engines::isKnown(o.value("engine").toString()) ? o.value("engine").toString() : QString("claude");
     op.roe = o.value("roe").toString("restricted");
     op.cycles = o.value("cycles").toInt(1);
     op.cyclesDone = o.value("cyclesDone").toInt();
@@ -121,27 +123,12 @@ Operation Operation::fromJson(const QJsonObject &o) {
     return op;
 }
 
-static QString findClaude() {
-    // A launcher-started app may not have the shell's PATH (mise, npm
-    // prefixes), so look in the usual install spots too.
-    const QString found = QStandardPaths::findExecutable("claude");
-    if (!found.isEmpty())
-        return found;
-    const QString home = QDir::homePath();
-    for (const QString &path : {home + "/.local/bin/claude", home + "/.claude/local/claude",
-                                home + "/.local/share/mise/command-wrappers/bin/claude",
-                                home + "/.local/share/mise/shims/claude", home + "/.npm-global/bin/claude",
-                                QString("/usr/local/bin/claude"), QString("/usr/bin/claude")})
-        if (QFileInfo(path).isExecutable())
-            return path;
-    return {};
-}
-
 Operations::Operations(const QString &dataDirectory, const QString &claude, QObject *parent)
     : QAbstractListModel(parent),
       m_dataDirectory(dataDirectory.isEmpty() ? defaultDataDirectory() : dataDirectory),
-      m_claude(claude.isEmpty() ? findClaude() : claude) {
+      m_claude(claude.isEmpty() ? Engines::executable("claude") : claude) {
     QDir().mkpath(m_dataDirectory);
+    refreshEngines();
     loadSettings();
     load();
     // Scheduled operations are looked at twice a minute, and whenever an
@@ -359,7 +346,7 @@ QHash<int, QByteArray> Operations::roleNames() const {
             {ProgressNoteRole, "progressNote"}, {QuestionsRole, "questions"}, {PromptsRole, "prompts"},
             {CampaignRole, "campaign"}, {GatesRole, "gates"}, {CriteriaRole, "criteria"}, {PreviewRole, "preview"},
             {LastGatesRole, "lastGates"}, {ArchivedRole, "archived"},
-            {ControlsRole, "controls"}};
+            {ControlsRole, "controls"}, {EngineRole, "engine"}};
 }
 
 QVariant Operations::data(const QModelIndex &index, int role) const {
@@ -411,6 +398,7 @@ QVariant Operations::data(const QModelIndex &index, int role) const {
     case PromptsRole: return op.prompts;
     case ArchivedRole: return op.archived;
     case ControlsRole: return op.controls;
+    case EngineRole: return op.engine;
     case GatesRole: return op.gates;
     case CriteriaRole: return op.criteria;
     case PreviewRole: return op.preview;
@@ -571,6 +559,70 @@ bool Operations::update(int row, const QString &codename, const QString &objecti
     return true;
 }
 
+void Operations::refreshEngines() {
+    QVariantList engines = Engines::available();
+    // Claude Code is whichever claude this Fireteam was given.
+    for (QVariant &value : engines) {
+        QVariantMap engine = value.toMap();
+        if (engine.value("key") == "claude") {
+            engine.insert("path", QFileInfo(m_claude).isExecutable() ? m_claude : QString());
+            value = engine;
+        }
+    }
+    if (engines == m_engines)
+        return;
+    m_engines = engines;
+    emit enginesChanged();
+}
+
+void Operations::setEngine(int row, const QString &key) {
+    if (row < 0 || row >= m_ops.size() || !Engines::isKnown(key))
+        return;
+    Operation &op = m_ops[row];
+    if (op.status == "deployed" || op.engine == key)
+        return;
+    op.engine = key;
+    QString note;
+    // A session belongs to the engine that made it, so the next cycle starts
+    // a fresh one from the last brief.
+    if (!op.sessionId.isEmpty()) {
+        op.sessionId.clear();
+        op.sessionDir.clear();
+        op.session += 1;
+        op.contextTokens = 0;
+        op.handoffBrief = !op.handoffs.isEmpty() ? op.handoffs.last() : op.reports.isEmpty() ? QString() : op.reports.last();
+        note = " " + tr("Session %1 starts fresh from the last brief.").arg(op.session);
+    }
+    if (op.roe == "supervised" && !Engines::capabilities(key).value("supervised").toBool())
+        note += " " + tr("It can't put permissions to you live, so supervised runs as restricted.");
+    log(op, "sys", tr("Engine set to %1.").arg(Engines::label(key)) + note);
+    changed(row);
+    save();
+}
+
+void Operations::setReviewEngine(int row, const QString &key, const QString &model) {
+    if (row < 0 || row >= m_ops.size() || (!key.isEmpty() && !Engines::isKnown(key)))
+        return;
+    Operation &op = m_ops[row];
+    const QString engine = key == op.engine ? QString() : key;
+    if (op.controls.value("reviewEngine").toString() == engine
+        && op.controls.value("reviewModel").toString() == model.trimmed())
+        return;
+    if (engine.isEmpty())
+        op.controls.remove("reviewEngine");
+    else
+        op.controls.insert("reviewEngine", engine);
+    if (model.trimmed().isEmpty())
+        op.controls.remove("reviewModel");
+    else
+        op.controls.insert("reviewModel", model.trimmed());
+    log(op, "sys", tr("Overwatch will review on %1%2.")
+                       .arg(Engines::label(engine.isEmpty() ? op.engine : engine),
+                            model.trimmed().isEmpty() ? QString() : " · " + model.trimmed()));
+    changed(row);
+    save();
+}
+
 qint64 Operations::ceiling(const Operation &op) {
     if (op.handoffAt <= 0)
         return 0;
@@ -597,8 +649,13 @@ void Operations::deploy(int row) {
     Operation &op = m_ops[row];
     if (op.status == "deployed")
         return;
-    if (m_claude.isEmpty()) {
+    if (op.engine == "claude" && m_claude.isEmpty()) {
         log(op, "error", tr("The claude command isn't installed, so the fireteam can't deploy."));
+        changed(row);
+        return;
+    }
+    if (op.engine != "claude" && Engines::executable(op.engine).isEmpty()) {
+        log(op, "error", tr("%1 isn't installed, so the fireteam can't deploy.").arg(Engines::label(op.engine)));
         changed(row);
         return;
     }
@@ -972,38 +1029,7 @@ void Operations::startHandoff(const QString &id, bool midCycle) {
 void Operations::launch(const QString &id, const QString &prompt, bool handoff, bool review) {
     const int row = rowOf(id);
     Operation &op = m_ops[row];
-    // Overwatch reads but never writes, in a session of its own.
-    QStringList arguments{"-p", prompt,
-                          "--output-format", "stream-json", "--verbose",
-                          "--permission-mode", review ? "plan" : op.roe == "free" ? "bypassPermissions" : "acceptEdits",
-                          "--add-dir", m_dataDirectory + "/ops/" + op.id};
-    QStringList allowed = op.allowed;
-    if (!review) {
-        arguments << "--append-system-prompt" << Stream::systemBrief();
-        // The field link: Fireteam's own MCP server for this operation, whose
-        // progress and question tools never need approval.
-        const QJsonObject mcp{{"mcpServers", QJsonObject{{"fireteam", QJsonObject{
-            {"type", "stdio"}, {"command", qEnvironmentVariable("FIRETEAM_BIN", QCoreApplication::applicationFilePath())},
-            {"args", QJsonArray{"mcp", "--op", op.id, "--socket", m_link->serverName()}}}}}}};
-        arguments << "--mcp-config" << QString::fromUtf8(QJsonDocument(mcp).toJson(QJsonDocument::Compact));
-        allowed << "mcp__fireteam__sitrep" << "mcp__fireteam__request_orders" << "mcp__fireteam__mark_objective";
-        // Asking the project's knowledge graph only reads it.
-        if (QFileInfo::exists(Graphs::graphFile(m_dataDirectory, op.directory)))
-            allowed << Graphs::allowedRules(graphify());
-        // Supervised: anything that would need permission is put to the
-        // operator, live, while the agent waits.
-        if (op.roe == "supervised")
-            arguments << "--permission-prompt-tool" << "mcp__fireteam__authorise";
-    }
-    // Each approved rule is its own argument, since rules contain spaces.
-    if (!allowed.isEmpty())
-        arguments << "--allowedTools" << allowed;
-    if (!op.model.isEmpty())
-        arguments << "--model" << op.model;
-    if (!op.sessionId.isEmpty() && !review)
-        arguments << "--resume" << op.sessionId;
-
-    // A working directory that's gone is said plainly, not as a failed claude.
+    // A working directory that's gone is said plainly, not as a failed agent.
     if (!QFileInfo(workdir(op)).isDir()) {
         log(op, "error", tr("The working directory %1 doesn't exist.").arg(workdir(op)));
         QTimer::singleShot(0, this, [this, id] { finishCycle(id, -2); });
@@ -1011,24 +1037,70 @@ void Operations::launch(const QString &id, const QString &prompt, bool handoff, 
         changed(row);
         return;
     }
+    // Overwatch reads but never writes, in a session of its own, and may be on
+    // another engine and model.
+    QString engine = op.engine;
+    QString model = op.model;
+    if (review) {
+        const QString reviewEngine = op.controls.value("reviewEngine").toString();
+        const QString reviewModel = op.controls.value("reviewModel").toString();
+        if (Engines::isKnown(reviewEngine) && reviewEngine != engine) {
+            engine = reviewEngine;
+            model = reviewModel;
+        } else if (!reviewModel.isEmpty()) {
+            model = reviewModel;
+        }
+    }
+    Engines::RunSpec spec;
+    spec.prompt = prompt;
+    spec.workdir = workdir(op);
+    spec.model = model;
+    spec.roe = op.roe;
+    spec.allowed = op.allowed;
+    spec.extraDir = m_dataDirectory + "/ops/" + op.id;
+    spec.review = review;
+    spec.stateDir = m_dataDirectory + "/engines";
+    if (engine == "claude")
+        spec.program = m_claude;
+    if (!review) {
+        spec.systemBrief = Stream::systemBrief();
+        // The field link: Fireteam's own MCP server for this operation.
+        spec.mcpCommand = qEnvironmentVariable("FIRETEAM_BIN", QCoreApplication::applicationFilePath());
+        spec.mcpArgs = QStringList{"mcp", "--op", op.id, "--socket", m_link->serverName()};
+        // An agent may wait on the operator for a while.
+        spec.mcpTimeoutMs = QuestionTimeoutMs + 60000;
+        // Asking the project's knowledge graph only reads it.
+        if (QFileInfo::exists(Graphs::graphFile(m_dataDirectory, op.directory)))
+            spec.helperRules = Graphs::allowedRules(graphify());
+        spec.resume = op.sessionId;
+    }
+    const Engines::Command command = Engines::command(engine, spec);
+
     auto *process = new QProcess(this);
     process->setWorkingDirectory(workdir(op));
-    // The agent signs in with the same Claude Code login as the terminal. Only
-    // the markers of a parent Claude Code session are dropped, so a Fireteam
-    // started from inside one doesn't look nested to its agents.
+    // The agent signs in with the same login as the terminal. Only the markers
+    // of a parent Claude Code session are dropped, so a Fireteam started from
+    // inside one doesn't look nested to its agents.
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
     environment.remove("CLAUDECODE");
     environment.remove("CLAUDE_CODE_ENTRYPOINT");
-    // An agent may wait on the operator for a while.
     environment.insert("MCP_TOOL_TIMEOUT", QString::number(QuestionTimeoutMs + 60000));
+    for (auto it = command.environment.begin(); it != command.environment.end(); ++it)
+        environment.insert(it.key(), it.value());
     process->setProcessEnvironment(environment);
+    // Codex and OpenCode read stdin to its end before starting.
     process->setStandardInputFile(QProcess::nullDevice());
 
     Run run;
     run.process = process;
     run.handoff = handoff;
     run.review = review;
+    run.engine = engine;
+    run.parser = std::shared_ptr<Engines::Parser>(Engines::parser(engine).release());
+    run.tempFiles = command.tempFiles;
     m_runs.insert(id, run);
+    if (engine != op.engine)
+        log(op, "sys", tr("Overwatch runs on %1.").arg(Engines::label(engine)));
     changed(row);
 
     connect(process, &QProcess::readyReadStandardOutput, this, [this, id] { readOutput(id); });
@@ -1048,133 +1120,147 @@ void Operations::launch(const QString &id, const QString &prompt, bool handoff, 
     connect(process, &QProcess::finished, this, [this, id](int code, QProcess::ExitStatus status) {
         finishCycle(id, status == QProcess::NormalExit ? code : -1);
     });
-    process->start(m_claude, arguments);
+    process->start(command.program, command.arguments);
 }
 
-void Operations::readOutput(const QString &id) {
+void Operations::readOutput(const QString &id, bool ended) {
     auto it = m_runs.find(id);
     const int row = rowOf(id);
     if (it == m_runs.end() || row < 0 || !it->process)
         return;
     it->buffer += it->process->readAllStandardOutput();
     Operation &op = m_ops[row];
+    if (!it->parser)
+        it->parser = std::shared_ptr<Engines::Parser>(Engines::parser(it->engine).release());
     int newline;
     while ((newline = it->buffer.indexOf('\n')) >= 0) {
         const QByteArray line = it->buffer.left(newline);
         it->buffer.remove(0, newline + 1);
-        for (const auto &event : Stream::parseLine(line)) {
-            switch (event.kind) {
-            case StreamEvent::Session:
-                if (it->review) {
-                    log(op, "sys", tr("Overwatch on station%1.").arg(event.text.isEmpty() ? "" : " · " + event.text));
-                    break;
+        for (const auto &event : it->parser->line(line))
+            handleEvent(*it, op, event);
+    }
+    // What the engine leaves unsaid until it's gone.
+    if (ended)
+        for (const auto &event : it->parser->finish())
+            handleEvent(*it, op, event);
+    changed(row);
+}
+
+void Operations::handleEvent(Run &run, Operation &op, const StreamEvent &event) {
+    Run *it = &run;
+    switch (event.kind) {
+    case StreamEvent::Session:
+        if (it->review) {
+            log(op, "sys", tr("Overwatch on station%1.").arg(event.text.isEmpty() ? "" : " · " + event.text));
+            break;
+        }
+        if (!event.sessionId.isEmpty()) {
+            op.sessionId = event.sessionId;
+            op.sessionDir = workdir(op);
+        }
+    {
+        // Codex and OpenCode don't name their model, so name the engine.
+        const QString detail = event.text.isEmpty() && it->engine != "claude" ? Engines::label(it->engine) : event.text;
+        log(op, "sys", tr("Link established%1.").arg(detail.isEmpty() ? "" : " · " + detail));
+    }
+        break;
+    case StreamEvent::Say:
+        op.activity = event.text.section('\n', 0, 0).left(120);
+        log(op, "say", event.text);
+        break;
+    case StreamEvent::Tool:
+        if (!event.toolId.isEmpty())
+            it->tools.insert(event.toolId, {{"tool", event.tool}, {"input", event.input}});
+        // The field link's own tools show up as their reports and
+        // questions, and tool lookups are housekeeping.
+        if (event.tool.startsWith("mcp__fireteam__") || event.tool == "ToolSearch")
+            break;
+        op.activity = event.text;
+        it->actions << event.text;
+        log(op, "tool", event.text);
+        // An edit lights its file on the knowledge graph while the cycle runs.
+        if (QStringList{"Edit", "Write", "MultiEdit", "NotebookEdit"}.contains(event.tool)) {
+            const QString path = event.input.value("file_path", event.input.value("notebook_path")).toString();
+            if (!path.isEmpty()) {
+                const QString relative = QDir::cleanPath(QFileInfo(path).isAbsolute()
+                    ? QDir(workdir(op)).relativeFilePath(path) : path);
+                if (!relative.startsWith("..")) {
+                    it->touched.insert(relative, QDateTime::currentMSecsSinceEpoch());
+                    emit liveWorkChanged(QDir::cleanPath(op.directory));
                 }
-                if (!event.sessionId.isEmpty()) {
-                    op.sessionId = event.sessionId;
-                    op.sessionDir = workdir(op);
-                }
-                log(op, "sys", tr("Link established%1.").arg(event.text.isEmpty() ? "" : " · " + event.text));
-                break;
-            case StreamEvent::Say:
-                op.activity = event.text.section('\n', 0, 0).left(120);
-                log(op, "say", event.text);
-                break;
-            case StreamEvent::Tool:
-                if (!event.toolId.isEmpty())
-                    it->tools.insert(event.toolId, {{"tool", event.tool}, {"input", event.input}});
-                // The field link's own tools show up as their reports and
-                // questions, and tool lookups are housekeeping.
-                if (event.tool.startsWith("mcp__fireteam__") || event.tool == "ToolSearch")
-                    break;
-                op.activity = event.text;
-                it->actions << event.text;
-                log(op, "tool", event.text);
-                // An edit lights its file on the knowledge graph while the cycle runs.
-                if (QStringList{"Edit", "Write", "MultiEdit", "NotebookEdit"}.contains(event.tool)) {
-                    const QString path = event.input.value("file_path", event.input.value("notebook_path")).toString();
-                    if (!path.isEmpty()) {
-                        const QString relative = QDir::cleanPath(QFileInfo(path).isAbsolute()
-                            ? QDir(workdir(op)).relativeFilePath(path) : path);
-                        if (!relative.startsWith("..")) {
-                            it->touched.insert(relative, QDateTime::currentMSecsSinceEpoch());
-                            emit liveWorkChanged(QDir::cleanPath(op.directory));
-                        }
-                    }
-                }
-                break;
-            case StreamEvent::RateLimit: {
-                m_usage = QVariantMap{{"status", event.limitStatus}, {"resetsAt", double(event.resetsAt)},
-                                      {"type", event.text}, {"windows", event.windows},
-                                      {"updated", double(QDateTime::currentSecsSinceEpoch())}};
-                emit usageChanged();
-                if (event.limitStatus == "rejected") {
-                    it->limited = true;
-                    it->resetsAt = event.resetsAt;
-                }
-                break;
-            }
-            case StreamEvent::Denied: {
-                const QVariantMap call = it->tools.value(event.toolId);
-                if (!call.isEmpty() && !it->review)
-                    request(op, call.value("tool").toString(), call.value("input").toMap());
-                break;
-            }
-            case StreamEvent::Usage:
-                if (it->review)
-                    break;
-                op.contextTokens = event.contextTokens;
-                if (!it->handoff && !it->pastLine && op.handoffAt > 0 && op.contextTokens >= op.handoffAt) {
-                    it->pastLine = true;
-                    log(op, "sys", tr("Context at %1, past the %2 line. Handing off after this cycle.")
-                                       .arg(Stream::tokens(op.contextTokens), Stream::tokens(op.handoffAt)));
-                }
-                // A cycle that keeps going far past the line is cut short
-                // rather than left to grow toward the end of the window.
-                if (!it->handoff && !it->ceiling && !it->aborting && ceiling(op) > 0
-                    && op.contextTokens >= ceiling(op)) {
-                    it->ceiling = true;
-                    log(op, "error", tr("Context at %1, past the %2 ceiling. Stopping the agent mid-cycle to hand off.")
-                                         .arg(Stream::tokens(op.contextTokens), Stream::tokens(ceiling(op))));
-                    emit alert(op.id, tr("%1 hit the context ceiling").arg(op.codename),
-                               tr("Cycle %1 was stopped at %2 and is handing off to a fresh session.")
-                                   .arg(op.cyclesDone + 1).arg(Stream::tokens(op.contextTokens)));
-                    it->process->terminate();
-                }
-                break;
-            case StreamEvent::Result:
-                it->resultSeen = true;
-                op.costUsd += event.costUsd;
-                // The full list, in case a refusal wasn't recognised as it
-                // happened.
-                for (const QVariant &denial : it->review ? QVariantList() : event.denials)
-                    request(op, denial.toMap().value("tool").toString(), denial.toMap().value("input").toMap());
-                if (event.contextWindow > 0)
-                    op.contextWindow = event.contextWindow;
-                if (!event.sessionId.isEmpty() && !it->review)
-                    op.sessionId = event.sessionId;
-                if (it->review && !event.isError) {
-                    it->actions << event.text;
-                    break;
-                }
-                if (event.isError && Stream::isUsageLimit(event.text)) {
-                    it->limited = true;
-                    log(op, "error", tr("Run stopped by the plan's usage limit: %1").arg(event.text));
-                } else if (event.isError) {
-                    log(op, "error", tr("Run failed: %1").arg(event.text));
-                } else if (it->handoff) {
-                    log(op, "result", event.text);
-                } else {
-                    op.sitrep = event.text;
-                    log(op, "result", event.text);
-                }
-                break;
-            case StreamEvent::Error:
-                log(op, "error", event.text.left(600));
-                break;
             }
         }
+        break;
+    case StreamEvent::RateLimit: {
+        m_usage = QVariantMap{{"status", event.limitStatus}, {"resetsAt", double(event.resetsAt)},
+                              {"type", event.text}, {"windows", event.windows},
+                              {"updated", double(QDateTime::currentSecsSinceEpoch())}};
+        emit usageChanged();
+        if (event.limitStatus == "rejected") {
+            it->limited = true;
+            it->resetsAt = event.resetsAt;
+        }
+        break;
     }
-    changed(row);
+    case StreamEvent::Denied: {
+        const QVariantMap call = it->tools.value(event.toolId);
+        if (!call.isEmpty() && !it->review)
+            request(op, call.value("tool").toString(), call.value("input").toMap());
+        break;
+    }
+    case StreamEvent::Usage:
+        if (it->review)
+            break;
+        op.contextTokens = event.contextTokens;
+        if (!it->handoff && !it->pastLine && op.handoffAt > 0 && op.contextTokens >= op.handoffAt) {
+            it->pastLine = true;
+            log(op, "sys", tr("Context at %1, past the %2 line. Handing off after this cycle.")
+                               .arg(Stream::tokens(op.contextTokens), Stream::tokens(op.handoffAt)));
+        }
+        // A cycle that keeps going far past the line is cut short
+        // rather than left to grow toward the end of the window.
+        if (!it->handoff && !it->ceiling && !it->aborting && ceiling(op) > 0
+            && op.contextTokens >= ceiling(op)) {
+            it->ceiling = true;
+            log(op, "error", tr("Context at %1, past the %2 ceiling. Stopping the agent mid-cycle to hand off.")
+                                 .arg(Stream::tokens(op.contextTokens), Stream::tokens(ceiling(op))));
+            emit alert(op.id, tr("%1 hit the context ceiling").arg(op.codename),
+                       tr("Cycle %1 was stopped at %2 and is handing off to a fresh session.")
+                           .arg(op.cyclesDone + 1).arg(Stream::tokens(op.contextTokens)));
+            it->process->terminate();
+        }
+        break;
+    case StreamEvent::Result:
+        it->resultSeen = true;
+        op.costUsd += event.costUsd;
+        // The full list, in case a refusal wasn't recognised as it
+        // happened.
+        for (const QVariant &denial : it->review ? QVariantList() : event.denials)
+            request(op, denial.toMap().value("tool").toString(), denial.toMap().value("input").toMap());
+        if (event.contextWindow > 0)
+            op.contextWindow = event.contextWindow;
+        if (!event.sessionId.isEmpty() && !it->review)
+            op.sessionId = event.sessionId;
+        if (it->review && !event.isError) {
+            it->actions << event.text;
+            break;
+        }
+        if (event.isError && Engines::isUsageLimit(it->engine, event.text)) {
+            it->limited = true;
+            log(op, "error", tr("Run stopped by the plan's usage limit: %1").arg(event.text));
+        } else if (event.isError) {
+            log(op, "error", tr("Run failed: %1").arg(event.text));
+        } else if (it->handoff) {
+            log(op, "result", event.text);
+        } else {
+            op.sitrep = event.text;
+            log(op, "result", event.text);
+        }
+        break;
+    case StreamEvent::Error:
+        log(op, "error", event.text.left(600));
+        break;
+    }
 }
 
 void Operations::finishCycle(const QString &id, int exitCode) {
@@ -1185,11 +1271,13 @@ void Operations::finishCycle(const QString &id, int exitCode) {
     if (it->process) {
         it->buffer += it->process->readAllStandardOutput();
         it->buffer += '\n';
-        readOutput(id);
+        readOutput(id, true);
         it->process->deleteLater();
     }
     const Run run = *it;
     m_runs.erase(it);
+    for (const QString &file : run.tempFiles)
+        QFile::remove(file);
     if (!run.touched.isEmpty())
         emit liveWorkChanged(QDir::cleanPath(m_ops.at(row).directory));
     // Whatever the agent was waiting on went with it.
@@ -1250,7 +1338,8 @@ void Operations::finishCycle(const QString &id, int exitCode) {
     } else if (exitCode != 0 || !run.resultSeen) {
         op.status = "failed";
         log(op, "error", exitCode == -1 && !run.resultSeen
-                             ? tr("The claude command couldn't run (%1).").arg(m_claude)
+                             ? (run.engine == "claude" ? tr("The claude command couldn't run (%1).").arg(m_claude)
+                                : tr("%1 couldn't run (%2).").arg(Engines::label(run.engine), Engines::executable(run.engine)))
                              : tr("Cycle %1 ended without completing (exit %2).").arg(cycle).arg(exitCode));
     } else {
         op.cyclesDone = cycle;
@@ -1977,6 +2066,7 @@ bool Operations::openProject(int row) {
 }
 
 void Operations::checkLink() {
+    refreshEngines();
     if (m_claude.isEmpty()) {
         m_linkStatus = "missing";
         m_account.clear();

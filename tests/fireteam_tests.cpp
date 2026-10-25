@@ -11,6 +11,7 @@
 #include <QtTest>
 
 #include "command.h"
+#include "engines.h"
 #include "fieldterminal.h"
 #include "gates.h"
 #include "mcpserver.h"
@@ -749,6 +750,206 @@ private slots:
         QVERIFY(run.contains("--permission-prompt-tool\nmcp__fireteam__authorise"));
         QVERIFY(run.contains("mcp__fireteam__sitrep\nmcp__fireteam__request_orders"));
         QVERIFY(run.contains("--permission-mode\nacceptEdits"));
+    }
+
+    void describesEngines()
+    {
+        QStringList keys;
+        for (const QVariant &engine : Engines::available())
+            keys << engine.toMap().value("key").toString();
+        QVERIFY(keys.contains("claude"));
+        QVERIFY(Engines::capabilities("claude").value("supervised").toBool());
+        QVERIFY(!Engines::capabilities("codex").value("supervised").toBool());
+        QVERIFY(!Engines::capabilities("gemini").value("cost").toBool());
+        QVERIFY(Engines::capabilities("opencode").value("cost").toBool());
+        QCOMPARE(Engines::label("gemini"), QString("Gemini CLI"));
+        QCOMPARE(Engines::toolName("gemini", "sitrep"), QString("mcp_fireteam_sitrep"));
+        QCOMPARE(Engines::toolName("opencode", "sitrep"), QString("fireteam_sitrep"));
+        // Claude Code's brief is left exactly as it is.
+        QCOMPARE(Engines::nameTools("claude", Stream::systemBrief()), Stream::systemBrief());
+        QVERIFY(Engines::nameTools("gemini", Stream::systemBrief()).contains("fireteam sitrep tool (mcp_fireteam_sitrep)"));
+        QVERIFY(Engines::isUsageLimit("gemini", "TerminalQuotaError: You have exhausted your capacity"));
+        QVERIFY(!Engines::isUsageLimit("claude", "quota"));
+        QVERIFY(Engines::isRefusal("opencode", "The user rejected permission to use this specific tool call."));
+
+        // OpenCode never says it's finished: the result is made at the end.
+        auto parser = Engines::parser("opencode");
+        QCOMPARE(parser->line("{\"type\":\"text\",\"sessionID\":\"ses_1\",\"part\":{\"type\":\"text\",\"text\":\"Done.\"}}").size(), 2);
+        parser->line("{\"type\":\"step_finish\",\"sessionID\":\"ses_1\",\"part\":{\"cost\":0.5,\"tokens\":{\"input\":10,\"output\":5,\"cache\":{\"read\":100,\"write\":0}}}}");
+        const QList<StreamEvent> end = parser->finish();
+        QCOMPARE(end.size(), 1);
+        QCOMPARE(end.first().kind, StreamEvent::Result);
+        QCOMPARE(end.first().text, QString("Done."));
+        QCOMPARE(end.first().costUsd, 0.5);
+        QVERIFY(!end.first().isError);
+
+        // Gemini streams a message in pieces; it's said once, whole.
+        auto gemini = Engines::parser("gemini");
+        QVERIFY(gemini->line("{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"Hel\",\"delta\":true}").isEmpty());
+        gemini->line("{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"lo\",\"delta\":true}");
+        const QList<StreamEvent> said = gemini->finish();
+        QCOMPARE(said.size(), 1);
+        QCOMPARE(said.first().text, QString("Hello"));
+    }
+
+    void runsOnCodex()
+    {
+        QTemporaryDir data, project, bin;
+        const QString log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        qputenv("FIRETEAM_CODEX", fakeEngine(bin, "codex").toUtf8());
+        qputenv("FIRETEAM_OPENCODE", fakeEngine(bin, "opencode").toUtf8());
+        Operations ops(data.path(), fakeClaude(bin));
+        QStringList keys;
+        for (const QVariant &engine : ops.engines())
+            keys << engine.toMap().value("key").toString();
+        QVERIFY(keys.contains("codex"));
+        QCOMPARE(ops.create("", project.path(), "Fix the parser", 2, "restricted", "gpt-5.5", 250000, false, {}, "review"), 0);
+        ops.setEngine(0, "codex");
+        // Overwatch on another engine, with its own model.
+        ops.setReviewEngine(0, "opencode", "openai/gpt-5");
+        QCOMPARE(ops.at(0).engine, QString("codex"));
+        QCOMPARE(ops.data(ops.index(0), Operations::EngineRole).toString(), QString("codex"));
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        qunsetenv("FIRETEAM_CODEX");
+        qunsetenv("FIRETEAM_OPENCODE");
+
+        const Operation &op = ops.at(0);
+        QCOMPARE(op.status, QString("complete"));
+        QCOMPARE(op.cyclesDone, 2);
+        QCOMPARE(op.sessionId, QString("01a1713c-fe23-77a1-8036-b5c2cabb1f54"));
+        QCOMPARE(op.costUsd, 0.005);
+        QCOMPARE(op.reviews.size(), 1);
+        QCOMPARE(op.reviews.first().toMap().value("grade").toString(), QString("pass"));
+
+        const QStringList runs = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts);
+        QCOMPARE(runs.size(), 3);
+        QVERIFY(runs.at(0).startsWith("exec\n--json\n-C\n" + project.path() + "\n-s\nworkspace-write\n"));
+        QVERIFY(runs.at(0).contains("--add-dir\n" + data.path() + "/ops/" + op.id + "\n"));
+        QVERIFY(runs.at(0).contains("-m\ngpt-5.5\n"));
+        QVERIFY(runs.at(0).contains("mcp_servers.fireteam.command=\""));
+        QVERIFY(runs.at(0).contains("mcp_servers.fireteam.args=[\"mcp\",\"--op\",\"" + op.id + "\""));
+        QVERIFY(runs.at(0).contains("STANDING BRIEF:"));
+        QVERIFY(runs.at(0).contains("sitrep tool of the fireteam MCP server"));
+        QVERIFY(!runs.at(0).contains("\nresume\n"));
+        QVERIFY(runs.at(1).contains("\nresume\n01a1713c-fe23-77a1-8036-b5c2cabb1f54\nSTANDING BRIEF:"));
+        // The review ran read-only on OpenCode with its own model.
+        QVERIFY(runs.at(2).startsWith("run\n--format\njson\n"));
+        QVERIFY(runs.at(2).contains("-m\nopenai/gpt-5\n"));
+        QVERIFY(runs.at(2).contains("\"edit\":\"deny\""));
+        QVERIFY(!runs.at(2).contains("--auto"));
+
+        const QStringList comms = commsTexts(op);
+        QVERIFY(comms.contains("Codex: fixed the parser; all tests pass."));
+        QVERIFY(comms.contains("Bash  make test"));
+        QVERIFY(comms.contains("Edit  lib.rs"));
+        QVERIFY(comms.contains("Overwatch runs on OpenCode."));
+        for (const QString &line : comms)
+            QVERIFY(!line.contains("mcp__fireteam__"));
+
+        // Sessions don't cross engines.
+        ops.setEngine(0, "claude");
+        QVERIFY(ops.at(0).sessionId.isEmpty());
+        QCOMPARE(ops.at(0).session, 2);
+    }
+
+    void runsOnGeminiAndAsksForRefusals()
+    {
+        QTemporaryDir data, project, bin;
+        const QString log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        qputenv("FIRETEAM_GEMINI", fakeEngine(bin, "gemini").toUtf8());
+        qputenv("FIRETEAM_TEST_DENY", "1");
+        Operations ops(data.path(), fakeClaude(bin));
+        // Supervised needs live prompts, so on Gemini it runs as restricted.
+        QCOMPARE(ops.create("", project.path(), "Test it", 2, "supervised", "gemini-3-pro-preview"), 0);
+        ops.setEngine(0, "gemini");
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+
+        QCOMPARE(ops.at(0).status, QString("held"));
+        QCOMPARE(ops.at(0).cyclesDone, 1);
+        QCOMPARE(ops.at(0).sessionId, QString("11111111-2222-3333-4444-555555555555"));
+        QCOMPARE(ops.at(0).requests.size(), 1);
+        QCOMPARE(ops.at(0).requests.first().toMap().value("summary").toString(), QString("Bash  npm test"));
+        QVERIFY(ops.approve(0, 0, 0, false));
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        qunsetenv("FIRETEAM_TEST_DENY");
+        qunsetenv("FIRETEAM_GEMINI");
+
+        const Operation &op = ops.at(0);
+        QCOMPARE(op.status, QString("complete"));
+        QCOMPARE(op.cyclesDone, 2);
+        QVERIFY(op.requests.isEmpty());
+        QCOMPARE(op.costUsd, 0.0);
+        const QStringList runs = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts);
+        QCOMPARE(runs.size(), 2);
+        QVERIFY(runs.at(0).contains("-o\nstream-json\n--skip-trust\n--approval-mode\nauto_edit\n"));
+        QVERIFY(runs.at(0).contains("--include-directories\n" + data.path() + "/ops/" + op.id + "\n"));
+        QVERIFY(runs.at(0).contains("-m\ngemini-3-pro-preview\n"));
+        QVERIFY(!runs.at(0).contains("--resume"));
+        QVERIFY(!runs.at(0).contains("POLICY:"));
+        QVERIFY(runs.at(0).contains("fireteam sitrep tool (mcp_fireteam_sitrep)"));
+        // The field link, in Fireteam's own Gemini home, its arguments from
+        // the environment.
+        QVERIFY(runs.at(0).contains("\"fireteam\": {"));
+        QVERIFY(runs.at(0).contains("$FIRETEAM_MCP_ARG_0"));
+        QVERIFY(runs.at(0).contains("\"trust\": true"));
+        QVERIFY(runs.at(0).contains("ARG2:" + op.id + "\n"));
+        // The approval goes out as a policy, and the session resumes.
+        QVERIFY(runs.at(1).contains("--resume\n11111111-2222-3333-4444-555555555555\n"));
+        QVERIFY(runs.at(1).contains("POLICY:"));
+        QVERIFY(runs.at(1).contains("commandPrefix = [\"npm test\"]"));
+        // The policy was only for the run.
+        QVERIFY(QDir(data.path() + "/ops/" + op.id).entryList({"*gemini-policy*"}, QDir::Files).isEmpty());
+
+        const QStringList comms = commsTexts(op);
+        QVERIFY(comms.contains("I'll start by surveying the project layout."));
+        QVERIFY(comms.contains("Gemini: checks are green."));
+        QVERIFY(comms.contains("Bash  make check"));
+        QVERIFY(comms.contains("Edit  app.py"));
+    }
+
+    void runsOnOpencode()
+    {
+        QTemporaryDir data, project, bin;
+        const QString log = bin.filePath("args.log");
+        qputenv("FIRETEAM_TEST_LOG", log.toUtf8());
+        qputenv("FIRETEAM_OPENCODE", fakeEngine(bin, "opencode").toUtf8());
+        Operations ops(data.path(), fakeClaude(bin));
+        QCOMPARE(ops.create("", project.path(), "Ship it", 2, "free", "anthropic/claude-sonnet-4-5"), 0);
+        ops.setEngine(0, "opencode");
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        qunsetenv("FIRETEAM_OPENCODE");
+
+        const Operation &op = ops.at(0);
+        QCOMPARE(op.status, QString("complete"));
+        QCOMPARE(op.cyclesDone, 2);
+        QCOMPARE(op.sessionId, QString("ses_e8ebc0345ffe364cd4gpUHWbQu"));
+        QVERIFY(qAbs(op.costUsd - 0.06) < 1e-9);
+        QCOMPARE(op.contextTokens, qint64(26000));
+        const QStringList runs = QString::fromUtf8(read(log)).split("---\n", Qt::SkipEmptyParts);
+        QCOMPARE(runs.size(), 2);
+        QVERIFY(runs.at(0).startsWith("run\n--format\njson\n--dir\n" + project.path() + "\n-m\nanthropic/claude-sonnet-4-5\n--auto\n"));
+        QVERIFY(!runs.at(0).contains("\n-s\n"));
+        QVERIFY(runs.at(0).contains("CONFIG:{\"mcp\":{\"fireteam\":{\"type\":\"local\",\"command\":["));
+        QVERIFY(runs.at(0).contains("\"--op\",\"" + op.id + "\""));
+        QVERIFY(runs.at(0).contains("\"permission\":{\"*\":\"allow\""));
+        QVERIFY(runs.at(0).contains("fireteam sitrep tool (fireteam_sitrep)"));
+        QVERIFY(runs.at(1).contains("--auto\n-s\nses_e8ebc0345ffe364cd4gpUHWbQu\n"));
+
+        const QStringList comms = commsTexts(op);
+        QVERIFY(comms.contains("Running the tests first."));
+        QVERIFY(comms.contains("OpenCode: tests pass and the edit is in."));
+        QVERIFY(comms.contains("Bash  npm test"));
+        QVERIFY(comms.contains("Edit  main.ts"));
+        QVERIFY(comms.contains("Link established · OpenCode."));
     }
 
     void parsesCampaignPlans()
@@ -1509,6 +1710,22 @@ private slots:
         QCOMPARE(Translator::pluralCategory("ja", 1), QString("other"));
     }
 private:
+    // A stand-in for another engine, from tests/fake<key>.sh.
+    static QString fakeEngine(const QTemporaryDir &bin, const QString &key)
+    {
+        QFile script(":/fake" + key + ".sh");
+        const QString path = bin.filePath(key);
+        write(path, script.open(QIODevice::ReadOnly) ? script.readAll() : QByteArray());
+        QFile::setPermissions(path, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        return path;
+    }
+    static QStringList commsTexts(const Operation &op)
+    {
+        QStringList texts;
+        for (const QVariant &entry : op.comms)
+            texts << entry.toMap().value("text").toString();
+        return texts;
+    }
     static QString fakeClaude(const QTemporaryDir &bin)
     {
         const QString claude = bin.filePath("claude");

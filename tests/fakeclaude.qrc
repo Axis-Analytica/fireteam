@@ -1,5 +1,8 @@
 <RCC>
     <qresource prefix="/">
         <file>fakeclaude.sh</file>
+        <file>fakecodex.sh</file>
+        <file>fakegemini.sh</file>
+        <file>fakeopencode.sh</file>
     </qresource>
 </RCC>
