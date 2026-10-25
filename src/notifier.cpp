@@ -1,5 +1,6 @@
 #include "notifier.h"
 
+#include <QCoreApplication>
 #include <QProcess>
 #include <QStandardPaths>
 
@@ -29,4 +30,11 @@ void Notifier::send(const QString &opId, const QString &title, const QString &bo
     connect(process, &QProcess::errorOccurred, process, &QObject::deleteLater);
     process->start(m_notifySend, {"--app-name=Fireteam", "--icon=fireteam", "--wait", "--action=default=Open",
                                   title, body.left(300)});
+}
+
+void Notifier::relaunch() {
+    // The new one waits for this one to let go of the single-instance lock.
+    QProcess::startDetached("/bin/sh", {"-c", "while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; exec \"$0\"",
+                                        QCoreApplication::applicationFilePath(),
+                                        QString::number(QCoreApplication::applicationPid())});
 }

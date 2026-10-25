@@ -861,7 +861,6 @@
   "Deploys when the plan's usage window resets, or at once if the plan isn't limited now.": "Se despliega cuando se restablezca la ventana de uso del plan, o de inmediato si el plan no está limitado ahora.",
   "Deploys when this completes": "Se despliega cuando esta termine",
   "Enter a 24-hour time": "Escribe una hora en formato de 24 horas",
-  "Everything larger or smaller. Takes effect the next time Fireteam opens.": "Todo más grande o más pequeño. Se aplica la próxima vez que abras Fireteam.",
   "Find in page  /": "Buscar en la página  /",
   "Handoff brief": "Nota de relevo",
   "High contrast": "Alto contraste",
@@ -916,5 +915,15 @@
   "≈%1 of %2": "≈%1 de %2",
   "≈%1 spent of %2": "≈%1 gastado de %2",
   "≈%1 spent so far. Empty or 0 is no cap.": "≈%1 gastado hasta ahora. Vacío o 0 es sin tope.",
-  "≈%1 spent, already past this cap: it holds after its current cycle.": "≈%1 gastado, ya por encima de este tope: se pausa tras su ciclo actual."
+  "≈%1 spent, already past this cap: it holds after its current cycle.": "≈%1 gastado, ya por encima de este tope: se pausa tras su ciclo actual.",
+  "%n agent(s) still deployed. Restarting stops them mid-cycle; you can resume after.": {
+    "one": "%n agente sigue desplegado. Reiniciar lo detiene a mitad del ciclo; puedes reanudar después.",
+    "many": "%n agentes siguen desplegados. Reiniciar los detiene a mitad del ciclo; puedes reanudar después.",
+    "other": "%n agentes siguen desplegados. Reiniciar los detiene a mitad del ciclo; puedes reanudar después."
+  },
+  "Everything larger or smaller. Applied when Fireteam starts.": "Todo más grande o más pequeño. Se aplica al iniciar Fireteam.",
+  "Restart": "Reiniciar",
+  "Restart Fireteam to apply %1%.": "Reinicia Fireteam para aplicar %1%.",
+  "Restart Fireteam?": "¿Reiniciar Fireteam?",
+  "Restart now": "Reiniciar ahora"
 }

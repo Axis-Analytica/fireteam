@@ -578,6 +578,29 @@ ApplicationWindow {
                         font.pixelSize: 10
                     }
                 }
+                Rectangle { implicitWidth: 1; implicitHeight: 40; color: Style.line }
+                // Options, where people look for it.
+                ColumnLayout {
+                    spacing: 2
+                    Text {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("Options")
+                        color: optionsHover.hovered ? theme.accent : Style.text2
+                        font.family: Style.body
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                        HoverHandler { id: optionsHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: optionsPanel.open("options") }
+                    }
+                    Text {
+                        Layout.alignment: Qt.AlignRight
+                        text: "# , · ctrl+k"
+                        color: Style.dim
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 10
+                    }
+                }
                 Rectangle { visible: !win.narrow; implicitWidth: 1; implicitHeight: 40; color: Style.line }
                 Figure {
                     id: clock
@@ -847,6 +870,18 @@ ApplicationWindow {
             onTerminalRequested: { optionsPanel.close(); terminalPanel.open() }
             onControlsRequested: { optionsPanel.close(); help.visible = true }
             onSetupRequested: { optionsPanel.close(); setupPanel.open() }
+            onRestartRequested: {
+                optionsPanel.close()
+                if (ops.deployedCount > 0)
+                    confirm.ask(qsTr("Restart Fireteam?"),
+                                qsTr("%n agent(s) still deployed. Restarting stops them mid-cycle; you can resume after.", "", ops.deployedCount),
+                                qsTr("Restart"), () => { notifier.relaunch(); Qt.quit() })
+                else {
+                    win.commitRemoval()
+                    notifier.relaunch()
+                    Qt.quit()
+                }
+            }
         }
         HelpOverlay { id: help; anchors.fill: parent; onVisibleChanged: if (visible) Sfx.play("open") }
         ConfirmPanel { id: confirm; anchors.fill: parent }

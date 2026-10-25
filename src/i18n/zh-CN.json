@@ -804,7 +804,6 @@
   "Deploys when the plan's usage window resets, or at once if the plan isn't limited now.": "套餐用量窗口重置时出击；若当前未受限，则立即出击。",
   "Deploys when this completes": "待其完成后出击",
   "Enter a 24-hour time": "请输入 24 小时制时间",
-  "Everything larger or smaller. Takes effect the next time Fireteam opens.": "整体放大或缩小。下次打开 Fireteam 时生效。",
   "Find in page  /": "页内查找  /",
   "Handoff brief": "交接简报",
   "High contrast": "高对比度",
@@ -868,5 +867,13 @@
   "≈%1 of %2": "≈%1 / %2",
   "≈%1 spent of %2": "已用 ≈%1 / %2",
   "≈%1 spent so far. Empty or 0 is no cap.": "目前已用 ≈%1。留空或填 0 表示无上限。",
-  "≈%1 spent, already past this cap: it holds after its current cycle.": "已用 ≈%1，已超过此上限：将在当前一轮结束后暂停。"
+  "≈%1 spent, already past this cap: it holds after its current cycle.": "已用 ≈%1，已超过此上限：将在当前一轮结束后暂停。",
+  "%n agent(s) still deployed. Restarting stops them mid-cycle; you can resume after.": {
+    "other": "仍有 %n 个智能体在出击。重启会让它们在本轮中途停止；之后可以继续。"
+  },
+  "Everything larger or smaller. Applied when Fireteam starts.": "整体放大或缩小。在 Fireteam 启动时生效。",
+  "Restart": "重启",
+  "Restart Fireteam to apply %1%.": "重启 Fireteam 以应用 %1%。",
+  "Restart Fireteam?": "重启 Fireteam？",
+  "Restart now": "立即重启"
 }

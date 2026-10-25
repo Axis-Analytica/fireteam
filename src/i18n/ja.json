@@ -813,7 +813,6 @@
   "Deploys when the plan's usage window resets, or at once if the plan isn't limited now.": "プランの使用量ウィンドウのリセット時に出撃します。現在上限に達していなければ即時出撃します。",
   "Deploys when this completes": "この作戦の完了時に出撃",
   "Enter a 24-hour time": "24 時間制で時刻を入力",
-  "Everything larger or smaller. Takes effect the next time Fireteam opens.": "すべてを拡大・縮小します。次回 Fireteam を開いたときに反映されます。",
   "Find in page  /": "ページ内を検索  /",
   "Handoff brief": "引き継ぎ書",
   "High contrast": "ハイコントラスト",
@@ -868,5 +867,13 @@
   "≈%1 of %2": "≈%1 / %2",
   "≈%1 spent of %2": "%2 中 ≈%1 使用",
   "≈%1 spent so far. Empty or 0 is no cap.": "これまでに ≈%1 使用。空欄または 0 で上限なし。",
-  "≈%1 spent, already past this cap: it holds after its current cycle.": "≈%1 使用済みで、すでにこの上限を超えています。現在のサイクル後に一時停止します。"
+  "≈%1 spent, already past this cap: it holds after its current cycle.": "≈%1 使用済みで、すでにこの上限を超えています。現在のサイクル後に一時停止します。",
+  "%n agent(s) still deployed. Restarting stops them mid-cycle; you can resume after.": {
+    "other": "%n 体のエージェントがまだ出撃中です。再起動するとサイクルの途中で止まります。あとで再開できます。"
+  },
+  "Everything larger or smaller. Applied when Fireteam starts.": "すべてを大きく、または小さく。Fireteam の起動時に適用されます。",
+  "Restart": "再起動",
+  "Restart Fireteam to apply %1%.": "%1% を適用するには Fireteam を再起動してください。",
+  "Restart Fireteam?": "Fireteam を再起動しますか？",
+  "Restart now": "今すぐ再起動"
 }

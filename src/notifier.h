@@ -15,6 +15,9 @@ public:
     bool available() const { return !m_notifySend.isEmpty(); }
 
     Q_INVOKABLE void send(const QString &opId, const QString &title, const QString &body);
+    // Starts a fresh Fireteam a moment after this one quits (the window then
+    // quits), so settings read at start, like the interface size, apply.
+    Q_INVOKABLE void relaunch();
     // Asks Hyprland to focus Fireteam's window.
     static void focusFireteam();
 

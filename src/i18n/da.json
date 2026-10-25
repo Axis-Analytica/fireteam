@@ -828,7 +828,6 @@
   "Deploys when the plan's usage window resets, or at once if the plan isn't limited now.": "Udsendes, når planens forbrugsvindue nulstilles, eller med det samme, hvis planen ikke er begrænset nu.",
   "Deploys when this completes": "Udsendes, når denne er fuldført",
   "Enter a 24-hour time": "Angiv et tidspunkt i 24-timersformat",
-  "Everything larger or smaller. Takes effect the next time Fireteam opens.": "Alt større eller mindre. Træder i kraft, næste gang Fireteam åbnes.",
   "Find in page  /": "Find på siden  /",
   "Handoff brief": "Overdragelsesbrief",
   "High contrast": "Høj kontrast",
@@ -892,5 +891,14 @@
   "≈%1 of %2": "≈%1 af %2",
   "≈%1 spent of %2": "≈%1 brugt af %2",
   "≈%1 spent so far. Empty or 0 is no cap.": "≈%1 brugt indtil videre. Tom eller 0 betyder intet loft.",
-  "≈%1 spent, already past this cap: it holds after its current cycle.": "≈%1 brugt, allerede over dette loft: den standser efter sin nuværende cyklus."
+  "≈%1 spent, already past this cap: it holds after its current cycle.": "≈%1 brugt, allerede over dette loft: den standser efter sin nuværende cyklus.",
+  "%n agent(s) still deployed. Restarting stops them mid-cycle; you can resume after.": {
+    "one": "%n agent er stadig udsendt. En genstart stopper den midt i cyklussen; du kan fortsætte bagefter.",
+    "other": "%n agenter er stadig udsendt. En genstart stopper dem midt i cyklussen; du kan fortsætte bagefter."
+  },
+  "Everything larger or smaller. Applied when Fireteam starts.": "Alt større eller mindre. Bruges, når Fireteam starter.",
+  "Restart": "Genstart",
+  "Restart Fireteam to apply %1%.": "Genstart Fireteam for at bruge %1%.",
+  "Restart Fireteam?": "Genstart Fireteam?",
+  "Restart now": "Genstart nu"
 }

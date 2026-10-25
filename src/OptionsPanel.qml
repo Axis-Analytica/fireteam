@@ -12,6 +12,10 @@ Item {
     signal terminalRequested()
     signal controlsRequested()
     signal setupRequested()
+    signal restartRequested()
+    // The interface size Fireteam started with: a different choice needs a restart.
+    property int startScale: 100
+    Component.onCompleted: startScale = Prefs.scale
 
     Material.theme: Material.Dark
     Material.accent: theme.accent
@@ -212,7 +216,9 @@ Item {
                         }
                         OptionRow {
                             label: qsTr("Interface size")
-                            hint: qsTr("Everything larger or smaller. Takes effect the next time Fireteam opens.")
+                            hint: Prefs.scale !== panel.startScale
+                                  ? qsTr("Restart Fireteam to apply %1%.").arg(Prefs.scale)
+                                  : qsTr("Everything larger or smaller. Applied when Fireteam starts.")
                             RowLayout {
                                 spacing: 6
                                 TacticalButton { text: "−"; implicitWidth: 40; enabled: Prefs.scale > 80; onClicked: Prefs.scale = Math.max(80, Prefs.scale - 10) }
@@ -226,6 +232,12 @@ Item {
                                     font.pixelSize: 22
                                 }
                                 TacticalButton { text: "+"; implicitWidth: 40; enabled: Prefs.scale < 150; onClicked: Prefs.scale = Math.min(150, Prefs.scale + 10) }
+                                TacticalButton {
+                                    visible: Prefs.scale !== panel.startScale
+                                    text: qsTr("Restart now")
+                                    primary: true
+                                    onClicked: panel.restartRequested()
+                                }
                             }
                         }
                         OptionRow {
@@ -400,6 +412,15 @@ Item {
                             }
                             Item { Layout.fillWidth: true }
                             Figure { value: Qt.application.version; comment: qsTr("Version").toLowerCase(); size: 26 }
+                        }
+                        // The maker's mark.
+                        Text {
+                            Layout.fillWidth: true
+                            text: "An Omarchy App by Tom Jewell - Axis Intelligence"
+                            color: theme.accent
+                            font.family: Style.mono
+                            font.variableAxes: Style.narrow
+                            font.pixelSize: 13
                         }
                         Text {
                             Layout.fillWidth: true

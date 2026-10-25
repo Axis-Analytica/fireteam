@@ -924,7 +924,6 @@
   "Deploys when the plan's usage window resets, or at once if the plan isn't limited now.": "تُنشر عند إعادة ضبط نافذة استخدام الخطة، أو فورًا إن لم تكن الخطة محدودة الآن.",
   "Deploys when this completes": "تُنشر عند اكتمال هذه",
   "Enter a 24-hour time": "أدخل وقتًا بنظام 24 ساعة",
-  "Everything larger or smaller. Takes effect the next time Fireteam opens.": "تكبير كل شيء أو تصغيره. يسري عند فتح Fireteam في المرة القادمة.",
   "Find in page  /": "بحث في الصفحة  /",
   "Handoff brief": "مذكرة التسليم",
   "High contrast": "تباين عالٍ",
@@ -988,5 +987,18 @@
   "≈%1 of %2": "≈%1 من %2",
   "≈%1 spent of %2": "أُنفق ≈%1 من %2",
   "≈%1 spent so far. Empty or 0 is no cap.": "أُنفق ≈%1 حتى الآن. الترك فارغًا أو 0 يعني بلا سقف.",
-  "≈%1 spent, already past this cap: it holds after its current cycle.": "أُنفق ≈%1، متجاوزًا هذا السقف بالفعل: تتوقف بعد دورتها الحالية."
+  "≈%1 spent, already past this cap: it holds after its current cycle.": "أُنفق ≈%1، متجاوزًا هذا السقف بالفعل: تتوقف بعد دورتها الحالية.",
+  "%n agent(s) still deployed. Restarting stops them mid-cycle; you can resume after.": {
+    "zero": "لا وكلاء منتشرون.",
+    "one": "لا يزال وكيل واحد منتشرًا. إعادة التشغيل توقفه في منتصف الدورة؛ يمكنك الاستئناف بعدها.",
+    "two": "لا يزال وكيلان منتشرين. إعادة التشغيل توقفهما في منتصف الدورة؛ يمكنك الاستئناف بعدها.",
+    "few": "لا يزال %n وكلاء منتشرين. إعادة التشغيل توقفهم في منتصف الدورة؛ يمكنك الاستئناف بعدها.",
+    "many": "لا يزال %n وكيلًا منتشرين. إعادة التشغيل توقفهم في منتصف الدورة؛ يمكنك الاستئناف بعدها.",
+    "other": "لا يزال %n وكيل منتشرين. إعادة التشغيل توقفهم في منتصف الدورة؛ يمكنك الاستئناف بعدها."
+  },
+  "Everything larger or smaller. Applied when Fireteam starts.": "كل شيء أكبر أو أصغر. يُطبَّق عند تشغيل Fireteam.",
+  "Restart": "إعادة التشغيل",
+  "Restart Fireteam to apply %1%.": "أعد تشغيل Fireteam لتطبيق %1%.",
+  "Restart Fireteam?": "إعادة تشغيل Fireteam؟",
+  "Restart now": "أعد التشغيل الآن"
 }
