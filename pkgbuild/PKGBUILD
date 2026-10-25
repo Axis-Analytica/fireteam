@@ -1,5 +1,5 @@
 pkgname=fireteam
-pkgver=0.8.0
+pkgver=0.9.0
 pkgrel=1
 pkgdesc='Base camp for running Claude Code agents through development cycles, with HTML debriefs'
 arch=('x86_64' 'aarch64')

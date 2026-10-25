@@ -35,7 +35,7 @@ ApplicationWindow {
                                         || waitingPanel.visible || campaignBoard.visible || terminalPanel.visible
                                         || manualPanel.visible || replayView.visible || searchPanel.visible
                                         || optionsPanel.visible || graphPanel.visible || palette.visible
-                                        || inboxPanel.visible || setupPanel.visible || limitsPanel.visible || reader.visible
+                                        || inboxPanel.visible || setupPanel.visible || limitsPanel.visible || reader.visible || afterAction.visible
     // The theatre map in place of the roster and detail.
     property bool mapView: false
     readonly property var selected: roster.currentItem
@@ -232,7 +232,8 @@ ApplicationWindow {
                            qsTr("Cycle %1 of %2 · %3 · %4").arg(op.cyclesDone + 1)
                                .arg(Math.max(op.cycles, op.cyclesDone + 1))
                                .arg(op.model || qsTr("default model"))
-                               .arg(op.roe === "free" ? qsTr("weapons free") : qsTr("restricted")))
+                               .arg(op.roe === "free" ? qsTr("weapons free") : qsTr("restricted")),
+                           op.objective)
         }
         function onCycleFinished(row, cycle) {
             const p = win.eventPoint(row)
@@ -244,6 +245,10 @@ ApplicationWindow {
             const p = win.eventPoint(row)
             if (!op)
                 return
+            // A finished operation gets its after-action report, unless the
+            // operator is busy in a panel.
+            if ((op.status === "complete" || op.status === "failed") && win.active && !win.overlayOpen)
+                afterAction.open(op, row)
             if (op.status === "complete") {
                 backdrop.burst("victory", p.x, p.y)
                 Sfx.play("complete")
@@ -333,6 +338,7 @@ ApplicationWindow {
             else if (setupPanel.visible) setupPanel.close()
             else if (limitsPanel.visible) limitsPanel.close()
             else if (reader.visible) reader.close()
+            else if (afterAction.visible) afterAction.close()
             else if (serviceRecord.visible) serviceRecord.close()
             else if (radio.visible) radio.close()
             else briefing.close()
@@ -697,6 +703,7 @@ ApplicationWindow {
                     onGraphRequested: graphPanel.open(win.selected.directory, win.selected.opId)
                     onLimitsRequested: limitsPanel.open(win.selected, roster.currentIndex)
                     onReadRequested: (path, title) => reader.open(path, title)
+                    onReportRequested: afterAction.open(win.selected, roster.currentIndex)
                     onDiscardRequested: win.discardSelected()
                 }
             }
@@ -838,6 +845,14 @@ ApplicationWindow {
             onOperationPicked: (row) => { palette.close(); roster.currentIndex = row }
             onQuickDeploy: (plan) => { palette.close(); win.quickDeploy(plan) }
             onQuickRefine: (plan) => { palette.close(); briefing.prefill(plan) }
+        }
+        AfterActionPanel {
+            id: afterAction
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
+            onReadRequested: (path, title) => { afterAction.close(); reader.open(path, title) }
+            onIntelRequested: { afterAction.close(); win.diffSelected() }
+            onReplayRequested: { afterAction.close(); if (win.selected) replayView.open(win.selected, roster.currentIndex) }
         }
         LimitsPanel {
             id: limitsPanel

@@ -32,6 +32,8 @@ Item {
     // review or brief.
     signal limitsRequested()
     signal readRequested(string path, string title)
+    // The after-action report for a finished operation.
+    signal reportRequested()
 
     Menu {
         id: exportMenu
@@ -382,6 +384,7 @@ Item {
                     model: [
                         { label: qsTr("Replay"), key: "⇧R", action: "replay" },
                         { label: qsTr("Map"), key: "G", action: "graph" },
+                        { label: qsTr("Report"), key: "", action: "report" },
                         { label: qsTr("Limits"), key: "B", action: "limits" },
                         { label: qsTr("Export"), key: "", action: "export" },
                         { label: detail.op && detail.op.archived ? qsTr("Unarchive") : qsTr("Archive"), key: "", action: "archive" },
@@ -393,7 +396,8 @@ Item {
                     delegate: Text {
                         id: link
                         required property var modelData
-                        readonly property bool usable: modelData.action === "dossier" ? detail.op && detail.op.dossier.length > 0
+                        readonly property bool usable: modelData.action === "report" ? detail.op && detail.op.history.length > 0
+                                                     : modelData.action === "dossier" ? detail.op && detail.op.dossier.length > 0
                                                      : modelData.action === "remove" ? detail.op && !detail.live
                                                      : modelData.action === "archive" ? detail.op && !detail.live && !detail.waiting
                                                      : detail.op !== null
@@ -410,6 +414,7 @@ Item {
                             onTapped: {
                                 if (link.modelData.action === "replay") detail.replayRequested()
                                 else if (link.modelData.action === "graph") detail.graphRequested()
+                                else if (link.modelData.action === "report") detail.reportRequested()
                                 else if (link.modelData.action === "limits") detail.limitsRequested()
                                 else if (link.modelData.action === "export") exportMenu.popup(link, 0, link.height + 4)
                                 else if (link.modelData.action === "archive") ops.setArchived(detail.row, !detail.op.archived)

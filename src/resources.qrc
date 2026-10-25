@@ -11,6 +11,8 @@
         <file alias="Sfx.qml">Sfx.qml</file>
         <file alias="Prefs.qml">Prefs.qml</file>
         <file alias="OptionsPanel.qml">OptionsPanel.qml</file>
+        <file alias="GlyphPicture.qml">GlyphPicture.qml</file>
+        <file alias="AfterActionPanel.qml">AfterActionPanel.qml</file>
         <file alias="ReaderPanel.qml">ReaderPanel.qml</file>
         <file alias="LimitsPanel.qml">LimitsPanel.qml</file>
         <file alias="SetupPanel.qml">SetupPanel.qml</file>
@@ -18,6 +20,7 @@
         <file alias="CommandPalette.qml">CommandPalette.qml</file>
         <file alias="GraphPanel.qml">GraphPanel.qml</file>
         <file alias="graphsim.js">graphsim.js</file>
+        <file alias="highlight.js">highlight.js</file>
         <file alias="ServiceRecord.qml">ServiceRecord.qml</file>
         <file alias="TacticalMap.qml">TacticalMap.qml</file>
         <file alias="sounds/tick.wav">sounds/tick.wav</file>

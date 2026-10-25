@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
     if (command == "mcp") {
         QCoreApplication app(argc, argv);
         app.setApplicationName("fireteam");
-        app.setApplicationVersion("0.8.0");
+        app.setApplicationVersion("0.9.0");
         const QStringList args = app.arguments();
         const int op = args.indexOf("--op"), socket = args.indexOf("--socket");
         if (op < 0 || socket < 0 || op + 1 >= args.size() || socket + 1 >= args.size()) {
@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
 
     QGuiApplication app(argc, argv);
     app.setApplicationName("fireteam");
-    app.setApplicationVersion("0.8.0");
+    app.setApplicationVersion("0.9.0");
     if (cli)
         return Cli::run(app.arguments());
 

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import QtQuick.Shapes
 
 // Campaigns: a large objective planned into operations with dependencies,
 // reviewed and edited here as a graph, then run in order.
@@ -59,6 +60,173 @@ Item {
             required property string opId
             required property double cost
         }
+    }
+
+    // Each operation's record (runs, comms, when it was made), by id, for the timeline.
+    Repeater {
+        id: opRecords
+        model: ops
+        delegate: Item {
+            required property string opId
+            required property var history
+            required property var comms
+            required property var created
+            required property string status
+            required property string codename
+            required property double cost
+        }
+    }
+    readonly property var records: {
+        const result = {}
+        for (let i = 0; i < opRecords.count; ++i) {
+            const item = opRecords.itemAt(i)
+            if (item)
+                result[item.opId] = { history: item.history || [], comms: item.comms || [], created: item.created,
+                                      status: item.status, codename: item.codename, cost: item.cost }
+        }
+        return result
+    }
+
+    // "graph" or "timeline"; Ctrl+T or the toggle over the frame swaps them.
+    property string view: "graph"
+    readonly property bool canToggle: campaign !== null && campaign.status !== "planning" && campaign.operations.length > 0
+    readonly property bool showTimeline: canToggle && view === "timeline"
+    // The clock the timeline's live end follows.
+    property real now: Date.now()
+    Timer {
+        interval: 1000
+        repeat: true
+        running: board.visible && board.showTimeline && board.timeline.live
+        onTriggered: board.now = Date.now()
+    }
+    onShowTimelineChanged: { now = Date.now(); tip.target = null }
+
+    function when(value) {
+        if (value instanceof Date)
+            return value.getTime()
+        if (value === undefined || value === null || value === "")
+            return NaN
+        return Date.parse(value)
+    }
+    function duration(seconds) {
+        const s = Math.max(0, Math.round(seconds))
+        if (s < 60)
+            return qsTr("%1s").arg(s)
+        if (s < 3600)
+            return qsTr("%1m").arg(Math.round(s / 60))
+        return qsTr("%1h %2m").arg(Math.floor(s / 3600)).arg(Math.floor((s % 3600) / 60))
+    }
+    function showTip(on, item, text) {
+        if (on) {
+            tip.target = item
+            tip.text = text
+        } else if (tip.target === item) {
+            tip.target = null
+        }
+    }
+    function outcomeColor(outcome) {
+        return outcome === "complete" ? theme.accent
+             : outcome === "failed" || outcome === "aborted" ? Style.danger
+             : outcome === "cut" || outcome === "pinned" || outcome === "interrupted" || outcome === "held" ? Style.amber
+             : Style.dim
+    }
+    function outcomeLabel(outcome) {
+        switch (outcome) {
+        case "complete": return qsTr("complete")
+        case "failed": return qsTr("failed")
+        case "aborted": return qsTr("aborted")
+        case "cut": return qsTr("cut")
+        case "pinned": return qsTr("pinned")
+        case "live": return qsTr("in progress")
+        }
+        return outcome
+    }
+
+    // The campaign laid out in time: one lane per operation, ordered by
+    // dependency depth then start. Its live ends are -1, meaning "now", so the
+    // clock moves them without rebuilding the lanes.
+    readonly property var timeline: {
+        const result = { lanes: [], merges: [], start: NaN, end: NaN, started: false, live: false }
+        if (!campaign)
+            return result
+        result.live = campaign.status === "active" || campaign.status === "blocked"
+        const operations = campaign.operations
+        const byKey = {}
+        for (const op of operations)
+            byKey[op.key] = op
+        const depth = {}
+        const depthOf = (key, seen) => {
+            if (depth[key] !== undefined) return depth[key]
+            if (seen.indexOf(key) >= 0 || !byKey[key]) return 0
+            const deps = byKey[key].depends.filter(d => byKey[d])
+            const d = deps.length === 0 ? 0 : 1 + Math.max(...deps.map(k => depthOf(k, seen.concat([key]))))
+            depth[key] = d
+            return d
+        }
+        let start = Infinity, end = -Infinity
+        const lanes = operations.map((op, order) => {
+            const record = op.opId ? records[op.opId] : undefined
+            const lane = { op: op, order: order, depth: depthOf(op.key, []), runs: [], merges: [], liveRun: null,
+                           created: NaN, first: NaN, total: 0, wait: null,
+                           waitingOn: op.depends.filter(d => byKey[d]).map(d => byKey[d].codename || d) }
+            if (!record)
+                return lane
+            lane.created = when(record.created)
+            let spent = 0
+            for (const entry of record.history) {
+                const at = when(entry.started)
+                if (isNaN(at))
+                    continue
+                const seconds = Math.max(0, Number(entry.seconds || 0))
+                lane.runs.push({ start: at, end: at + seconds * 1000, seconds: seconds, cycle: entry.cycle,
+                                 cost: Number(entry.cost || 0), outcome: entry.outcome || "" })
+                spent += Number(entry.cost || 0)
+                lane.total += seconds
+            }
+            for (const line of record.comms)
+                if (line && line.at && String(line.text || "").indexOf("Extracted") >= 0)
+                    lane.merges.push(Number(line.at))
+            const lastEnd = lane.runs.reduce((m, r) => Math.max(m, r.end), -Infinity)
+            if (record.status === "deployed") {
+                // The run under way: from its "deployed" line, else the last run's end.
+                let begun = NaN
+                for (const line of record.comms)
+                    if (line && line.at && line.kind === "sys" && String(line.text || "").indexOf("deployed") >= 0
+                            && Number(line.at) >= (isFinite(lastEnd) ? lastEnd - 1000 : 0))
+                        begun = Number(line.at)
+                if (isNaN(begun))
+                    begun = isFinite(lastEnd) ? lastEnd : lane.created
+                if (!isNaN(begun))
+                    lane.liveRun = { start: begun, end: -1, cycle: (op.cyclesDone || 0) + 1,
+                                     cost: Math.max(0, Number(record.cost || 0) - spent), outcome: "live" }
+            }
+            const starts = lane.runs.map(r => r.start).concat(lane.liveRun ? [lane.liveRun.start] : [])
+            lane.first = starts.length > 0 ? Math.min(...starts) : NaN
+            for (const t of [lane.created, lane.first])
+                if (!isNaN(t)) start = Math.min(start, t)
+            for (const t of lane.runs.map(r => r.end).concat(lane.merges))
+                end = Math.max(end, t)
+            return lane
+        })
+        result.started = isFinite(start)
+        if (result.started) {
+            result.start = start
+            result.end = Math.max(end, start)
+            for (const lane of lanes) {
+                // Waiting: from being made until the first run, or until now.
+                const until = !isNaN(lane.first) ? lane.first
+                            : result.live && lane.op.status !== "complete" && lane.op.status !== "failed" ? -1 : NaN
+                const from = isNaN(lane.created) ? start : lane.created
+                lane.wait = isNaN(until) || (until !== -1 && until - from < 1000) ? null : { start: from, end: until }
+                for (const at of lane.merges)
+                    result.merges.push({ at: at, codename: lane.op.codename || lane.op.key })
+            }
+        }
+        lanes.sort((a, b) => a.depth - b.depth
+                   || (isNaN(a.first) ? Infinity : a.first) - (isNaN(b.first) ? Infinity : b.first)
+                   || a.order - b.order)
+        result.lanes = lanes
+        return result
     }
 
     signal operationPicked(int row)
@@ -516,6 +684,133 @@ Item {
                     textFormat: Text.PlainText
                 }
 
+                // Over the frame: the timeline's key on the left, the view toggle on the right.
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 4
+                    visible: board.canToggle
+                    spacing: 14
+                    Item {
+                        Layout.fillWidth: true
+                        implicitHeight: legend.implicitHeight
+                        clip: true
+                        Row {
+                            id: legend
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: board.showTimeline && board.timeline.started
+                            spacing: 14
+                            Repeater {
+                                model: [
+                                    { tone: theme.accent, label: qsTr("Complete") },
+                                    { tone: Style.danger, label: qsTr("Failed") },
+                                    { tone: Style.amber, label: qsTr("Cut or pinned") }
+                                ]
+                                delegate: Row {
+                                    required property var modelData
+                                    spacing: 6
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 10; height: 6
+                                        color: parent.modelData.tone
+                                    }
+                                    Text {
+                                        text: parent.modelData.label
+                                        color: Style.dim
+                                        font.family: Style.body
+                                        font.pixelSize: 12
+                                    }
+                                }
+                            }
+                            Row {
+                                spacing: 6
+                                Shape {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 14; height: 1
+                                    ShapePath {
+                                        strokeColor: Style.dim
+                                        strokeWidth: 1
+                                        strokeStyle: ShapePath.DashLine
+                                        dashPattern: [2, 2]
+                                        fillColor: "transparent"
+                                        startX: 0; startY: 0.5
+                                        PathLine { x: 14; y: 0.5 }
+                                    }
+                                }
+                                Text {
+                                    text: qsTr("Waiting")
+                                    color: Style.dim
+                                    font.family: Style.body
+                                    font.pixelSize: 12
+                                }
+                            }
+                            Row {
+                                spacing: 6
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "◆"
+                                    color: Style.good
+                                    font.family: Style.mono
+                                    font.pixelSize: 9
+                                }
+                                Text {
+                                    text: qsTr("Merged")
+                                    color: Style.dim
+                                    font.family: Style.body
+                                    font.pixelSize: 12
+                                }
+                            }
+                        }
+                    }
+                    KeyHint { key: "Ctrl+T"; label: "" ; spacing: 0 }
+                    // Segmented: the current view washed and underlined.
+                    Rectangle {
+                        implicitWidth: segments.implicitWidth + 2
+                        implicitHeight: 26
+                        color: "transparent"
+                        border.color: Style.lineStrong
+                        radius: Math.min(2, theme.radius)
+                        Row {
+                            id: segments
+                            anchors.fill: parent
+                            anchors.margins: 1
+                            Repeater {
+                                model: [{ key: "graph", label: qsTr("Graph") }, { key: "timeline", label: qsTr("Timeline") }]
+                                delegate: Rectangle {
+                                    id: segment
+                                    required property var modelData
+                                    required property int index
+                                    readonly property bool current: board.view === modelData.key
+                                    width: segmentText.implicitWidth + 24
+                                    height: parent.height
+                                    color: current ? Style.wash : segmentHover.hovered ? Style.raised : "transparent"
+                                    Rectangle {
+                                        visible: segment.index > 0
+                                        width: 1; height: parent.height
+                                        color: Style.lineStrong
+                                    }
+                                    Text {
+                                        id: segmentText
+                                        anchors.centerIn: parent
+                                        text: segment.modelData.label
+                                        color: segment.current ? Style.text : Style.dim
+                                        font.family: Style.body
+                                        font.pixelSize: 12
+                                        font.weight: Font.Medium
+                                    }
+                                    Rectangle {
+                                        visible: segment.current
+                                        anchors.bottom: parent.bottom
+                                        width: parent.width; height: 2
+                                        color: theme.accent
+                                    }
+                                    HoverHandler { id: segmentHover; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: board.view = segment.modelData.key }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // The graph: one column per depth, supply lines between.
                 Rectangle {
                     id: graphFrame
@@ -590,6 +885,7 @@ Item {
                     Flickable {
                         id: graph
                         anchors.fill: parent
+                        visible: !board.showTimeline
                         contentWidth: graphFrame.layout.__size ? graphFrame.layout.__size.width : width
                         contentHeight: graphFrame.layout.__size ? graphFrame.layout.__size.height : height
                         boundsBehavior: Flickable.StopAtBounds
@@ -780,6 +1076,446 @@ Item {
                             }
                         }
                     }
+                    }
+
+                    // The timeline: a lane per operation, time left to right. The
+                    // lane names and the axis stay put while the runs scroll.
+                    Flickable {
+                        id: timelineView
+                        readonly property var model: board.timeline
+                        readonly property bool started: model.started
+                        readonly property real gutter: board.narrow ? 150 : 196
+                        readonly property real axisHeight: 30
+                        readonly property real padLeft: 16
+                        readonly property real padRight: 48
+                        readonly property real laneHeight: Math.max(40, Math.min(64, (height - axisHeight - 10) / Math.max(1, model.lanes.length)))
+                        readonly property real rangeEnd: !started ? 0 : model.live ? Math.max(board.now, model.end) : model.end
+                        readonly property real span: Math.max(60000, rangeEnd - model.start)
+                        // Fits the frame, but never under 40px an hour: longer campaigns scroll.
+                        readonly property real px: Math.max((width - gutter - padLeft - padRight) / span, 40 / 3600000)
+                        readonly property real lanesBottom: axisHeight + model.lanes.length * laneHeight
+                        function xAt(t) { return gutter + padLeft + (t - model.start) * px }
+                        readonly property var ticks: {
+                            if (!started)
+                                return []
+                            const first = new Date(model.start)
+                            const multiDay = first.toDateString() !== new Date(rangeEnd).toDateString()
+                            const minGap = multiDay ? 120 : 64
+                            const minutes = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440]
+                            let step = minutes.find(m => m * 60000 * px >= minGap)
+                            step = (step || Math.ceil(minGap / (1440 * 60000 * px)) * 1440) * 60000
+                            const midnight = new Date(model.start)
+                            midnight.setHours(0, 0, 0, 0)
+                            let t = midnight.getTime() + Math.ceil((model.start - midnight.getTime()) / step) * step
+                            const result = []
+                            let lastDay = ""
+                            for (; t <= rangeEnd && result.length < 400; t += step) {
+                                const d = new Date(t)
+                                const day = d.toDateString()
+                                const label = multiDay && day !== lastDay
+                                        ? Qt.locale().toString(d, "ddd d") + " " + Qt.formatDateTime(d, "hh:mm")
+                                        : Qt.formatDateTime(d, "hh:mm")
+                                lastDay = day
+                                result.push({ at: t, label: label })
+                            }
+                            return result
+                        }
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        visible: board.showTimeline
+                        contentWidth: started ? Math.max(width, gutter + padLeft + span * px + padRight) : width
+                        contentHeight: Math.max(height, lanesBottom + 12)
+                        boundsBehavior: Flickable.StopAtBounds
+                        clip: true
+                        ScrollBar.horizontal: ScrollBar {}
+                        ScrollBar.vertical: ScrollBar {}
+                        // A live campaign opens on its latest moments.
+                        onVisibleChanged: if (visible && model.live) contentX = Math.max(0, contentWidth - width)
+
+                        // Ruled time: a hairline per tick down through the lanes.
+                        Repeater {
+                            model: timelineView.ticks
+                            delegate: Rectangle {
+                                required property var modelData
+                                x: Math.round(timelineView.xAt(modelData.at))
+                                y: timelineView.axisHeight
+                                width: 1
+                                height: timelineView.lanesBottom - timelineView.axisHeight
+                                color: Style.line
+                            }
+                        }
+                        // Merges: where an operation's work was extracted into the project.
+                        Repeater {
+                            model: timelineView.model.merges
+                            delegate: Rectangle {
+                                required property var modelData
+                                x: Math.round(timelineView.xAt(modelData.at))
+                                y: timelineView.axisHeight
+                                width: 1
+                                height: timelineView.lanesBottom - timelineView.axisHeight
+                                color: Style.lineStrong
+                            }
+                        }
+
+                        Repeater {
+                            model: timelineView.model.lanes
+                            delegate: Item {
+                                id: lane
+                                required property var modelData
+                                required property int index
+                                readonly property var op: modelData.op
+                                readonly property real middle: height / 2
+                                y: timelineView.axisHeight + index * timelineView.laneHeight
+                                width: timelineView.contentWidth
+                                height: timelineView.laneHeight
+                                Rectangle { y: parent.height - 1; width: parent.width; height: 1; color: Style.line }
+
+                                // Not started: the planned order only.
+                                Text {
+                                    visible: !timelineView.started
+                                    x: timelineView.gutter + timelineView.padLeft
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: parent.width - x - 16
+                                    elide: Text.ElideRight
+                                    text: qsTr("Not started") + (lane.modelData.waitingOn.length > 0
+                                          ? "  ·  " + qsTr("after %1").arg(lane.modelData.waitingOn.join(", ")) : "")
+                                    color: Style.faint
+                                    font.family: Style.mono
+                                    font.variableAxes: Style.narrow
+                                    font.pixelSize: 11
+                                }
+
+                                // The operation's span, first run to last, as a firm hairline.
+                                Rectangle {
+                                    readonly property real from: lane.modelData.runs.length > 0 ? lane.modelData.first : NaN
+                                    readonly property real to: lane.modelData.liveRun ? board.now
+                                                               : lane.modelData.runs.reduce((m, r) => Math.max(m, r.end), -Infinity)
+                                    visible: timelineView.started && !isNaN(from) && isFinite(to)
+                                    x: timelineView.xAt(from)
+                                    y: Math.round(lane.middle)
+                                    width: Math.max(0, (to - from) * timelineView.px)
+                                    height: 1
+                                    color: Style.lineStrong
+                                }
+
+                                // Waiting on what it depends on, dashed and faint.
+                                Item {
+                                    id: wait
+                                    readonly property var span: lane.modelData.wait
+                                    readonly property real to: span ? (span.end === -1 ? board.now : span.end) : 0
+                                    readonly property string label: lane.modelData.waitingOn.length > 0
+                                        ? qsTr("Waiting on %1").arg(lane.modelData.waitingOn.join(", ")) : qsTr("Waiting")
+                                    visible: timelineView.started && span !== null && span !== undefined
+                                    x: span ? timelineView.xAt(span.start) : 0
+                                    y: Math.round(lane.middle) - 8
+                                    width: span ? Math.max(1, (to - span.start) * timelineView.px) : 0
+                                    height: 16
+                                    Shape {
+                                        y: 8
+                                        width: parent.width; height: 1
+                                        ShapePath {
+                                            strokeColor: Style.faint
+                                            strokeWidth: 1
+                                            strokeStyle: ShapePath.DashLine
+                                            dashPattern: [3, 3]
+                                            fillColor: "transparent"
+                                            startX: 0; startY: 0.5
+                                            PathLine { x: wait.width; y: 0.5 }
+                                        }
+                                    }
+                                    Text {
+                                        // Kept clear of the pinned lane names while there's room.
+                                        readonly property real clearOf: timelineView.contentX + timelineView.gutter + 6 - wait.x
+                                        visible: implicitWidth + 12 < wait.width
+                                        x: Math.max(6, Math.min(wait.width - implicitWidth - 6, clearOf))
+                                        y: -6
+                                        text: wait.label
+                                        color: Style.faint
+                                        font.family: Style.mono
+                                        font.variableAxes: Style.narrow
+                                        font.pixelSize: 10
+                                    }
+                                    HoverHandler {
+                                        id: waitHover
+                                        onHoveredChanged: board.showTip(hovered, wait, wait.label + " · "
+                                            + board.duration((wait.to - wait.span.start) / 1000))
+                                    }
+                                }
+
+                                // The cycle runs, coloured by how each ended.
+                                Repeater {
+                                    model: lane.modelData.runs
+                                    delegate: Rectangle {
+                                        id: run
+                                        required property var modelData
+                                        readonly property real w: (modelData.end - modelData.start) * timelineView.px
+                                        readonly property string tip: qsTr("%1 · cycle %2 · %3 · ≈%4 · %5")
+                                            .arg(lane.op.codename || lane.op.key).arg(modelData.cycle)
+                                            .arg(board.duration(modelData.seconds)).arg(board.money(modelData.cost))
+                                            .arg(board.outcomeLabel(modelData.outcome))
+                                        visible: timelineView.started
+                                        x: timelineView.xAt(modelData.start)
+                                        y: Math.round(lane.middle) - 7
+                                        width: Math.max(3, w > 5 ? w - 1 : w)
+                                        height: 14
+                                        color: board.outcomeColor(modelData.outcome)
+                                        border.color: runHover.hovered ? Style.text : "transparent"
+                                        HoverHandler {
+                                            id: runHover
+                                            onHoveredChanged: board.showTip(hovered, run, run.tip)
+                                        }
+                                    }
+                                }
+
+                                // A run under way grows to now, its leading edge pulsing.
+                                Rectangle {
+                                    id: liveRun
+                                    readonly property var info: lane.modelData.liveRun
+                                    readonly property string tip: info ? qsTr("%1 · cycle %2 · %3 · ≈%4 · %5")
+                                        .arg(lane.op.codename || lane.op.key).arg(info.cycle)
+                                        .arg(board.duration((board.now - info.start) / 1000)).arg(board.money(info.cost))
+                                        .arg(board.outcomeLabel("live")) : ""
+                                    visible: timelineView.started && info !== null
+                                    x: info ? timelineView.xAt(info.start) : 0
+                                    y: Math.round(lane.middle) - 7
+                                    width: info ? Math.max(3, (board.now - info.start) * timelineView.px) : 0
+                                    height: 14
+                                    color: "transparent"
+                                    border.color: liveHover.hovered ? Style.text : "transparent"
+                                    Rectangle { anchors.fill: parent; z: -1; color: theme.accent; opacity: 0.6 }
+                                    Rectangle {
+                                        id: liveEdge
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 2
+                                        height: parent.height + 8
+                                        color: theme.accent
+                                        SequentialAnimation on opacity {
+                                            running: liveRun.visible && timelineView.visible && !Prefs.reduceMotion
+                                            loops: Animation.Infinite
+                                            NumberAnimation { to: 0.15; duration: 600 }
+                                            NumberAnimation { to: 1; duration: 600 }
+                                            onStopped: liveEdge.opacity = 1
+                                        }
+                                    }
+                                    HoverHandler {
+                                        id: liveHover
+                                        onHoveredChanged: board.showTip(hovered, liveRun, liveRun.tip)
+                                    }
+                                }
+
+                                // Where its work was merged in.
+                                Repeater {
+                                    model: lane.modelData.merges
+                                    delegate: Text {
+                                        id: merge
+                                        required property var modelData
+                                        visible: timelineView.started
+                                        x: Math.round(timelineView.xAt(modelData)) - width / 2 + 0.5
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "◆"
+                                        color: Style.good
+                                        font.family: Style.mono
+                                        font.pixelSize: 11
+                                        HoverHandler {
+                                            onHoveredChanged: board.showTip(hovered, merge, qsTr("%1 merged · %2")
+                                                .arg(lane.op.codename || lane.op.key).arg(Qt.formatDateTime(new Date(merge.modelData), "hh:mm")))
+                                        }
+                                    }
+                                }
+
+                                // The lane's name, pinned at the left as the runs scroll under it.
+                                Rectangle {
+                                    id: laneName
+                                    x: timelineView.contentX
+                                    z: 3
+                                    width: timelineView.gutter
+                                    height: parent.height
+                                    color: laneHover.hovered ? Style.raised : Style.bg
+                                    readonly property bool chosen: board.editing === lane.op.key
+                                    Rectangle { visible: laneName.chosen; width: 2; height: parent.height; color: theme.accent }
+                                    Rectangle { y: parent.height - 1; width: parent.width; height: 1; color: Style.line }
+                                    Rectangle { x: parent.width - 1; width: 1; height: parent.height; color: Style.lineStrong }
+                                    ColumnLayout {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.leftMargin: 14
+                                        anchors.rightMargin: 12
+                                        spacing: 2
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 8
+                                            Rectangle {
+                                                implicitWidth: 6; implicitHeight: 6
+                                                color: board.draft ? Style.dim : Style.statusColor(lane.op.status, theme.accent)
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: lane.op.codename || lane.op.key
+                                                elide: Text.ElideRight
+                                                color: laneName.chosen ? Style.text : Style.text2
+                                                font.family: Style.mono
+                                                font.variableAxes: Style.wide
+                                                font.pixelSize: 12
+                                                font.letterSpacing: -0.3
+                                            }
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            visible: timelineView.laneHeight >= 40
+                                            elide: Text.ElideRight
+                                            text: board.draft || !timelineView.started
+                                                  ? qsTr("%n cycle(s)", "", lane.op.cycles || 0)
+                                                  : qsTr("C%1/%2 · %3").arg(lane.op.cyclesDone || 0).arg(lane.op.cycles || 0)
+                                                        .arg(board.duration(lane.modelData.total))
+                                            color: Style.dim
+                                            font.family: Style.mono
+                                            font.variableAxes: Style.narrow
+                                            font.pixelSize: 10
+                                            font.features: { "tnum": 1 }
+                                        }
+                                    }
+                                    HoverHandler { id: laneHover; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler {
+                                        onTapped: {
+                                            if (board.draft) {
+                                                board.commitEditor()
+                                                board.editing = board.editing === lane.op.key ? "" : lane.op.key
+                                            }
+                                            else if (lane.op.row >= 0)
+                                                board.operationPicked(lane.op.row)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Now: an accent rule through every lane.
+                        Rectangle {
+                            visible: timelineView.started && timelineView.model.live
+                            x: Math.round(timelineView.xAt(board.now))
+                            y: timelineView.axisHeight
+                            z: 2
+                            width: 1
+                            height: timelineView.lanesBottom - timelineView.axisHeight + 6
+                            color: theme.accent
+                        }
+
+                        // The axis along the top, pinned as the lanes scroll.
+                        Rectangle {
+                            id: axis
+                            y: timelineView.contentY
+                            z: 4
+                            width: timelineView.contentWidth
+                            height: timelineView.axisHeight
+                            color: Style.bg
+                            Rectangle { y: parent.height - 1; width: parent.width; height: 1; color: Style.lineStrong }
+                            Repeater {
+                                model: timelineView.ticks
+                                delegate: Item {
+                                    required property var modelData
+                                    x: Math.round(timelineView.xAt(modelData.at))
+                                    height: axis.height
+                                    Rectangle { y: parent.height - 5; width: 1; height: 4; color: Style.lineStrong }
+                                    Text {
+                                        x: 4
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: parent.modelData.label
+                                        color: Style.dim
+                                        font.family: Style.mono
+                                        font.variableAxes: Style.narrow
+                                        font.pixelSize: 10
+                                        font.features: { "tnum": 1 }
+                                    }
+                                }
+                            }
+                            Repeater {
+                                model: timelineView.model.merges
+                                delegate: Text {
+                                    required property var modelData
+                                    x: Math.round(timelineView.xAt(modelData.at)) - width / 2 + 0.5
+                                    y: parent.height - height + 1
+                                    text: "◆"
+                                    color: Style.good
+                                    font.family: Style.mono
+                                    font.pixelSize: 8
+                                }
+                            }
+                            Rectangle {
+                                visible: timelineView.started && timelineView.model.live
+                                x: Math.round(timelineView.xAt(board.now)) - width + 1
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: nowText.implicitWidth + 10
+                                height: 16
+                                color: theme.accent
+                                Text {
+                                    id: nowText
+                                    anchors.centerIn: parent
+                                    text: qsTr("now")
+                                    color: theme.accentForeground
+                                    font.family: Style.mono
+                                    font.variableAxes: Style.narrowMedium
+                                    font.pixelSize: 10
+                                }
+                            }
+                        }
+                        // The corner over the lane names: how long the campaign has run.
+                        Rectangle {
+                            x: timelineView.contentX
+                            y: timelineView.contentY
+                            z: 5
+                            width: timelineView.gutter
+                            height: timelineView.axisHeight
+                            color: Style.bg
+                            Rectangle { y: parent.height - 1; width: parent.width; height: 1; color: Style.lineStrong }
+                            Rectangle { x: parent.width - 1; width: 1; height: parent.height; color: Style.lineStrong }
+                            Text {
+                                x: 14
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - 24
+                                elide: Text.ElideRight
+                                text: "# " + (timelineView.started
+                                      ? board.duration((timelineView.rangeEnd - timelineView.model.start) / 1000)
+                                      : qsTr("Planned order").toLowerCase())
+                                color: Style.dim
+                                font.family: Style.mono
+                                font.variableAxes: Style.narrow
+                                font.pixelSize: 10
+                            }
+                        }
+                    }
+
+                    // The timeline's tooltip, over whatever is hovered.
+                    Rectangle {
+                        id: tip
+                        property Item target: null
+                        property string text: ""
+                        readonly property point at: {
+                            if (!target) return Qt.point(0, 0)
+                            // Re-placed as the lanes scroll or the run grows.
+                            void (timelineView.contentX + timelineView.contentY + target.width + target.x)
+                            return target.mapToItem(graphFrame, target.width / 2, 0)
+                        }
+                        visible: target !== null && board.showTimeline
+                        z: 10
+                        x: Math.max(6, Math.min(graphFrame.width - width - 6, at.x - width / 2))
+                        y: at.y - height - 6 < 4 ? at.y + (target ? target.height : 0) + 6 : at.y - height - 6
+                        width: tipText.implicitWidth + 20
+                        height: tipText.implicitHeight + 12
+                        color: Style.panel
+                        border.color: Style.lineStrong
+                        radius: Math.min(2, theme.radius)
+                        Text {
+                            id: tipText
+                            anchors.centerIn: parent
+                            text: tip.text
+                            color: Style.text
+                            font.family: Style.mono
+                            font.variableAxes: Style.narrow
+                            font.pixelSize: 11
+                        }
                     }
 
                     // Planning: the planner at work.
@@ -1128,6 +1864,12 @@ Item {
         }
     }
 
+    Shortcut {
+        enabled: board.visible && !board.creating && board.canToggle
+        sequence: "Ctrl+T"
+        context: Qt.ApplicationShortcut
+        onActivated: board.view = board.view === "timeline" ? "graph" : "timeline"
+    }
     Shortcut {
         enabled: board.visible
         sequences: ["Ctrl+Return", "Ctrl+Enter"]

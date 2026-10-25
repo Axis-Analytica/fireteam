@@ -26,6 +26,9 @@ Item {
     property string focusFile: ""
     property var symbols: ({})
     property int symbolHovered: -1
+    // A symbol picked by search: in focus while nothing's hovered.
+    property int symbolPicked: -1
+    readonly property int symbolFocus: symbolHovered >= 0 ? symbolHovered : symbolPicked
     readonly property var symbolNodes: symbols.nodes || []
     // The live layout: a force simulation of whatever is on the map (files, or
     // one file's symbols), in two dimensions or three, and where it puts each
@@ -44,6 +47,8 @@ Item {
                                    : files.length > 0 ? Sim.create(files, links, threeD) : null
         screen = sim ? Sim.project(sim, yaw, pitch) : []
         edges.requestPaint()
+        minimap.requestPaint()
+        relabel()
     }
     function hold(index, holding) {
         if (!sim || !sim.nodes[index]) return
@@ -60,6 +65,7 @@ Item {
     function reproject() {
         screen = sim ? Sim.project(sim, yaw, pitch) : []
         edges.requestPaint()
+        minimap.requestPaint()
     }
     // A node's place this frame, falling back to the laid-out map.
     function at(index, node) {
@@ -70,6 +76,160 @@ Item {
     function nearness(depth) { return threeD ? Math.max(0.3, Math.min(1, 0.55 + depth * 0.45)) : 1 }
     onThreeDChanged: if (visible) { restartSim(); stage.fit() }
     readonly property var symbolLinks: symbols.links || []
+
+    // Search: what's typed, and the nodes on the map it matches, scored
+    // ({index: score}), or null with nothing typed.
+    property string query: ""
+    readonly property var matches: {
+        const q = query.trim().toLowerCase()
+        if (q.length === 0) return null
+        const out = {}
+        if (focusFile.length > 0) {
+            symbolNodes.forEach((n, i) => {
+                const score = Math.max(matchScore(n.label, q, 100), matchScore(baseName(n.path), q, 50))
+                if (score > 0) out[i] = score + Math.min(0.9, n.degree / 1000)
+            })
+        } else {
+            files.forEach((f, i) => {
+                let score = Math.max(matchScore(baseName(f.path), q, 95), f.path.toLowerCase().indexOf(q) >= 0 ? 40 : 0)
+                for (const label of f.top || [])
+                    score = Math.max(score, matchScore(label, q, 45))
+                if (score > 0) out[i] = score + Math.min(0.9, f.symbols / 1000)
+            })
+        }
+        return out
+    }
+    readonly property int matchCount: matches ? Object.keys(matches).length : 0
+    // How well a name answers the query: whole, then its start, then anywhere.
+    function matchScore(name, q, top) {
+        const n = String(name || "").toLowerCase()
+        if (n === q) return top
+        if (n.startsWith(q)) return top * 0.8
+        if (n.indexOf(q) >= 0) return top * 0.6
+        return 0
+    }
+    function isMatch(index) { return matches !== null && matches[index] !== undefined }
+    // Enter: pick the best match and bring it to the middle of the map.
+    function findBest() {
+        if (!matches) return
+        let best = -1, top = -1
+        for (const key in matches)
+            if (matches[key] > top) { top = matches[key]; best = Number(key) }
+        if (best < 0) return
+        if (focusFile.length > 0) symbolPicked = best
+        else select(best)
+        centreSoon.index = best
+        if (stage.scale < 1.5) stage.zoom(1.5 / stage.scale, frame.width / 2, frame.height / 2)
+        // After the drawer has had its say on the map's width.
+        centreSoon.restart()
+    }
+    function focusSearch() {
+        searchInput.forceActiveFocus()
+        searchInput.selectAll()
+    }
+    function centreOn(fx, fy) {
+        stage.x = frame.width / 2 - fx * stage.width * stage.scale
+        stage.y = frame.height / 2 - fy * stage.height * stage.scale
+    }
+
+    // Labels: which nodes want a name, and a greedy pass that hides the less
+    // important of any two that would overlap on screen.
+    property var labelHidden: ({})
+    function labelText(index) {
+        if (focusFile.length > 0) {
+            const n = symbolNodes[index]
+            return n.own ? n.label : n.label + "  " + baseName(n.path)
+        }
+        const f = files[index], editing = live[f.path]
+        return baseName(f.path) + (editing !== undefined ? "  ◉ " + editing.codename : "")
+    }
+    function fileLabelWanted(index) {
+        const f = files[index]
+        if (!f) return false
+        return selected === index || neighbours[index] === true || hovered === index || live[f.path] !== undefined
+            || isMatch(index)
+            || ((heat(f.path) > 0 || f.symbols * stage.scale >= 24) && (!threeD || at(index, f).depth > -0.25))
+    }
+    function symbolNear(index) {
+        return symbolFocus >= 0 && symbolLinks.some(l => (l.a === symbolFocus && l.b === index) || (l.b === symbolFocus && l.a === index))
+    }
+    function symbolLabelWanted(index) {
+        const n = symbolNodes[index]
+        if (!n) return false
+        return symbolHovered === index || symbolPicked === index || isMatch(index) || symbolNear(index)
+            || (n.degree * stage.scale * stage.scale >= Math.max(1, labelDegree) && (!threeD || at(index, n).depth > -0.25))
+    }
+    function layoutLabels() {
+        if (!visible) return
+        const inFile = focusFile.length > 0
+        const nodes = inFile ? symbolNodes : files
+        const k = stage.scale, w = stage.width * k, h = stage.height * k
+        const candidates = [], squares = []
+        for (let i = 0; i < nodes.length; ++i) {
+            const n = nodes[i], p = at(i, n)
+            const size = (inFile ? (n.own ? 6 + Math.sqrt(n.degree) * 1.4 : 5) : 5 + Math.sqrt(n.symbols) * 1.7) * p.scale
+            const cx = stage.x + p.x * w, cy = stage.y + p.y * h
+            const weight = inFile ? n.degree : n.symbols
+            squares.push({ i: i, x: cx - size / 2, y: cy - size / 2, w: size, h: size, weight: weight })
+            if (!(inFile ? symbolLabelWanted(i) : fileLabelWanted(i))) continue
+            const x = cx + size / 2 + 5, width = labelMetrics.advanceWidth(labelText(i))
+            const rect = { i: i, x: x, y: cy - 7, w: width, h: 14, weight: weight }
+            // Off the frame it can't collide with anything seen.
+            if (x > frame.width || x + width < 0 || cy < -10 || cy > frame.height + 10) continue
+            let rank
+            if (inFile) {
+                rank = symbolHovered === i || symbolPicked === i ? 1e9
+                     : (isMatch(i) ? 1e7 : 0) + (symbolNear(i) ? 1e6 : 0) + (n.own ? 1e3 : 0) + n.degree
+            } else {
+                const touched = heat(n.path) > 0
+                rank = selected === i || hovered === i ? 1e9
+                     : (live[n.path] !== undefined ? 1e8 : 0) + (isMatch(i) ? 1e7 : 0)
+                       + (neighbours[i] === true ? 1e6 : 0) + (touched ? 1e5 : 0) + n.symbols
+            }
+            // Nearer first in depth.
+            rect.rank = rank + (threeD ? p.depth * 0.5 : 0)
+            candidates.push(rect)
+        }
+        candidates.sort((a, b) => b.rank - a.rank)
+        // The map's own furniture counts as taken ground.
+        const shown = [], hidden = {}
+        for (const item of [legend, searchBox, minimapBox, controls, crumbs])
+            if (item.visible) shown.push({ x: item.x, y: item.y, w: item.width, h: item.height })
+        const overlaps = (a, b, pad) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h && b.y < a.y + a.h
+        for (const c of candidates) {
+            // Another label, the furniture, or the square of a node at least
+            // as big (a name in passing gives way to what it covers).
+            const clash = c.rank < 1e9 && (shown.some(o => overlaps(c, o, 4))
+                          || (c.rank < 1e6 && squares.some(q => q.i !== c.i && q.weight >= c.weight && overlaps(c, q, 0))))
+            if (clash) hidden[c.i] = true
+            else shown.push(c)
+        }
+        labelHidden = hidden
+    }
+    function relabel() { labelSoon.restart() }
+    FontMetrics {
+        id: labelMetrics
+        font.family: Style.mono
+        font.variableAxes: Style.narrow
+        font.pixelSize: 10
+    }
+    Timer { id: labelSoon; interval: 30; onTriggered: panel.layoutLabels() }
+    // While the layout moves (or the view turns), every 200ms.
+    Timer { interval: 200; repeat: true; running: panel.simRunning || panel.orbiting; onTriggered: panel.layoutLabels() }
+    onSimRunningChanged: relabel()
+    onMatchesChanged: { relabel(); edges.requestPaint() }
+    onSymbolPickedChanged: layoutLabels()
+    Timer {
+        id: centreSoon
+        property int index: -1
+        interval: 60
+        onTriggered: {
+            const nodes = panel.focusFile.length > 0 ? panel.symbolNodes : panel.files
+            if (!nodes[index]) return
+            const p = panel.at(index, nodes[index])
+            panel.centreOn(p.x, p.y)
+        }
+    }
     // Only the busiest symbols are named until zoomed in, or in focus.
     readonly property real labelDegree: {
         const degrees = symbolNodes.map(n => n.degree).sort((a, b) => b - a)
@@ -126,14 +286,20 @@ Item {
         projects = ops.graphProjects()
         const chosen = directory || project || (projects.length > 0 ? projects[0].directory : "")
         workBy = opId || ""
+        query = ""
+        symbolPicked = -1
         load(chosen)
         visible = true
         enter.restart()
         stage.fit()
     }
-    // Esc steps out of a file's symbols first.
+    // Esc steps out of the search, then a file's symbols, first.
     function close() {
-        if (focusFile.length > 0) leaveFile()
+        if (searchInput.activeFocus || query.length > 0) {
+            query = ""
+            searchInput.focus = false
+            frame.forceActiveFocus()
+        } else if (focusFile.length > 0) leaveFile()
         else visible = false
     }
     function enterFile(path) {
@@ -145,6 +311,7 @@ Item {
         focusFile = path
         symbols = ops.graphSymbols(project, path)
         symbolHovered = -1
+        symbolPicked = -1
         stage.fit()
         restartSim()
     }
@@ -152,6 +319,7 @@ Item {
         const path = focusFile
         focusFile = ""
         symbols = ({})
+        symbolPicked = -1
         stage.fit()
         restartSim()
         select(indexOf(path))
@@ -202,8 +370,8 @@ Item {
                 panel.load(directory)
         }
     }
-    onFocusIndexChanged: edges.requestPaint()
-    onSymbolHoveredChanged: edges.requestPaint()
+    onFocusIndexChanged: { edges.requestPaint(); layoutLabels() }
+    onSymbolFocusChanged: { edges.requestPaint(); layoutLabels() }
     Timer { interval: 1000; repeat: true; running: panel.visible && Object.keys(panel.live).length > 0; onTriggered: panel.now = Date.now() }
     // The simulation's clock: it runs while the layout is still moving, while
     // a node is held, and while the 3D view turns on its own.
@@ -431,8 +599,8 @@ Item {
                 radius: theme.radius
                 clip: true
                 // Unzoomed, the map stays centred as the drawer comes and goes.
-                onWidthChanged: if (stage.scale === 1) stage.fit()
-                onHeightChanged: if (stage.scale === 1) stage.fit()
+                onWidthChanged: { if (stage.scale === 1) stage.fit(); panel.relabel(); minimap.requestPaint() }
+                onHeightChanged: { if (stage.scale === 1) stage.fit(); panel.relabel(); minimap.requestPaint() }
 
                 // A survey sheet's ticks, fixed while the map moves.
                 Canvas {
@@ -491,13 +659,14 @@ Item {
                             ctx.reset()
                             const w = width, h = height
                             if (panel.focusFile.length > 0) {
-                                const nodes = panel.symbolNodes, focus = panel.symbolHovered
+                                const nodes = panel.symbolNodes, focus = panel.symbolFocus
+                                const searching = panel.matches !== null ? 0.45 : 1
                                 for (const link of panel.symbolLinks) {
                                     if (!nodes[link.a] || !nodes[link.b]) continue
                                     const a = panel.at(link.a, nodes[link.a]), b = panel.at(link.b, nodes[link.b])
                                     const lit = focus >= 0 && (link.a === focus || link.b === focus)
                                     const fade = panel.nearness((a.depth + b.depth) / 2)
-                                    ctx.strokeStyle = lit ? panel.css(accent, 0.85) : panel.css(ink, (nodes[link.a].own && nodes[link.b].own ? 0.2 : 0.09) * fade)
+                                    ctx.strokeStyle = lit ? panel.css(accent, 0.85) : panel.css(ink, (nodes[link.a].own && nodes[link.b].own ? 0.2 : 0.09) * fade * searching)
                                     ctx.lineWidth = (lit ? 1.4 : 1) / stage.scale
                                     ctx.beginPath()
                                     ctx.moveTo(a.x * w, a.y * h)
@@ -528,12 +697,13 @@ Item {
                             }
                             ctx.setLineDash([])
                             const focus = panel.focusIndex
+                            const searching = panel.matches !== null ? 0.45 : 1
                             for (const link of panel.links) {
                                 const a = placed[link.a], b = placed[link.b]
                                 if (!a || !b) continue
                                 const lit = focus >= 0 && (link.a === focus || link.b === focus)
                                 const fade = panel.nearness((a.depth + b.depth) / 2)
-                                ctx.strokeStyle = lit ? panel.css(accent, 0.85) : panel.css(ink, (focus >= 0 ? 0.05 : 0.11) * fade * (panel.threeD ? 1.4 : 1))
+                                ctx.strokeStyle = lit ? panel.css(accent, 0.85) : panel.css(ink, (focus >= 0 ? 0.05 : 0.11) * fade * (panel.threeD ? 1.4 : 1) * searching)
                                 ctx.lineWidth = (lit ? 1.4 : 1) / stage.scale
                                 ctx.beginPath()
                                 ctx.moveTo(a.x * w, a.y * h)
@@ -543,6 +713,9 @@ Item {
                         }
                     }
                     Connections { target: stage; function onScaleChanged() { edges.requestPaint() } }
+                    onScaleChanged: { panel.relabel(); minimap.requestPaint() }
+                    onXChanged: { panel.relabel(); minimap.requestPaint() }
+                    onYChanged: { panel.relabel(); minimap.requestPaint() }
 
                     // Community names, at each ring's top.
                     Repeater {
@@ -577,7 +750,9 @@ Item {
                             readonly property int heat: panel.heat(modelData.path)
                             readonly property bool chosen: panel.selected === index
                             readonly property bool near: panel.neighbours[index] === true
-                            readonly property bool dimmed: panel.focusIndex >= 0 && !chosen && !near && panel.focusIndex !== index
+                            // Out of focus, or not what's searched for.
+                            readonly property bool dimmed: (panel.focusIndex >= 0 && !chosen && !near && panel.focusIndex !== index)
+                                                           || (panel.matches !== null && !panel.isMatch(index) && !chosen && panel.hovered !== index)
                             readonly property var place: panel.at(index, modelData)
                             readonly property real size: (5 + Math.sqrt(modelData.symbols) * 1.7) * place.scale / stage.scale
                             readonly property var editing: panel.live[modelData.path]
@@ -588,7 +763,7 @@ Item {
                             width: size
                             height: size
                             z: (chosen ? 30 : near ? 20 : 10) + place.depth * 5
-                            opacity: (dimmed ? 0.35 : 1) * panel.nearness(place.depth)
+                            opacity: (dimmed ? (panel.matches !== null ? 0.22 : 0.35) : 1) * panel.nearness(place.depth)
 
                             Rectangle {
                                 anchors.fill: parent
@@ -626,18 +801,17 @@ Item {
                                 size: 5 / stage.scale
                                 weight: Math.max(1, 1 / stage.scale)
                             }
-                            // Names show for the bigger files, and for what's in focus.
+                            // Names show for the bigger files, and for what's in focus
+                            // (the far side of a 3D map goes unnamed unless it's in
+                            // focus), and give way where two would overlap.
                             Text {
-                                // The far side of a 3D map goes unnamed unless it's in focus.
-                                visible: node.chosen || node.near || nodeHover.hovered || node.editing !== undefined
-                                         || ((node.heat > 0 || node.modelData.symbols * stage.scale >= 24)
-                                             && (!panel.threeD || node.place.depth > -0.25))
+                                visible: panel.fileLabelWanted(node.index) && !panel.labelHidden[node.index]
                                 x: parent.width + 5 / stage.scale
                                 y: (parent.height - height * scale) / 2
                                 scale: 1 / stage.scale
                                 transformOrigin: Item.TopLeft
                                 text: panel.baseName(node.modelData.path) + (node.editing !== undefined ? "  ◉ " + node.editing.codename : "")
-                                color: node.chosen || node.editing !== undefined ? theme.accent : node.heat > 0 ? Style.text : node.near ? Style.text2 : Style.dim
+                                color: node.chosen || node.editing !== undefined ? theme.accent : node.heat > 0 || panel.isMatch(node.index) ? Style.text : node.near ? Style.text2 : Style.dim
                                 font.family: Style.mono
                                 font.variableAxes: Style.narrow
                                 font.pixelSize: 10
@@ -669,8 +843,8 @@ Item {
                             id: symbol
                             required property var modelData
                             required property int index
-                            readonly property bool near: panel.symbolHovered >= 0 && panel.symbolLinks.some(l =>
-                                (l.a === panel.symbolHovered && l.b === index) || (l.b === panel.symbolHovered && l.a === index))
+                            readonly property bool near: panel.symbolNear(index)
+                            readonly property bool picked: panel.symbolPicked === index
                             readonly property var place: panel.at(index, modelData)
                             readonly property real size: (modelData.own ? 6 + Math.sqrt(modelData.degree) * 1.4 : 5) * place.scale / stage.scale
                             x: place.x * stage.width - size / 2
@@ -678,23 +852,29 @@ Item {
                             width: size
                             height: size
                             z: 10 + place.depth * 5
-                            opacity: (panel.symbolHovered >= 0 && panel.symbolHovered !== index && !near ? 0.35 : 1) * panel.nearness(place.depth)
+                            opacity: (panel.symbolFocus >= 0 && panel.symbolFocus !== index && !near ? 0.35
+                                      : panel.matches !== null && !panel.isMatch(index) && !picked ? 0.22 : 1) * panel.nearness(place.depth)
                             Rectangle {
                                 anchors.fill: parent
                                 radius: symbol.modelData.own ? 0 : width / 2
                                 color: symbol.modelData.own ? (panel.heat(symbol.modelData.path) > 0 ? panel.accent : Style.text) : Style.dim
                             }
+                            Brackets {
+                                visible: symbol.picked
+                                anchors.fill: parent
+                                anchors.margins: -5 / stage.scale
+                                size: 5 / stage.scale
+                                weight: Math.max(1, 1 / stage.scale)
+                            }
                             Text {
-                                visible: symbolHover.hovered || symbol.near
-                                         || (symbol.modelData.degree * stage.scale * stage.scale >= Math.max(1, panel.labelDegree)
-                                             && (!panel.threeD || symbol.place.depth > -0.25))
+                                visible: panel.symbolLabelWanted(symbol.index) && !panel.labelHidden[symbol.index]
                                 x: parent.width + 5 / stage.scale
                                 y: (parent.height - height * scale) / 2
                                 scale: 1 / stage.scale
                                 transformOrigin: Item.TopLeft
                                 text: symbol.modelData.own ? symbol.modelData.label
                                     : symbol.modelData.label + "  " + panel.baseName(symbol.modelData.path)
-                                color: symbolHover.hovered ? theme.accent : symbol.modelData.own ? Style.text2 : Style.dim
+                                color: symbolHover.hovered || symbol.picked ? theme.accent : symbol.modelData.own || panel.isMatch(symbol.index) ? Style.text2 : Style.dim
                                 font.family: Style.mono
                                 font.variableAxes: Style.narrow
                                 font.pixelSize: 10
@@ -720,6 +900,8 @@ Item {
                 DragHandler {
                     id: ground
                     target: panel.threeD ? null : stage
+                    // Not while the mini-map is moving the view.
+                    enabled: !minimapArea.pressed
                     acceptedButtons: Qt.LeftButton
                     cursorShape: active ? Qt.ClosedHandCursor : Qt.ArrowCursor
                     property point last
@@ -732,12 +914,15 @@ Item {
                         panel.reproject()
                     }
                 }
+                // A tap on open ground hands the keys back from the search.
+                TapHandler { onTapped: if (searchInput.activeFocus) frame.forceActiveFocus() }
                 WheelHandler {
                     onWheel: (event) => stage.zoom(event.angleDelta.y > 0 ? 1.15 : 1 / 1.15, event.x, event.y)
                 }
 
                 // Inside a file: where you are, and the way back.
                 RowLayout {
+                    id: crumbs
                     visible: panel.focusFile.length > 0
                     anchors.left: parent.left
                     anchors.top: parent.top
@@ -763,6 +948,7 @@ Item {
 
                 // The legend top right, clear of the controls along the foot.
                 Column {
+                    id: legend
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.margins: 12
@@ -784,7 +970,151 @@ Item {
                         }
                     }
                 }
+                // Search, under the legend: "/" to focus, typing dims what
+                // doesn't match, Enter picks the best and centres it.
+                Rectangle {
+                    id: searchBox
+                    visible: panel.files.length > 0
+                    anchors.right: parent.right
+                    anchors.top: legend.bottom
+                    anchors.rightMargin: 12
+                    anchors.topMargin: 12
+                    width: Math.min(240, frame.width / 3)
+                    height: 28
+                    color: Style.panel
+                    border.color: searchInput.activeFocus ? theme.accent : Style.line
+                    radius: Math.min(2, theme.radius)
+                    Text {
+                        id: slash
+                        anchors.left: parent.left
+                        anchors.leftMargin: 9
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "/"
+                        color: searchInput.activeFocus ? theme.accent : Style.dim
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 11
+                    }
+                    TextInput {
+                        id: searchInput
+                        anchors.left: slash.right
+                        anchors.right: parent.right
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: matchFigure.visible ? matchFigure.implicitWidth + 15 : 9
+                        anchors.verticalCenter: parent.verticalCenter
+                        clip: true
+                        color: Style.text
+                        selectionColor: Style.wash
+                        selectedTextColor: Style.text
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 11
+                        text: panel.query
+                        onTextEdited: panel.query = text
+                        onAccepted: panel.findBest()
+                        Text {
+                            visible: searchInput.text.length === 0
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width
+                            elide: Text.ElideRight
+                            text: panel.focusFile.length > 0 ? qsTr("Find a symbol") : qsTr("Find a file or symbol")
+                            color: Style.faint
+                            font: searchInput.font
+                        }
+                    }
+                    Text {
+                        id: matchFigure
+                        anchors.right: parent.right
+                        anchors.rightMargin: 9
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: panel.matches !== null
+                        text: "# " + panel.matchCount
+                        color: panel.matchCount > 0 ? Style.dim : Style.danger
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 10
+                    }
+                    TapHandler { onTapped: searchInput.forceActiveFocus() }
+                }
+
+                // The whole map in miniature, bottom left, with the view's
+                // window on it once zoomed in: click or drag on it to move there.
+                Rectangle {
+                    id: minimapBox
+                    visible: panel.files.length > 0 && frame.width > 520
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 10
+                    width: 156
+                    height: Math.round(Math.max(64, Math.min(112, width * stage.height / Math.max(1, stage.width))))
+                    color: Style.panel
+                    border.color: Style.line
+                    radius: Math.min(2, theme.radius)
+                    // The field shown: 0..1 with a margin, for nodes dragged out a little.
+                    readonly property real lo: -0.08
+                    readonly property real span: 1.16
+                    function fieldAt(mx, my) {
+                        return Qt.point(lo + (mx - 4) / (width - 8) * span, lo + (my - 4) / (height - 8) * span)
+                    }
+                    Canvas {
+                        id: minimap
+                        anchors.fill: parent
+                        anchors.margins: 4
+                        property color ink: Style.dim
+                        property color accent: theme.accent
+                        onInkChanged: requestPaint()
+                        onAccentChanged: requestPaint()
+                        onVisibleChanged: if (visible) requestPaint()
+                        onPaint: {
+                            const ctx = getContext("2d")
+                            ctx.reset()
+                            if (!visible) return
+                            const box = minimapBox, w = width, h = height
+                            const fx = x => (x - box.lo) / box.span * w, fy = y => (y - box.lo) / box.span * h
+                            const inFile = panel.focusFile.length > 0
+                            const nodes = inFile ? panel.symbolNodes : panel.files
+                            for (let i = 0; i < nodes.length; ++i) {
+                                const n = nodes[i], p = panel.at(i, n)
+                                const hot = inFile ? (n.own && panel.heat(n.path) > 0) : panel.heat(n.path) > 0
+                                const lit = inFile ? panel.symbolFocus === i : panel.selected === i
+                                const faded = panel.matches !== null && !panel.isMatch(i)
+                                ctx.fillStyle = lit ? panel.css(accent, 1) : hot ? panel.css(accent, faded ? 0.3 : 0.8)
+                                              : panel.css(ink, faded ? 0.3 : (inFile && !n.own ? 0.5 : 0.9))
+                                const s = lit ? 3 : 2
+                                ctx.fillRect(Math.round(fx(p.x) - s / 2), Math.round(fy(p.y) - s / 2), s, s)
+                            }
+                            // The view's window, once it doesn't hold the whole field.
+                            const k = stage.scale
+                            const x0 = -stage.x / (stage.width * k), x1 = (frame.width - stage.x) / (stage.width * k)
+                            const y0 = -stage.y / (stage.height * k), y1 = (frame.height - stage.y) / (stage.height * k)
+                            if (x0 > 0.001 || y0 > 0.001 || x1 < 0.999 || y1 < 0.999) {
+                                const l = Math.max(0, fx(x0)), r = Math.min(w, fx(x1)), t = Math.max(0, fy(y0)), b = Math.min(h, fy(y1))
+                                if (r > l && b > t) {
+                                    ctx.fillStyle = panel.css(accent, 0.08)
+                                    ctx.fillRect(l, t, r - l, b - t)
+                                    ctx.strokeStyle = panel.css(accent, 0.9)
+                                    ctx.lineWidth = 1
+                                    ctx.strokeRect(Math.round(l) + 0.5, Math.round(t) + 0.5, Math.max(1, Math.round(r - l) - 1), Math.max(1, Math.round(b - t) - 1))
+                                }
+                            }
+                        }
+                    }
+                    MouseArea {
+                        id: minimapArea
+                        anchors.fill: parent
+                        preventStealing: true
+                        cursorShape: Qt.PointingHandCursor
+                        function go(mouse) {
+                            const f = minimapBox.fieldAt(mouse.x, mouse.y)
+                            panel.centreOn(f.x, f.y)
+                        }
+                        onPressed: (mouse) => go(mouse)
+                        onPositionChanged: (mouse) => { if (pressed) go(mouse) }
+                    }
+                }
+
                 Row {
+                    id: controls
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
                     anchors.margins: 10
@@ -989,5 +1319,6 @@ Item {
     Shortcut { enabled: panel.visible; sequence: "-"; context: Qt.ApplicationShortcut; onActivated: stage.zoom(1 / 1.3, frame.width / 2, frame.height / 2) }
     Shortcut { enabled: panel.visible; sequence: "0"; context: Qt.ApplicationShortcut; onActivated: stage.fit() }
     Shortcut { enabled: panel.visible; sequence: "3"; context: Qt.ApplicationShortcut; onActivated: Prefs.graph3d = !Prefs.graph3d }
-    Shortcut { enabled: panel.visible && panel.selected >= 0 && panel.focusFile.length === 0; sequences: ["Return", "Enter"]; context: Qt.ApplicationShortcut; onActivated: panel.enterFile(panel.files[panel.selected].path) }
+    Shortcut { enabled: panel.visible; sequence: "/"; context: Qt.ApplicationShortcut; onActivated: panel.focusSearch() }
+    Shortcut { enabled: panel.visible && panel.selected >= 0 && panel.focusFile.length === 0 && !searchInput.activeFocus; sequences: ["Return", "Enter"]; context: Qt.ApplicationShortcut; onActivated: panel.enterFile(panel.files[panel.selected].path) }
 }

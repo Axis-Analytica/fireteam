@@ -3,6 +3,8 @@ import QtQuick
 // The insertion screen played when an operation deploys: accent brackets close
 // in on the codename, the orders line types out, the codename types in wide
 // mono, a radio line follows, a thin meter runs out, and the board returns.
+// Above the lines, a glyph picture seeded by the codename resolves from noise,
+// printed in the codename and the objective's own words.
 // It's only a show; the agent is already on its way. Any key or click skips it.
 Item {
     id: sequence
@@ -10,6 +12,7 @@ Item {
     property string codename
     property string detail
     property string radio
+    property string objective
     property int typed: 0
     property int radioTyped: 0
     property int eyebrowTyped: 0
@@ -17,15 +20,18 @@ Item {
 
     readonly property string eyebrow: "# " + qsTr("Insertion // %1").arg(detail).toLowerCase()
 
-    function play(name, line, info) {
+    // The objective is optional; the picture prints its words when given.
+    function play(name, line, info, goal) {
         codename = name
         radio = line
         detail = info
+        objective = goal !== undefined ? goal : ""
         typed = 0
         radioTyped = 0
         eyebrowTyped = 0
         progress = 0
         visible = true
+        glyphs.replay()
         Sfx.play("deploy")
         run.restart()
         forceActiveFocus()
@@ -81,6 +87,22 @@ Item {
             y: frame.pad
             width: frame.width - 2 * frame.pad
             spacing: 0
+
+            // The ground the operation is going into, printed in its own words.
+            // It gives way first when the window is short.
+            GlyphPicture {
+                id: glyphs
+                readonly property real room: sequence.height - 2 * frame.pad - 260
+                visible: room >= 90
+                width: content.width
+                height: visible ? Math.min(Math.round(content.width * 0.34), room) : 0
+                // Cells about 6.5px wide, within reason.
+                columns: Math.round(Math.max(72, Math.min(120, content.width / 6.5)))
+                rows: Math.round(columns / 5)
+                seed: sequence.codename
+                source: (sequence.codename + " " + sequence.objective).replace(/["“”‘’`*#<>\[\]{}()]+/g, " ")
+            }
+            Item { width: 1; height: glyphs.visible ? 24 : 0 }
 
             // The orders line, typed as a comment.
             Row {

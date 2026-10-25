@@ -358,6 +358,22 @@ with the findings as orders, then reviews it again.
 - **Undo**: standing down an operation leaves the board with an Undo toast;
   nothing is deleted for eight seconds.
 
+## Reports and timelines
+
+- **After-action report**: when an operation finishes, a report screen sums it
+  up: the outcome, figures (cycles, files, lines, time in the field, API
+  value, sessions), a timeline of its cycle runs with their gates, and the
+  proof (gates, criteria, overwatch). *Report* on the operation reopens it.
+- **Campaign timeline**: the campaign board's *Timeline* (`Ctrl+T`) shows
+  each operation as a lane over time: its runs, waits on dependencies,
+  merges, and a live run growing toward now.
+- **Diffs**: syntax highlighting in the theme's own restraint, a side-by-side
+  view (`S` in intel), and heat strips showing where each file changed.
+- **Glyph pictures**: each operation gets a picture printed in its own words
+  on the insertion screen.
+- **Knowledge graph**: labels make way for each other, a mini-map shows where
+  you are, and `/` finds a file or symbol and takes you there.
+
 ## Engines
 
 Each operation runs on an engine you choose in the briefing: **Claude Code**
