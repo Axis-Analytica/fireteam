@@ -30,6 +30,101 @@ Item {
     }
     function close() { visible = false }
 
+    // Every engine Fireteam knows, installed or not, and how to get it going.
+    readonly property var engineCatalog: [
+        { key: "claude", label: "Claude Code", install: "npm install -g @anthropic-ai/claude-code", signIn: "claude" },
+        { key: "codex", label: "Codex", install: "npm install -g @openai/codex", signIn: "codex login" },
+        { key: "gemini", label: "Gemini CLI", install: "npm install -g @google/gemini-cli", signIn: "gemini" },
+        { key: "opencode", label: "OpenCode", install: "npm install -g opencode-ai", signIn: "opencode auth login" }
+    ]
+    function installedEngine(key) { return ops.engines.find(e => e.key === key) || null }
+    // What an engine can do; for one that isn't installed, what it would.
+    function engineCaps(key) {
+        const found = installedEngine(key)
+        if (found && found.capabilities)
+            return found.capabilities
+        return { supervised: key === "claude", mcp: true, cost: key === "claude" || key === "opencode" }
+    }
+    // The clipboard is reached through a hidden editor.
+    property string copied: ""
+    function copy(command) {
+        clipboard.text = command
+        clipboard.selectAll()
+        clipboard.copy()
+        copied = command
+        copiedReset.restart()
+    }
+    TextEdit { id: clipboard; visible: false }
+    Timer { id: copiedReset; interval: 1600; onTriggered: panel.copied = "" }
+
+    // A command to type, in a well, with a copy action.
+    component CommandLine: RowLayout {
+        id: line
+        property string step
+        property string command
+        Layout.fillWidth: true
+        spacing: 10
+        Text {
+            Layout.preferredWidth: 64
+            text: line.step
+            color: Style.dim
+            font.family: Style.body
+            font.pixelSize: 12
+        }
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 28
+            color: Style.bg
+            border.color: Style.line
+            radius: Math.min(2, theme.radius)
+            Text {
+                anchors.left: parent.left
+                anchors.right: copyLabel.left
+                anchors.leftMargin: 10
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                text: "$ " + line.command
+                elide: Text.ElideRight
+                color: Style.text2
+                font.family: Style.mono
+                font.variableAxes: Style.narrow
+                font.pixelSize: 11
+            }
+            Text {
+                id: copyLabel
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                text: panel.copied === line.command ? qsTr("Copied") : qsTr("Copy")
+                color: panel.copied === line.command ? Style.good : copyHover.hovered ? theme.accent : Style.dim
+                font.family: Style.body
+                font.pixelSize: 12
+                font.weight: Font.Medium
+                HoverHandler { id: copyHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: panel.copy(line.command) }
+            }
+        }
+    }
+    // A capability as a short mark: a square, filled if the engine has it.
+    component CapMark: Row {
+        id: mark
+        property string text
+        property bool on: false
+        spacing: 6
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            width: 6; height: 6
+            color: mark.on ? theme.accent : "transparent"
+            border.color: mark.on ? theme.accent : Style.faint
+        }
+        Text {
+            text: mark.text
+            color: mark.on ? Style.text2 : Style.faint
+            font.family: Style.body
+            font.pixelSize: 12
+        }
+    }
+
     // A setting: its name and what it does on the left, its control on the right.
     component OptionRow: RowLayout {
         id: row
@@ -336,6 +431,75 @@ Item {
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        SectionLabel {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 10
+                            text: qsTr("Engines")
+                            detail: qsTr("%1 of %2 installed").arg(ops.engines.filter(e => (e.path || "").length > 0).length).arg(panel.engineCatalog.length)
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("The agent CLIs an operation can run on, chosen in the briefing. Only Claude Code can ask you live; elsewhere supervised runs as restricted.")
+                            wrapMode: Text.Wrap
+                            color: Style.dim
+                            font.family: Style.body
+                            font.pixelSize: 12
+                            lineHeight: 1.15
+                        }
+                        Repeater {
+                            model: panel.engineCatalog
+                            delegate: ColumnLayout {
+                                id: engineRow
+                                required property var modelData
+                                required property int index
+                                readonly property var installed: panel.installedEngine(modelData.key)
+                                readonly property var caps: panel.engineCaps(modelData.key)
+                                // Claude Code is always listed, found or not.
+                                readonly property bool present: installed !== null && (installed.path || "").length > 0
+                                Layout.fillWidth: true
+                                spacing: 8
+                                Rule { visible: engineRow.index > 0 }
+                                Flow {
+                                    Layout.fillWidth: true
+                                    spacing: 16
+                                    Row {
+                                        spacing: 10
+                                        Text {
+                                            text: engineRow.modelData.label
+                                            color: engineRow.present ? Style.text : Style.text2
+                                            font.family: Style.body
+                                            font.pixelSize: 14
+                                            font.weight: Font.Medium
+                                        }
+                                        Text {
+                                            anchors.baseline: parent.children[0].baseline
+                                            text: engineRow.present ? engineRow.installed.path : qsTr("Not installed")
+                                            color: engineRow.present ? Style.dim : Style.faint
+                                            font.family: Style.mono
+                                            font.variableAxes: Style.narrow
+                                            font.pixelSize: 11
+                                        }
+                                    }
+                                    Row {
+                                        spacing: 14
+                                        height: 20
+                                        CapMark { anchors.verticalCenter: parent.verticalCenter; text: qsTr("Live permission prompts"); on: engineRow.caps.supervised === true }
+                                        CapMark { anchors.verticalCenter: parent.verticalCenter; text: qsTr("Field link"); on: engineRow.caps.mcp === true }
+                                        CapMark { anchors.verticalCenter: parent.verticalCenter; text: qsTr("Cost reporting"); on: engineRow.caps.cost === true }
+                                    }
+                                }
+                                CommandLine {
+                                    visible: !engineRow.present
+                                    step: qsTr("Install")
+                                    command: engineRow.modelData.install
+                                }
+                                CommandLine {
+                                    step: qsTr("Sign in")
+                                    command: engineRow.modelData.signIn
                                 }
                             }
                         }

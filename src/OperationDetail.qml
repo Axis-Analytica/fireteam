@@ -188,6 +188,18 @@ Item {
     }
     // The budget and schedule.
     readonly property var controls: op && op.controls ? op.controls : ({})
+    // The engine it runs on, and overwatch's when that's another one.
+    readonly property string engine: op && op.engine ? op.engine : "claude"
+    readonly property string reviewEngine: controls.reviewEngine && controls.reviewEngine !== engine ? controls.reviewEngine : ""
+    readonly property string reviewModel: controls.reviewModel || ""
+    // "Codex · gpt-5" for overwatch on another engine or model; empty otherwise.
+    readonly property string reviewOn: (reviewEngine.length > 0 ? engineLabel(reviewEngine) : "")
+                                       + (reviewEngine.length > 0 && reviewModel.length > 0 ? " · " : "") + reviewModel
+    function engineLabel(key) {
+        const found = ops.engines.find(e => e.key === key)
+        return found ? found.label
+             : ({ claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", opencode: "OpenCode" })[key] || key
+    }
 
     function duration(seconds) {
         if (seconds < 60) return seconds + "s"
@@ -459,6 +471,7 @@ Item {
                 tone: detail.op && detail.op.roe === "free" ? Style.danger : detail.op && detail.op.roe === "supervised" ? theme.accent : Style.dim
                 marked: true
             }
+            Chip { visible: detail.engine !== "claude"; text: detail.engineLabel(detail.engine); tone: Style.text2 }
             Chip { text: detail.op && detail.op.model ? detail.op.model : qsTr("Default model"); tone: Style.dim }
             Chip {
                 // claude reports what the run would cost at API prices; on a
@@ -539,8 +552,10 @@ Item {
                 id: verdict
                 readonly property var review: detail.op && detail.op.reviews.length > 0 ? detail.op.reviews[detail.op.reviews.length - 1] : null
                 visible: review !== null || (detail.op !== null && detail.op.overwatch !== "off")
-                text: review ? qsTr("Overwatch · %1 ↗").arg(Style.gradeLabel(review.grade))
-                             : qsTr("Overwatch · %1").arg(detail.op && detail.op.overwatch === "fix" ? qsTr("review and fix") : qsTr("review"))
+                // Overwatch on another engine or model says which.
+                readonly property string engineNote: detail.reviewOn.length > 0 ? " · " + detail.reviewOn : ""
+                text: review ? qsTr("Overwatch · %1 ↗").arg(Style.gradeLabel(review.grade) + engineNote)
+                             : qsTr("Overwatch · %1").arg((detail.op && detail.op.overwatch === "fix" ? qsTr("review and fix") : qsTr("review")) + engineNote)
                 tone: review ? Style.gradeColor(review.grade) : Style.dim
                 marked: true
                 HoverHandler { cursorShape: verdict.review ? Qt.PointingHandCursor : Qt.ArrowCursor }
@@ -1295,6 +1310,16 @@ Item {
                             Layout.topMargin: 12
                             text: qsTr("Overwatch")
                             detail: proofPage.review ? qsTr("cycle %1").arg(proofPage.review.cycle) : ""
+                        }
+                        Text {
+                            visible: detail.reviewOn.length > 0 && detail.op !== null && detail.op.overwatch !== "off"
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            text: detail.reviewEngine.length > 0 ? qsTr("Reviews on %1, not the operation's own engine.").arg(detail.reviewOn)
+                                                                 : qsTr("Reviews with the %1 model.").arg(detail.reviewModel)
+                            color: Style.dim
+                            font.family: Style.body
+                            font.pixelSize: 12
                         }
                         RowLayout {
                             visible: proofPage.review !== null

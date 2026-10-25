@@ -250,8 +250,14 @@ QVariantMap Operations::serviceRecord() const {
     QList<double> weekCost(8, 0);
     QList<int> weekCycles(8, 0);
     QHash<QString, QVariantMap> projects;
+    // Per engine: operations, cycles run and cost.
+    QHash<QString, QVariantMap> engineTotals;
     for (const auto &op : m_ops) {
         cost += op.costUsd;
+        QVariantMap engineTotal = engineTotals.value(op.engine, {{"key", op.engine}, {"label", Engines::label(op.engine)},
+                                                                 {"operations", 0}, {"cycles", 0}, {"cost", 0.0}});
+        engineTotal["operations"] = engineTotal["operations"].toInt() + 1;
+        engineTotal["cost"] = engineTotal["cost"].toDouble() + op.costUsd;
         handoffs += op.handoffs.size();
         QVariantMap project = projects.value(op.directory, {{"path", op.directory},
                                                             {"name", QFileInfo(op.directory).fileName()},
@@ -271,6 +277,7 @@ QVariantMap Operations::serviceRecord() const {
             removed += entry.value("removed").toInt();
             seconds += entry.value("seconds").toLongLong();
             project["runs"] = project["runs"].toInt() + 1;
+            engineTotal["cycles"] = engineTotal["cycles"].toInt() + 1;
             const QDate day = QDateTime::fromString(entry.value("started").toString(), Qt::ISODate).date();
             const qint64 weeksAgo = day.isValid() ? day.addDays(1 - day.dayOfWeek()).daysTo(thisWeek) / 7 : -1;
             if (weeksAgo >= 0 && weeksAgo < 8) {
@@ -279,6 +286,7 @@ QVariantMap Operations::serviceRecord() const {
             }
         }
         projects.insert(op.directory, project);
+        engineTotals.insert(op.engine, engineTotal);
         for (const QVariant &review : op.reviews) {
             const QString grade = review.toMap().value("grade").toString();
             if (grades.contains(grade))
@@ -295,10 +303,16 @@ QVariantMap Operations::serviceRecord() const {
     std::sort(busiest.begin(), busiest.end(), [](const QVariant &a, const QVariant &b) {
         return a.toMap().value("runs").toInt() > b.toMap().value("runs").toInt();
     });
+    // In the engines' own order: Claude Code first.
+    QVariantList engines;
+    for (const QString &key : Engines::keys())
+        if (engineTotals.contains(key))
+            engines.append(engineTotals.value(key));
     return {{"operations", m_ops.size()}, {"deployed", deployedCount()}, {"runs", runs}, {"completed", completed},
             {"failed", failed}, {"successRate", completed + failed > 0 ? double(completed) / (completed + failed) : 0.0},
             {"files", files}, {"added", added}, {"removed", removed}, {"seconds", double(seconds)}, {"cost", cost},
-            {"handoffs", handoffs}, {"weeks", weeks}, {"projects", busiest.mid(0, 5)}, {"grades", grades}};
+            {"handoffs", handoffs}, {"weeks", weeks}, {"projects", busiest.mid(0, 5)}, {"grades", grades},
+            {"engines", engines}};
 }
 
 void Operations::removeLoadout(const QString &name) {
@@ -2273,7 +2287,11 @@ void Operations::launchPlanner(const QString &id) {
     campaign.activity = tr("Surveying the project");
     // Read-only: the planner looks around but can't change anything.
     const QString map = graphBrief(campaign.directory);
-    QStringList arguments{"-p", Stream::campaignPrompt(campaign.name, campaign.objective)
+    QStringList others;
+    for (const QVariant &engine : m_engines)
+        if (engine.toMap().value("key").toString() != "claude")
+            others << engine.toMap().value("key").toString();
+    QStringList arguments{"-p", Stream::campaignPrompt(campaign.name, campaign.objective, others)
                                     + (map.isEmpty() ? QString() : "\n\n" + map),
                           "--output-format", "stream-json", "--verbose", "--permission-mode", "plan"};
     if (!campaign.model.isEmpty())
@@ -2400,6 +2418,10 @@ bool Operations::approveCampaign(const QString &id, const QString &roe, const QS
         Operation &op = m_ops.first();
         op.campaign = campaign.id;
         op.campaignKey = key;
+        // The planner may route an operation to another installed engine.
+        const QString engine = planned.value("engine").toString();
+        if (!engine.isEmpty() && Engines::isKnown(engine) && !Engines::executable(engine).isEmpty())
+            op.engine = engine;
         for (const QString &dependency : planned.value("depends").toStringList())
             op.dependsOn << ids.value(dependency);
         ids.insert(key, op.id);

@@ -195,6 +195,9 @@ ApplicationWindow {
                                loadout.standing || "", loadout.overwatch || "off")
         if (row < 0)
             return
+        ops.setEngine(row, loadout.engine || "claude")
+        if (loadout.reviewEngine || loadout.reviewModel)
+            ops.setReviewEngine(row, loadout.reviewEngine || "", loadout.reviewModel || "")
         roster.currentIndex = row
         ops.deploy(row)
     }

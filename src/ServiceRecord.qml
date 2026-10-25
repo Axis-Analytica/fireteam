@@ -10,6 +10,10 @@ Item {
     property var stats: ({})
     readonly property var weeks: stats.weeks || []
     readonly property var projects: stats.projects || []
+    // Per engine: operations, cycles run and cost, Claude Code first.
+    readonly property var engines: stats.engines || []
+    // Codex and Gemini CLI don't report a cost.
+    function reportsCost(key) { return key === "claude" || key === "opencode" }
     readonly property real weekMax: Math.max(0.01, ...weeks.map(w => w.cost))
     readonly property int projectMax: Math.max(1, ...projects.map(p => p.runs))
     readonly property int gradeTotal: {
@@ -295,6 +299,116 @@ Item {
                                 font.pixelSize: 13
                             }
                         }
+
+                        // Engines, when more than one has been used.
+                        SectionLabel {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 12
+                            visible: record.engines.length > 1
+                            text: qsTr("Engines")
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            visible: record.engines.length > 1
+                            spacing: 0
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Layout.bottomMargin: 6
+                                spacing: 12
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Engine")
+                                    elide: Text.ElideRight
+                                    color: Style.dim
+                                    font.family: Style.body
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                }
+                                Text {
+                                    Layout.preferredWidth: 72
+                                    horizontalAlignment: Text.AlignRight
+                                    text: qsTr("Operations")
+                                    elide: Text.ElideRight
+                                    color: Style.dim
+                                    font.family: Style.body
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                }
+                                Text {
+                                    Layout.preferredWidth: 72
+                                    horizontalAlignment: Text.AlignRight
+                                    text: qsTr("Cycles run")
+                                    elide: Text.ElideRight
+                                    color: Style.dim
+                                    font.family: Style.body
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                }
+                                Text {
+                                    Layout.preferredWidth: 84
+                                    horizontalAlignment: Text.AlignRight
+                                    text: qsTr("API value")
+                                    elide: Text.ElideRight
+                                    color: Style.dim
+                                    font.family: Style.body
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                }
+                            }
+                            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Style.lineStrong }
+                            Repeater {
+                                model: record.engines.length > 1 ? record.engines : []
+                                delegate: Item {
+                                    id: engineTotal
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    implicitHeight: 32
+                                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Style.line }
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        spacing: 12
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: engineTotal.modelData.label
+                                            elide: Text.ElideRight
+                                            color: Style.text
+                                            font.family: Style.body
+                                            font.pixelSize: 13
+                                        }
+                                        Text {
+                                            Layout.preferredWidth: 72
+                                            horizontalAlignment: Text.AlignRight
+                                            text: engineTotal.modelData.operations
+                                            color: Style.text
+                                            font.family: Style.mono
+                                            font.variableAxes: Style.narrow
+                                            font.pixelSize: 12
+                                            font.features: { "tnum": 1 }
+                                        }
+                                        Text {
+                                            Layout.preferredWidth: 72
+                                            horizontalAlignment: Text.AlignRight
+                                            text: engineTotal.modelData.cycles
+                                            color: Style.text
+                                            font.family: Style.mono
+                                            font.variableAxes: Style.narrow
+                                            font.pixelSize: 12
+                                            font.features: { "tnum": 1 }
+                                        }
+                                        Text {
+                                            Layout.preferredWidth: 84
+                                            horizontalAlignment: Text.AlignRight
+                                            text: record.reportsCost(engineTotal.modelData.key) ? record.money(engineTotal.modelData.cost) : "—"
+                                            color: Style.text2
+                                            font.family: Style.mono
+                                            font.variableAxes: Style.narrow
+                                            font.pixelSize: 12
+                                            font.features: { "tnum": 1 }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     // Busiest projects, by cycles run, with overwatch below.
@@ -485,6 +599,7 @@ Item {
                                 }
                             }
                         }
+
                     }
                 }
 

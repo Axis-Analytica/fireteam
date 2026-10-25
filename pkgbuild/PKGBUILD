@@ -1,5 +1,5 @@
 pkgname=fireteam
-pkgver=0.7.0
+pkgver=0.8.0
 pkgrel=1
 pkgdesc='Base camp for running Claude Code agents through development cycles, with HTML debriefs'
 arch=('x86_64' 'aarch64')
@@ -8,7 +8,10 @@ depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'qt6-svg' 'qt6-multimedia' '
 optdepends=('claude-code: the agents themselves (any install of the claude command works)'
             'chromium: preview screenshots'
             'qrencode: the pairing code for the field terminal'
-            'python: installing graphify for knowledge graphs')
+            'python: installing graphify for knowledge graphs'
+            'codex: OpenAI Codex as an engine'
+            'gemini-cli: Gemini CLI as an engine'
+            'opencode: OpenCode as an engine')
 makedepends=('gcc' 'make')
 source=()
 sha256sums=()

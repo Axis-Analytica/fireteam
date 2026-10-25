@@ -358,6 +358,25 @@ with the findings as orders, then reviews it again.
 - **Undo**: standing down an operation leaves the board with an Undo toast;
   nothing is deleted for eight seconds.
 
+## Engines
+
+Each operation runs on an engine you choose in the briefing: **Claude Code**
+(the default), **Codex**, **Gemini CLI** or **OpenCode** (which also reaches
+local models through Ollama or LM Studio). Fireteam finds whichever are
+installed; Options lists all four with how to install and sign in.
+
+- Comms, debriefs, gates, criteria, the field link and the knowledge graph
+  work the same on every engine.
+- Only Claude Code can ask you live for permission, so *Supervised* runs as
+  *Restricted* on the others, and the briefing says so.
+- Codex and Gemini CLI don't report cost; Codex and Gemini don't report
+  context, so they don't hand off on it and rely on their own compaction.
+- Overwatch can review on a different engine or model from the one that did
+  the work (*Review with* in the briefing): a second opinion catches more.
+- Loadouts carry an engine, and the campaign planner may route an operation
+  to another installed engine when it suits.
+- The service record totals operations, cycles and cost per engine.
+
 ## Limits, reading and comfort
 
 - **Budgets** (`B`, or the budget chip): cap an operation at an API value, a

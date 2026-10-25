@@ -37,6 +37,58 @@ Item {
     // screenshot.
     property var gates: []
     property bool previewOn: false
+
+    // The engine the operation runs on, and overwatch's ("" = the same).
+    property string engine: "claude"
+    // Installed engines, and the one chosen if it isn't installed (amending).
+    readonly property var engineChoices: {
+        const list = ops.engines.slice()
+        if (!list.some(e => e.key === engine))
+            list.push({ key: engine, label: engineLabel(engine), path: "", capabilities: {} })
+        return list
+    }
+    readonly property var engineInfo: engineChoices.find(e => e.key === engine) || ({ capabilities: {} })
+    readonly property bool canSupervise: engine === "claude" || engineInfo.capabilities.supervised === true
+    readonly property var engineModels: ({
+        codex: ["default", "gpt-5-codex", "gpt-5"],
+        gemini: ["default", "gemini-2.5-pro", "gemini-2.5-flash"],
+        opencode: ["default", "anthropic/claude-sonnet-4-5", "openai/gpt-5", "ollama/qwen3-coder"]
+    })
+    function engineLabel(key) {
+        const found = ops.engines.find(e => e.key === key)
+        return found ? found.label
+             : ({ claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", opencode: "OpenCode" })[key] || key
+    }
+    // Choosing an engine: the model starts at its default, and supervised
+    // falls back to restricted where the engine can't ask live.
+    function chooseEngine(key, modelName) {
+        engine = key || "claude"
+        setModel(modelName || "")
+        if (roe === "supervised" && !canSupervise)
+            roe = "restricted"
+    }
+    function setModel(name) {
+        if (engine === "claude")
+            model.currentIndex = Math.max(0, model.find(name))
+        else
+            engineModel.editText = name.length > 0 ? name : "default"
+    }
+    // The model flag to pass; empty is the engine's own default.
+    function chosenModel() {
+        if (engine === "claude")
+            return model.currentIndex === 0 ? "" : model.currentText
+        const text = engineModel.editText.trim()
+        return text === "default" ? "" : text
+    }
+    function setReview(key, modelName) {
+        reviewEngineBox.currentIndex = Math.max(0, reviewEngineBox.keys.indexOf(key || ""))
+        reviewModelField.text = modelName || ""
+    }
+    function reviewKey() { return reviewEngineBox.keys[reviewEngineBox.currentIndex] || "" }
+    function applyEngine(row) {
+        ops.setEngine(row, engine)
+        ops.setReviewEngine(row, reviewKey(), reviewModelField.text)
+    }
     function refreshRepo() {
         repo = directory.text.trim().length > 0 ? ops.repository(directory.text) : ({})
         sharing = directory.text.trim().length > 0 ? ops.sharing(directory.text, editing) : []
@@ -57,8 +109,9 @@ Item {
         ops.setProof(row, gates, criteriaField.text, previewOn ? previewCommand.text : "", previewOn ? previewUrl.text : "")
     }
     function applyLoadout(loadout) {
-        model.currentIndex = Math.max(0, model.find(loadout.model || ""))
         roe = ["free", "supervised", "restricted"].indexOf(loadout.roe) >= 0 ? loadout.roe : "supervised"
+        chooseEngine(loadout.engine || "claude", loadout.model || "")
+        setReview(loadout.reviewEngine || "", loadout.reviewModel || "")
         cycles = Math.max(minimumCycles, Math.min(20, loadout.cycles || 3))
         const at = handoff.limits.indexOf(loadout.handoffAt)
         handoff.currentIndex = at >= 0 ? at : 1
@@ -77,9 +130,10 @@ Item {
     }
     property bool savingRecipe: false
     function currentLoadout(name) {
-        return { name: name, model: model.currentIndex === 0 ? "" : model.currentText, roe: roe, cycles: cycles,
+        return { name: name, engine: engine, model: chosenModel(), roe: roe, cycles: cycles,
                  handoffAt: handoff.limits[handoff.currentIndex], worktree: useWorktree, standing: standingField.text,
-                 overwatch: overwatchBox.keys[overwatchBox.currentIndex] }
+                 overwatch: overwatchBox.keys[overwatchBox.currentIndex],
+                 reviewEngine: reviewKey(), reviewModel: reviewModelField.text.trim() }
     }
     Timer { id: repoCheck; interval: 300; onTriggered: panel.refreshRepo() }
 
@@ -100,7 +154,8 @@ Item {
         error = ""
         cycles = 3
         roe = "supervised"
-        model.currentIndex = 0
+        chooseEngine("claude", "")
+        setReview("", "")
         handoff.currentIndex = 1
         useWorktree = true
         worktreeLocked = false
@@ -133,7 +188,8 @@ Item {
         error = ""
         cycles = Math.max(op.cycles, op.cyclesDone >= op.cycles ? op.cyclesDone + 1 : op.cycles)
         roe = op.roe
-        model.currentIndex = Math.max(0, model.find(op.model))
+        chooseEngine(op.engine || "claude", op.model)
+        setReview(op.controls.reviewEngine || "", op.controls.reviewModel || "")
         const at = handoff.limits.indexOf(op.handoffAt)
         handoff.currentIndex = at >= 0 ? at : 1
         useWorktree = op.worktree
@@ -159,8 +215,9 @@ Item {
                 return
             }
             ops.update(editing, codename.text, objective.text, cycles, roe,
-                       model.currentIndex === 0 ? "" : model.currentText, handoff.limits[handoff.currentIndex],
+                       chosenModel(), handoff.limits[handoff.currentIndex],
                        useWorktree && worktreeAvailable, standingField.text, overwatchBox.keys[overwatchBox.currentIndex])
+            applyEngine(editing)
             saveProof(editing)
             visible = false
             amended(editing, deployNow)
@@ -169,10 +226,11 @@ Item {
         error = ops.validate(directory.text, objective.text)
         if (error.length > 0)
             return
-        ops.create(codename.text, directory.text, objective.text, cycles, roe,
-                   model.currentIndex === 0 ? "" : model.currentText, handoff.limits[handoff.currentIndex],
-                   useWorktree && worktreeAvailable, standingField.text, overwatchBox.keys[overwatchBox.currentIndex])
-        saveProof(0)
+        const row = ops.create(codename.text, directory.text, objective.text, cycles, roe,
+                               chosenModel(), handoff.limits[handoff.currentIndex],
+                               useWorktree && worktreeAvailable, standingField.text, overwatchBox.keys[overwatchBox.currentIndex])
+        applyEngine(row)
+        saveProof(row)
         visible = false
         planned(deployNow)
     }
@@ -311,7 +369,9 @@ Item {
                                     font.weight: Font.Medium
                                 }
                                 Text {
-                                    text: (loadoutChip.modelData.model || qsTr("default")) + " · " + loadoutChip.modelData.cycles
+                                    text: (loadoutChip.modelData.engine && loadoutChip.modelData.engine !== "claude"
+                                           ? panel.engineLabel(loadoutChip.modelData.engine) + " · " : "")
+                                          + (loadoutChip.modelData.model || qsTr("default")) + " · " + loadoutChip.modelData.cycles
                                     color: Style.dim
                                     font.family: Style.mono
                                     font.variableAxes: Style.narrow
@@ -506,6 +566,93 @@ Item {
                     }
                 }
 
+                SectionLabel { Layout.fillWidth: true; Layout.topMargin: 12; text: qsTr("Engine") }
+                // The installed agent CLIs, as a segmented choice.
+                Row {
+                    id: engineChoice
+                    Layout.fillWidth: true
+                    spacing: -1
+                    Repeater {
+                        model: panel.engineChoices
+                        delegate: Rectangle {
+                            id: engineSeg
+                            required property var modelData
+                            readonly property bool chosen: panel.engine === modelData.key
+                            width: Math.max(96, engineSegLabel.implicitWidth + 32)
+                            height: 34
+                            z: chosen ? 1 : 0
+                            color: chosen ? Style.wash : engineHover.hovered ? Style.raised : "transparent"
+                            border.color: chosen ? Style.lineStrong : Style.line
+                            radius: Math.min(2, theme.radius)
+                            Text {
+                                id: engineSegLabel
+                                anchors.centerIn: parent
+                                text: engineSeg.modelData.label
+                                color: engineSeg.chosen ? Style.text : Style.text2
+                                font.family: Style.body
+                                font.pixelSize: 13
+                                font.weight: Font.Medium
+                            }
+                            Rectangle {
+                                visible: engineSeg.chosen
+                                anchors.bottom: parent.bottom
+                                width: parent.width
+                                height: 2
+                                color: theme.accent
+                            }
+                            HoverHandler { id: engineHover; cursorShape: Qt.PointingHandCursor }
+                            TapHandler {
+                                onTapped: if (!engineSeg.chosen) panel.chooseEngine(engineSeg.modelData.key, "")
+                            }
+                        }
+                    }
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
+                    spacing: 24
+                    RowLayout {
+                        spacing: 12
+                        FieldLabel { text: qsTr("Model") }
+                        ComboBox {
+                            id: model
+                            visible: panel.engine === "claude"
+                            Layout.preferredWidth: 200
+                            font.family: Style.body
+                            font.pixelSize: 13
+                            model: [qsTr("Account default"), "opus", "sonnet", "haiku"]
+                        }
+                        // Other engines: a few suggestions, or any model name
+                        // the engine takes; "default" passes no model flag.
+                        ComboBox {
+                            id: engineModel
+                            visible: panel.engine !== "claude"
+                            Layout.preferredWidth: 260
+                            editable: true
+                            font.family: Style.mono
+                            font.variableAxes: Style.narrow
+                            font.pixelSize: 12
+                            model: panel.engineModels[panel.engine] || ["default"]
+                        }
+                    }
+                    // Only an engine that reports its context can be handed off on it.
+                    RowLayout {
+                        visible: panel.engine === "claude" || panel.engineInfo.capabilities.context === true
+                        spacing: 12
+                        FieldLabel { text: qsTr("Hand off at") }
+                        ComboBox {
+                            id: handoff
+                            Layout.preferredWidth: 150
+                            font.family: Style.body
+                            font.pixelSize: 13
+                            // Context sizes at which the next cycle moves to a fresh session.
+                            readonly property var limits: [150000, 250000, 400000, 600000, 0]
+                            model: ["150k", "250k", "400k", "600k", qsTr("Never")]
+                            currentIndex: 1
+                        }
+                    }
+                }
+
                 SectionLabel { Layout.fillWidth: true; Layout.topMargin: 12; text: qsTr("Cycles") }
                 RowLayout {
                     Layout.fillWidth: true
@@ -525,7 +672,9 @@ Item {
                     Note {
                         Layout.fillWidth: true
                         Layout.leftMargin: 20
-                        text: qsTr("Each cycle is one Claude Code run that picks up where the last left off and files an HTML debrief.")
+                        text: panel.engine === "claude"
+                              ? qsTr("Each cycle is one Claude Code run that picks up where the last left off and files an HTML debrief.")
+                              : qsTr("Each cycle is one %1 run that picks up where the last left off and files an HTML debrief.").arg(panel.engineLabel(panel.engine))
                     }
                 }
 
@@ -546,13 +695,16 @@ Item {
                             id: card
                             required property var modelData
                             readonly property bool chosen: panel.roe === modelData.key
+                            // Supervised needs live prompts, which only some engines have.
+                            readonly property bool unavailable: modelData.key === "supervised" && !panel.canSupervise
+                            opacity: unavailable ? 0.55 : 1
                             readonly property color tone: modelData.key === "free" ? Style.danger : theme.accent
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             Layout.preferredWidth: 1
                             implicitHeight: cardText.implicitHeight + 28
                             radius: Math.min(2, theme.radius)
-                            color: chosen ? Style.wash : cardHover.hovered ? Style.raised : "transparent"
+                            color: chosen ? Style.wash : cardHover.hovered && !unavailable ? Style.raised : "transparent"
                             border.color: chosen ? Style.lineStrong : Style.line
                             // The chosen card's leading rule, in its tone.
                             Rectangle { visible: card.chosen; width: 2; height: parent.height; color: card.tone }
@@ -587,40 +739,19 @@ Item {
                                     font.family: Style.body
                                     font.pixelSize: 12
                                 }
+                                Text {
+                                    Layout.fillWidth: true
+                                    visible: card.unavailable
+                                    text: qsTr("Runs as Restricted on %1: it can't ask you live").arg(panel.engineLabel(panel.engine))
+                                    wrapMode: Text.Wrap
+                                    color: Style.text2
+                                    font.family: Style.body
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                }
                             }
-                            HoverHandler { id: cardHover; cursorShape: Qt.PointingHandCursor }
-                            TapHandler { onTapped: panel.roe = card.modelData.key }
-                        }
-                    }
-                }
-
-                Flow {
-                    Layout.fillWidth: true
-                    Layout.topMargin: 4
-                    spacing: 24
-                    RowLayout {
-                        spacing: 12
-                        FieldLabel { text: qsTr("Model") }
-                        ComboBox {
-                            id: model
-                            Layout.preferredWidth: 200
-                            font.family: Style.body
-                            font.pixelSize: 13
-                            model: [qsTr("Account default"), "opus", "sonnet", "haiku"]
-                        }
-                    }
-                    RowLayout {
-                        spacing: 12
-                        FieldLabel { text: qsTr("Hand off at") }
-                        ComboBox {
-                            id: handoff
-                            Layout.preferredWidth: 150
-                            font.family: Style.body
-                            font.pixelSize: 13
-                            // Context sizes at which the next cycle moves to a fresh session.
-                            readonly property var limits: [150000, 250000, 400000, 600000, 0]
-                            model: ["150k", "250k", "400k", "600k", qsTr("Never")]
-                            currentIndex: 1
+                            HoverHandler { id: cardHover; cursorShape: card.unavailable ? Qt.ArrowCursor : Qt.PointingHandCursor }
+                            TapHandler { onTapped: if (!card.unavailable) panel.roe = card.modelData.key }
                         }
                     }
                 }
@@ -686,6 +817,31 @@ Item {
                             : overwatchBox.currentIndex === 1 ? qsTr("After the last cycle, a separate read-only session grades the work against the objective.")
                             : qsTr("As Review, and if it falls short, one more cycle fixes the findings before a second review.")
                     }
+                }
+                // Overwatch on another engine or model.
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: overwatchBox.currentIndex > 0
+                    spacing: 12
+                    FieldLabel { text: qsTr("Review with") }
+                    ComboBox {
+                        id: reviewEngineBox
+                        Layout.preferredWidth: 180
+                        font.family: Style.body
+                        font.pixelSize: 13
+                        readonly property var keys: [""].concat(ops.engines.map(e => e.key))
+                        model: [qsTr("Same engine")].concat(ops.engines.map(e => e.label))
+                    }
+                    TextField {
+                        id: reviewModelField
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 280
+                        placeholderText: qsTr("Review model (optional)")
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 12
+                    }
+                    Item { Layout.fillWidth: true }
                 }
                 TextField {
                     id: standingField

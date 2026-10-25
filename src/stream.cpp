@@ -541,7 +541,11 @@ QString reviewOrders(const QVariantMap &review) {
     return lines.join('\n');
 }
 
-QString campaignPrompt(const QString &name, const QString &objective) {
+QString campaignPrompt(const QString &name, const QString &objective, const QStringList &engines) {
+    const QString routing = engines.isEmpty() ? QString()
+        : QString("- Engines: operations run on Claude Code. You may set \"engine\" to one of %1 for an operation "
+                  "that clearly suits it (a second opinion, cheaper routine work); then \"model\" is that engine's model "
+                  "name or empty for its default. Leave \"engine\" out otherwise.\n").arg(engines.join(", "));
     return QString("CAMPAIGN %1, PLANNING\n\nOBJECTIVE:\n%2\n\n"
                    "You are the planner for a campaign: a large objective carried out by several Claude Code agents, "
                    "each running its own operation through a few development cycles. Survey this project first "
@@ -554,7 +558,7 @@ QString campaignPrompt(const QString &name, const QString &objective) {
                    "parallel on separate git branches and are merged in as they finish, so avoid two operations "
                    "editing the same files at the same time.\n"
                    "- No dependency cycles. Prefer a shallow graph.\n"
-                   "- Models: haiku for small mechanical work, sonnet for most, opus for the hardest design work.\n\n"
+                   "- Models: haiku for small mechanical work, sonnet for most, opus for the hardest design work.\n%3\n"
                    "Explain the plan briefly in prose, then end your reply with exactly one fenced json block:\n"
                    "```json\n{\"summary\": \"two sentences on the approach\", \"operations\": [{\"key\": \"short-id\", "
                    "\"codename\": \"TWO WORDS\", \"objective\": \"what this operation must deliver, and how to verify it\", "
@@ -562,7 +566,7 @@ QString campaignPrompt(const QString &name, const QString &objective) {
                    "\"criteria\": [\"a checkable statement of done\"]}]}\n```\n"
                    "Give each operation 2 to 4 acceptance criteria that someone could check by reading the code or "
                    "running it.")
-        .arg(name, objective);
+        .arg(name, objective, routing);
 }
 
 QStringList dependencyOrder(const QVariantList &operations) {
@@ -626,10 +630,15 @@ QVariantMap parseCampaignPlan(const QString &reply) {
             name.replace(QRegularExpression("[^a-z0-9]+"), "-");
             depends << name;
         }
-        const QString model = op.value("model").toString().toLower();
+        const QString model = op.value("model").toString().trimmed();
+        // Another engine's model is its own business; Claude's must be one we know.
+        const QString engine = op.value("engine").toString().trimmed().toLower();
+        const bool other = !engine.isEmpty() && engine != "claude";
         operations.append(QVariantMap{{"key", key}, {"codename", op.value("codename").toString().trimmed().toUpper()},
                                       {"objective", objective}, {"cycles", qBound(1, op.value("cycles").toInt(2), 8)},
-                                      {"model", QStringList{"opus", "sonnet", "haiku"}.contains(model) ? model : QString()},
+                                      {"engine", other ? engine : QString()},
+                                      {"model", other ? model.left(80)
+                                                : QStringList{"opus", "sonnet", "haiku"}.contains(model.toLower()) ? model.toLower() : QString()},
                                       {"depends", depends}, {"criteria", [&] {
                                           QStringList criteria;
                                           for (const auto &item : op.value("criteria").toArray())

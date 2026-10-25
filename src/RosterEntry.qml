@@ -57,6 +57,8 @@ Item {
     required property var lastGates
     required property bool archived
     required property var controls
+    // The agent CLI it runs on: "claude", "codex", "gemini" or "opencode".
+    required property string engine
     // Archived operations stay in the model but off the board, unless asked.
     readonly property bool hidden: (archived && !win.showArchived) || win.pendingRemoval === opId
     readonly property int waitingOn: questions.length + prompts.length
@@ -133,24 +135,46 @@ Item {
                 tone: theme.accent
             }
         }
-        Text {
+        RowLayout {
             Layout.fillWidth: true
-            elide: Text.ElideRight
-            text: entry.waitingOn > 0
-                  ? qsTr("◉ Waiting on you · %1").arg(entry.questions.length > 0 ? qsTr("question") : qsTr("permission"))
-                  : entry.requests.length > 0
-                  ? qsTr("⚠ Awaiting authorisation · %1").arg(entry.requests.length)
-                  : entry.status === "deployed" && entry.activity.length > 0
-                  ? entry.activity
-                  : entry.status === "staged" ? qsTr("Staged · #%1 in queue · cycle %2/%3").arg(entry.queue).arg(entry.cyclesDone).arg(entry.cycles)
-                  : entry.status === "pinned" ? qsTr("Pinned down · resumes %1").arg(Qt.formatTime(new Date(entry.resumeAt * 1000), "HH:mm"))
-                  : qsTr("%1 · cycle %2/%3 · ctx %4 · ≈$%5").arg(entry.hold && entry.status === "deployed" ? qsTr("Holding next") : Style.statusLabel(entry.status))
-                        .arg(entry.cyclesDone).arg(entry.cycles).arg(Style.tokens(entry.context))
-                        .arg(entry.cost.toLocaleString(Qt.locale(), 'f', 2))
-            color: entry.waitingOn > 0 ? Style.danger : entry.requests.length > 0 ? Style.amber : Style.dim
-            font.family: Style.mono
-            font.variableAxes: Style.narrow
-            font.pixelSize: 11
+            spacing: 6
+            // Only the engines that aren't Claude Code get a tag.
+            Rectangle {
+                visible: entry.engine.length > 0 && entry.engine !== "claude"
+                implicitWidth: engineTag.implicitWidth + 8
+                implicitHeight: engineTag.implicitHeight + 2
+                color: "transparent"
+                border.color: Style.line
+                radius: Math.min(2, theme.radius)
+                Text {
+                    id: engineTag
+                    anchors.centerIn: parent
+                    text: entry.engine
+                    color: Style.text2
+                    font.family: Style.mono
+                    font.variableAxes: Style.narrow
+                    font.pixelSize: 9
+                }
+            }
+            Text {
+                Layout.fillWidth: true
+                elide: Text.ElideRight
+                text: entry.waitingOn > 0
+                      ? qsTr("◉ Waiting on you · %1").arg(entry.questions.length > 0 ? qsTr("question") : qsTr("permission"))
+                      : entry.requests.length > 0
+                      ? qsTr("⚠ Awaiting authorisation · %1").arg(entry.requests.length)
+                      : entry.status === "deployed" && entry.activity.length > 0
+                      ? entry.activity
+                      : entry.status === "staged" ? qsTr("Staged · #%1 in queue · cycle %2/%3").arg(entry.queue).arg(entry.cyclesDone).arg(entry.cycles)
+                      : entry.status === "pinned" ? qsTr("Pinned down · resumes %1").arg(Qt.formatTime(new Date(entry.resumeAt * 1000), "HH:mm"))
+                      : qsTr("%1 · cycle %2/%3 · ctx %4 · ≈$%5").arg(entry.hold && entry.status === "deployed" ? qsTr("Holding next") : Style.statusLabel(entry.status))
+                            .arg(entry.cyclesDone).arg(entry.cycles).arg(Style.tokens(entry.context))
+                            .arg(entry.cost.toLocaleString(Qt.locale(), 'f', 2))
+                color: entry.waitingOn > 0 ? Style.danger : entry.requests.length > 0 ? Style.amber : Style.dim
+                font.family: Style.mono
+                font.variableAxes: Style.narrow
+                font.pixelSize: 11
+            }
         }
         Text {
             Layout.fillWidth: true

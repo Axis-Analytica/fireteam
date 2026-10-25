@@ -97,7 +97,8 @@ QString gateOrders(const QVariantList &results);
 
 // Campaigns: a read-only planning session breaks a large objective into
 // operations with dependencies, as JSON.
-QString campaignPrompt(const QString &name, const QString &objective);
+// engines: other installed engines (keys) the planner may assign an operation to.
+QString campaignPrompt(const QString &name, const QString &objective, const QStringList &engines = {});
 // {summary, operations: [{key, codename, objective, cycles, model, depends}]},
 // or {error} when the reply has no usable plan. Keys are unique, every
 // dependency names another operation, and there are no cycles.

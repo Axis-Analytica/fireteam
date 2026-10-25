@@ -30,17 +30,23 @@ QString label(const QString &key) {
 
 // A launcher-started app may not have the shell's PATH (mise, npm prefixes),
 // so look in the usual install spots too.
+// A mise shim exists for every tool a config names, installed or not, so it
+// proves nothing; mise's command wrappers are only made for installed tools.
+static bool isShim(const QString &path) {
+    return path.contains("/mise/shims/") && QFileInfo(path).canonicalFilePath().endsWith("/mise");
+}
+
 static QString find(const QString &name, const QStringList &extra = {}) {
     const QString found = QStandardPaths::findExecutable(name);
-    if (!found.isEmpty())
+    if (!found.isEmpty() && !isShim(found))
         return found;
     const QString home = QDir::homePath();
     QStringList paths = extra;
     paths << home + "/.local/bin/" + name << home + "/.local/share/mise/command-wrappers/bin/" + name
-          << home + "/.local/share/mise/shims/" + name << home + "/.npm-global/bin/" + name
-          << home + "/.bun/bin/" + name << "/usr/local/bin/" + name << "/usr/bin/" + name;
+          << home + "/.npm-global/bin/" + name << home + "/.bun/bin/" + name << "/usr/local/bin/" + name
+          << "/usr/bin/" + name;
     for (const QString &path : paths)
-        if (QFileInfo(path).isExecutable())
+        if (QFileInfo(path).isExecutable() && !isShim(path))
             return path;
     return {};
 }
