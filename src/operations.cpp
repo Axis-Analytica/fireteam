@@ -2146,7 +2146,7 @@ QVariantList Operations::campaigns() const {
         list.append(QVariantMap{{"id", campaign.id}, {"name", campaign.name}, {"objective", campaign.objective},
                                 {"directory", campaign.directory}, {"status", campaign.status},
                                 {"summary", campaign.summary}, {"error", campaign.error}, {"activity", campaign.activity},
-                                {"cost", campaign.costUsd}, {"operations", operations},
+                                {"cost", campaign.costUsd}, {"budget", campaign.budgetUsd}, {"operations", operations},
                                 {"dossier", QFileInfo::exists(m_dataDirectory + "/campaigns/" + campaign.id + "/dossier.html")}});
     }
     return list;

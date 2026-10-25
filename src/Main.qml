@@ -35,7 +35,7 @@ ApplicationWindow {
                                         || waitingPanel.visible || campaignBoard.visible || terminalPanel.visible
                                         || manualPanel.visible || replayView.visible || searchPanel.visible
                                         || optionsPanel.visible || graphPanel.visible || palette.visible
-                                        || inboxPanel.visible || setupPanel.visible
+                                        || inboxPanel.visible || setupPanel.visible || limitsPanel.visible || reader.visible
     // The theatre map in place of the roster and detail.
     property bool mapView: false
     readonly property var selected: roster.currentItem
@@ -221,7 +221,7 @@ ApplicationWindow {
         }
         function onDeployed(row) {
             const op = roster.itemAtIndex(row)
-            if (!op || !win.active || !Prefs.insertion)
+            if (!op || !win.active || !Prefs.insertion || Prefs.reduceMotion)
                 return
             const lines = [qsTr("Fireteam %1, you are cleared hot."), qsTr("%1, green light. Move out."),
                            qsTr("%1, you're go for insertion."), qsTr("All stations, %1 is on the move.")]
@@ -293,7 +293,15 @@ ApplicationWindow {
     Shortcut { sequence: "V"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.diffSelected() }
     Shortcut { sequence: "/"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen && win.selected !== null; onActivated: detailPanel.focusSearch() }
     Shortcut { sequence: "X"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.abortSelected() }
-    Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: ops.openLatestReport(roster.currentIndex) }
+    Shortcut {
+        sequence: "R"
+        context: Qt.ApplicationShortcut
+        enabled: !win.overlayOpen
+        onActivated: if (win.selected && win.selected.reports.length > 0)
+                         reader.open(win.selected.reports[win.selected.reports.length - 1],
+                                     qsTr("%1 · cycle %2 debrief").arg(win.selected.codename).arg(win.selected.reports.length))
+    }
+    Shortcut { sequence: "B"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen && win.selected !== null; onActivated: limitsPanel.open(win.selected, roster.currentIndex) }
     Shortcut { sequence: "D"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: ops.openDossier(roster.currentIndex) }
     Shortcut { sequence: "O"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: ops.openProject(roster.currentIndex) }
     Shortcut { sequence: "Delete"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.removeSelected() }
@@ -320,6 +328,8 @@ ApplicationWindow {
             else if (palette.visible) palette.close()
             else if (inboxPanel.visible) inboxPanel.close()
             else if (setupPanel.visible) setupPanel.close()
+            else if (limitsPanel.visible) limitsPanel.close()
+            else if (reader.visible) reader.close()
             else if (serviceRecord.visible) serviceRecord.close()
             else if (radio.visible) radio.close()
             else briefing.close()
@@ -335,7 +345,7 @@ ApplicationWindow {
         anchors.fill: parent
         accent: theme.accent
         heat: ops.deployedCount
-        active: win.visibility !== Window.Minimized && Prefs.motion
+        active: win.visibility !== Window.Minimized && Prefs.motion && !Prefs.reduceMotion
     }
 
     // Right-to-left languages mirror the window; the Translator sets the
@@ -659,6 +669,8 @@ ApplicationWindow {
                     onExtractRequested: win.extractSelected()
                     onReplayRequested: replayView.open(win.selected, roster.currentIndex)
                     onGraphRequested: graphPanel.open(win.selected.directory, win.selected.opId)
+                    onLimitsRequested: limitsPanel.open(win.selected, roster.currentIndex)
+                    onReadRequested: (path, title) => reader.open(path, title)
                     onDiscardRequested: win.discardSelected()
                 }
             }
@@ -800,6 +812,16 @@ ApplicationWindow {
             onOperationPicked: (row) => { palette.close(); roster.currentIndex = row }
             onQuickDeploy: (plan) => { palette.close(); win.quickDeploy(plan) }
             onQuickRefine: (plan) => { palette.close(); briefing.prefill(plan) }
+        }
+        LimitsPanel {
+            id: limitsPanel
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
+        }
+        ReaderPanel {
+            id: reader
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
         }
         InboxPanel {
             id: inboxPanel

@@ -336,11 +336,13 @@ Item {
                             scale: 0.2
                             opacity: 0
                             SequentialAnimation on scale {
+                                running: !Prefs.reduceMotion
                                 loops: Animation.Infinite
                                 PauseAnimation { duration: index * 900 }
                                 NumberAnimation { from: 0.2; to: 1.4; duration: 1800; easing.type: Easing.OutCubic }
                             }
                             SequentialAnimation on opacity {
+                                running: !Prefs.reduceMotion
                                 loops: Animation.Infinite
                                 PauseAnimation { duration: index * 900 }
                                 NumberAnimation { from: 0.9; to: 0; duration: 1800 }
@@ -420,7 +422,7 @@ Item {
                                 width: 6; height: 6
                                 color: marker.tone
                                 SequentialAnimation on opacity {
-                                    running: marker.live
+                                    running: marker.live && !Prefs.reduceMotion
                                     loops: Animation.Infinite
                                     NumberAnimation { to: 0.15; duration: 450 }
                                     NumberAnimation { to: 1; duration: 450 }

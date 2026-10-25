@@ -7,12 +7,13 @@ QtObject {
     readonly property color bg: theme.paper
     readonly property color panel: theme.paper2
     readonly property color raised: theme.paper3
-    readonly property color line: theme.rule
-    readonly property color lineStrong: theme.rule2
-    readonly property color text: theme.ink
-    readonly property color text2: theme.ink2
-    readonly property color dim: theme.muted
-    readonly property color faint: theme.faint
+    // High contrast lifts each ink a step and firms the lines.
+    readonly property color line: Prefs.highContrast ? theme.rule2 : theme.rule
+    readonly property color lineStrong: Prefs.highContrast ? theme.muted : theme.rule2
+    readonly property color text: Prefs.highContrast ? "#ffffff" : theme.ink
+    readonly property color text2: Prefs.highContrast ? theme.ink : theme.ink2
+    readonly property color dim: Prefs.highContrast ? theme.ink2 : theme.muted
+    readonly property color faint: Prefs.highContrast ? theme.muted : theme.faint
     readonly property color wash: theme.wash
     // States, kept few and quiet beside the accent.
     readonly property color danger: "#f0605a"

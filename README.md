@@ -206,7 +206,8 @@ own.
 | `S` | Service record |
 | `M` | Switch between the board and the theatre map |
 | `Shift+M` | Turn interface sounds on or off (off by default) |
-| `R` | Open the latest debrief |
+| `R` | Read the latest debrief |
+| `B` | Budget and schedule |
 | `D` | Open the dossier |
 | `O` | Open the project directory |
 | `Del` | Stand down (remove) the operation; `Ctrl+Z` undoes it for a few seconds |
@@ -356,6 +357,24 @@ with the findings as orders, then reviews it again.
   fix in place.
 - **Undo**: standing down an operation leaves the board with an Undo toast;
   nothing is deleted for eight seconds.
+
+## Limits, reading and comfort
+
+- **Budgets** (`B`, or the budget chip): cap an operation at an API value, a
+  share of the plan's 5-hour window, or both. At 80% of the API value it
+  warns; at the limit it finishes the cycle it's on and holds. A campaign can
+  have a budget across all its operations.
+- **Scheduling** (`B`): deploy at a time, when the plan's usage window resets,
+  or after another operation completes. A scheduled operation shows its
+  time on the board.
+- **Comms**: agent messages read as formatted text, runs of tool calls fold
+  into one line you can open, and the current action stays pinned at the foot.
+  The detail view is in tabs: Comms, Brief, Proof and History (`Ctrl+1`–`4`).
+- **Reader** (`R`): debriefs, reviews and hand-off briefs open in the app,
+  without their scripts, styles or network access, with find (`/`) and a
+  reading size. The browser is one button away.
+- **Comfort** (Options): reduce motion (no pulsing, drifting, turning or
+  insertion screen), high contrast, and an interface size from 80% to 150%.
 
 ## Knowledge graphs
 

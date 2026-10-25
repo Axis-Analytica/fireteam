@@ -5,6 +5,7 @@
 #include <QGuiApplication>
 #include <QLockFile>
 #include <QProcess>
+#include <QSettings>
 #include <csignal>
 #include <QIcon>
 #include <QJsonDocument>
@@ -32,7 +33,7 @@ int main(int argc, char *argv[]) {
     if (command == "mcp") {
         QCoreApplication app(argc, argv);
         app.setApplicationName("fireteam");
-        app.setApplicationVersion("0.6.0");
+        app.setApplicationVersion("0.7.0");
         const QStringList args = app.arguments();
         const int op = args.indexOf("--op"), socket = args.indexOf("--socket");
         if (op < 0 || socket < 0 || op + 1 >= args.size() || socket + 1 >= args.size()) {
@@ -48,10 +49,18 @@ int main(int argc, char *argv[]) {
     // Only the board needs a display.
     if (command != "open")
         qputenv("QT_QPA_PLATFORM", "offscreen");
+    // The interface size chosen in Options, which Qt takes only before the
+    // application exists (and never over a scale the environment already sets).
+    if (command == "open" && qEnvironmentVariableIsEmpty("QT_SCALE_FACTOR")) {
+        const QString home = qEnvironmentVariable("XDG_CONFIG_HOME", qEnvironmentVariable("HOME") + "/.config");
+        const int percent = QSettings(home + "/fireteam/settings.ini", QSettings::IniFormat).value("board/scale", 100).toInt();
+        if (percent >= 80 && percent <= 150 && percent != 100)
+            qputenv("QT_SCALE_FACTOR", QByteArray::number(percent / 100.0));
+    }
 
     QGuiApplication app(argc, argv);
     app.setApplicationName("fireteam");
-    app.setApplicationVersion("0.6.0");
+    app.setApplicationVersion("0.7.0");
     if (cli)
         return Cli::run(app.arguments());
 

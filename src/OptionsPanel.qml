@@ -201,6 +201,34 @@ Item {
                             Switch { checked: Prefs.motion; onToggled: Prefs.motion = checked }
                         }
                         OptionRow {
+                            label: qsTr("Reduce motion")
+                            hint: qsTr("No pulsing, drifting, turning or insertion screen.")
+                            Switch { checked: Prefs.reduceMotion; onToggled: Prefs.reduceMotion = checked }
+                        }
+                        OptionRow {
+                            label: qsTr("High contrast")
+                            hint: qsTr("Brighter text and firmer lines.")
+                            Switch { checked: Prefs.highContrast; onToggled: Prefs.highContrast = checked }
+                        }
+                        OptionRow {
+                            label: qsTr("Interface size")
+                            hint: qsTr("Everything larger or smaller. Takes effect the next time Fireteam opens.")
+                            RowLayout {
+                                spacing: 6
+                                TacticalButton { text: "−"; implicitWidth: 40; enabled: Prefs.scale > 80; onClicked: Prefs.scale = Math.max(80, Prefs.scale - 10) }
+                                Text {
+                                    Layout.preferredWidth: 72
+                                    horizontalAlignment: Text.AlignHCenter
+                                    text: Prefs.scale + "%"
+                                    color: Style.text
+                                    font.family: Style.mono
+                                    font.variableAxes: Style.figure
+                                    font.pixelSize: 22
+                                }
+                                TacticalButton { text: "+"; implicitWidth: 40; enabled: Prefs.scale < 150; onClicked: Prefs.scale = Math.min(150, Prefs.scale + 10) }
+                            }
+                        }
+                        OptionRow {
                             label: qsTr("Squad size")
                             hint: qsTr("How many operations can be deployed at once; the rest wait in the queue.")
                             RowLayout {

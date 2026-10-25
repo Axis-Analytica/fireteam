@@ -56,6 +56,7 @@ Item {
     required property var preview
     required property var lastGates
     required property bool archived
+    required property var controls
     // Archived operations stay in the model but off the board, unless asked.
     readonly property bool hidden: (archived && !win.showArchived) || win.pendingRemoval === opId
     readonly property int waitingOn: questions.length + prompts.length
@@ -105,7 +106,7 @@ Item {
                 implicitHeight: 7
                 color: entry.tone
                 SequentialAnimation on opacity {
-                    running: entry.status === "deployed"
+                    running: entry.status === "deployed" && !Prefs.reduceMotion
                     loops: Animation.Infinite
                     NumberAnimation { to: 0.15; duration: 450 }
                     NumberAnimation { to: 1; duration: 450 }

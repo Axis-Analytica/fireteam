@@ -38,7 +38,7 @@ Item {
     property real pitch: 0.35
     readonly property bool threeD: Prefs.graph3d
     readonly property bool simRunning: visible && sim !== null
-        && (!Sim.settled(sim) || dragIndex >= 0 || (threeD && Prefs.graphSpin && !orbiting))
+        && (!Sim.settled(sim) || dragIndex >= 0 || (threeD && Prefs.graphSpin && !Prefs.reduceMotion && !orbiting))
     function restartSim() {
         sim = focusFile.length > 0 ? Sim.create(symbolNodes, symbolLinks, threeD)
                                    : files.length > 0 ? Sim.create(files, links, threeD) : null
@@ -213,7 +213,7 @@ Item {
         running: panel.simRunning
         onTriggered: {
             Sim.step(panel.sim)
-            if (panel.threeD && Prefs.graphSpin && !panel.orbiting && panel.dragIndex < 0)
+            if (panel.threeD && Prefs.graphSpin && !Prefs.reduceMotion && !panel.orbiting && panel.dragIndex < 0)
                 panel.yaw += 0.0035
             panel.reproject()
         }
@@ -613,7 +613,7 @@ Item {
                                 opacity: node.fresh ? 1.6 - ringScale * 0.45 : 0.7
                                 property real ringScale: 1.3
                                 NumberAnimation on ringScale {
-                                    running: node.fresh
+                                    running: node.fresh && !Prefs.reduceMotion
                                     from: 1.3; to: 3.4; duration: 1300
                                     loops: Animation.Infinite
                                     easing.type: Easing.OutCubic

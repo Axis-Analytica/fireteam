@@ -4,12 +4,15 @@
         <file alias="ActivityPulse.qml">ActivityPulse.qml</file>
         <file alias="AuthorisationPanel.qml">AuthorisationPanel.qml</file>
         <file alias="Chip.qml">Chip.qml</file>
+        <file alias="CommsLine.qml">CommsLine.qml</file>
         <file alias="Figure.qml">Figure.qml</file>
         <file alias="Brackets.qml">Brackets.qml</file>
         <file alias="DeploySequence.qml">DeploySequence.qml</file>
         <file alias="Sfx.qml">Sfx.qml</file>
         <file alias="Prefs.qml">Prefs.qml</file>
         <file alias="OptionsPanel.qml">OptionsPanel.qml</file>
+        <file alias="ReaderPanel.qml">ReaderPanel.qml</file>
+        <file alias="LimitsPanel.qml">LimitsPanel.qml</file>
         <file alias="SetupPanel.qml">SetupPanel.qml</file>
         <file alias="InboxPanel.qml">InboxPanel.qml</file>
         <file alias="CommandPalette.qml">CommandPalette.qml</file>

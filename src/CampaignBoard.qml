@@ -21,6 +21,45 @@ Item {
         return null
     }
     readonly property bool draft: campaign !== null && campaign.status === "draft"
+    // A budget can be set while the campaign is up for review or running.
+    readonly property bool budgetable: campaign !== null && (campaign.status === "draft" || campaign.status === "active")
+    // What the campaign has spent: its planning plus its operations' API value.
+    readonly property real spent: {
+        if (!campaign)
+            return 0
+        const members = campaign.operations.map(o => o.opId).filter(id => id !== undefined)
+        let total = Number(campaign.cost || 0)
+        for (let i = 0; i < campaignSpend.count; ++i) {
+            const item = campaignSpend.itemAt(i)
+            if (item && members.indexOf(item.opId) >= 0)
+                total += item.cost
+        }
+        return total
+    }
+    function money(value) { return "$" + Number(value).toLocaleString(Qt.locale(), 'f', 2) }
+    function applyBudget() {
+        if (!campaign)
+            return
+        const value = Number.fromLocaleString(Qt.locale(), budgetField.text.length > 0 ? budgetField.text : "0")
+        if (isNaN(value) || value < 0)
+            return
+        const usd = Math.round(value * 100) / 100
+        if (usd !== Number(campaign.budget || 0))
+            ops.setCampaignBudget(current, usd)
+    }
+    // The field shows the campaign's budget whenever the campaign changes.
+    onCampaignChanged: if (!budgetField.activeFocus)
+        budgetField.text = campaign && campaign.budget > 0 ? Number(campaign.budget).toFixed(2) : ""
+
+    // Each operation's spend, read live.
+    Repeater {
+        id: campaignSpend
+        model: ops
+        delegate: Item {
+            required property string opId
+            required property double cost
+        }
+    }
 
     signal operationPicked(int row)
 
@@ -411,15 +450,44 @@ Item {
                             font.letterSpacing: -0.8
                         }
                     }
-                    Text {
+                    ColumnLayout {
                         Layout.alignment: Qt.AlignBottom
                         Layout.bottomMargin: 6
-                        visible: board.campaign !== null && board.campaign.cost > 0
-                        text: board.campaign ? "# " + qsTr("Planning ≈ $%1").arg(Number(board.campaign.cost).toLocaleString(Qt.locale(), 'f', 2)) : ""
-                        color: Style.dim
-                        font.family: Style.mono
-                        font.variableAxes: Style.narrow
-                        font.pixelSize: 11
+                        spacing: 4
+                        // Spend against the campaign's budget, when it has one.
+                        Text {
+                            id: budgetLine
+                            readonly property real share: board.campaign && board.campaign.budget > 0 ? board.spent / board.campaign.budget : 0
+                            Layout.alignment: Qt.AlignRight
+                            visible: board.campaign !== null && board.campaign.budget > 0
+                            text: board.campaign ? qsTr("≈%1 of %2").arg(board.money(board.spent)).arg(board.money(board.campaign.budget)) : ""
+                            color: share >= 1 ? Style.danger : share >= 0.8 ? Style.amber : Style.text
+                            font.family: Style.mono
+                            font.variableAxes: Style.narrow
+                            font.pixelSize: 13
+                            font.features: { "tnum": 1 }
+                        }
+                        Item {
+                            Layout.alignment: Qt.AlignRight
+                            visible: budgetLine.visible
+                            implicitWidth: Math.max(96, budgetLine.implicitWidth)
+                            implicitHeight: 2
+                            Rectangle { anchors.fill: parent; color: Style.line }
+                            Rectangle {
+                                width: parent.width * Math.min(1, budgetLine.share)
+                                height: parent.height
+                                color: budgetLine.color === Style.text ? theme.accent : budgetLine.color
+                            }
+                        }
+                        Text {
+                            Layout.alignment: Qt.AlignRight
+                            visible: board.campaign !== null && board.campaign.cost > 0
+                            text: board.campaign ? "# " + qsTr("Planning ≈ $%1").arg(Number(board.campaign.cost).toLocaleString(Qt.locale(), 'f', 2)) : ""
+                            color: Style.dim
+                            font.family: Style.mono
+                            font.variableAxes: Style.narrow
+                            font.pixelSize: 11
+                        }
                     }
                 }
                 Text {
@@ -878,12 +946,18 @@ Item {
                 }
 
                 // Approving: how its operations run.
-                Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Style.line; visible: board.draft }
-                RowLayout {
+                Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Style.line; visible: board.budgetable }
+                // One line when it fits; when narrow, the budget goes under "Deploy as".
+                GridLayout {
+                    id: approval
+                    readonly property bool oneLine: !board.draft || width >= 720
                     Layout.fillWidth: true
-                    visible: board.draft
-                    spacing: 10
+                    visible: board.budgetable
+                    columns: board.draft && oneLine ? 6 : 3
+                    columnSpacing: 10
+                    rowSpacing: 8
                     Text {
+                        visible: board.draft
                         text: qsTr("Deploy as")
                         color: Style.text2
                         font.family: Style.body
@@ -906,7 +980,78 @@ Item {
                         readonly property var keys: ["review", "fix", "off"]
                         model: [qsTr("Overwatch: review"), qsTr("Overwatch: fix"), qsTr("No overwatch")]
                     }
-                    Item { Layout.fillWidth: true }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: !board.draft
+                        text: qsTr("At its budget, the campaign's operations finish their current cycle and hold.")
+                        wrapMode: Text.Wrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                        color: Style.dim
+                        font.family: Style.body
+                        font.pixelSize: 12
+                    }
+                    Item { Layout.fillWidth: true; visible: board.draft && approval.oneLine }
+                    Text {
+                        text: qsTr("Budget")
+                        color: Style.text2
+                        font.family: Style.body
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                    }
+                    // API value for the whole campaign; empty or 0 is none. Applied on Enter.
+                    TextField {
+                        id: budgetField
+                        implicitWidth: 112
+                        implicitHeight: 34
+                        topPadding: 4
+                        bottomPadding: 4
+                        leftPadding: 26
+                        rightPadding: 10
+                        horizontalAlignment: TextInput.AlignRight
+                        color: Style.text
+                        inputMethodHints: Qt.ImhFormattedNumbersOnly
+                        validator: DoubleValidator { bottom: 0; top: 100000; decimals: 2; notation: DoubleValidator.StandardNotation }
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 13
+                        font.features: { "tnum": 1 }
+                        selectByMouse: true
+                        // Selected on entry; shows the saved budget again on leaving,
+                        // so it never shows a figure that wasn't applied.
+                        onActiveFocusChanged: {
+                            if (activeFocus)
+                                selectAll()
+                            else
+                                text = board.campaign && board.campaign.budget > 0 ? Number(board.campaign.budget).toFixed(2) : ""
+                        }
+                        background: Rectangle {
+                            color: Style.bg
+                            border.color: budgetField.activeFocus ? theme.accent : Style.line
+                            radius: Math.min(2, theme.radius)
+                            Text {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 10
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "$"
+                                color: Style.dim
+                                font.family: Style.mono
+                                font.variableAxes: Style.narrow
+                                font.pixelSize: 13
+                            }
+                            Text {
+                                visible: budgetField.text.length === 0
+                                anchors.right: parent.right
+                                anchors.rightMargin: 10
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: qsTr("None")
+                                color: Style.faint
+                                font.family: Style.body
+                                font.pixelSize: 12
+                            }
+                        }
+                        onAccepted: { board.applyBudget(); focus = false }
+                    }
                 }
 
                 Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Style.line }

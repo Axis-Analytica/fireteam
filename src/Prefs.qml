@@ -19,6 +19,11 @@ Settings {
     property bool graphSpin: true
     // Whether the first-run setup checklist has been seen.
     property bool setupSeen: false
-    // Calmer: no pulsing, sweeping or turning (Phase 14 widens this).
+    // Calmer: no pulsing, drifting, turning or insertion screen.
     property bool reduceMotion: false
+    // Brighter ink and firmer lines.
+    property bool highContrast: false
+    // The whole interface's size in percent, applied at the next start
+    // (main.cpp reads it before the window exists).
+    property int scale: 100
 }

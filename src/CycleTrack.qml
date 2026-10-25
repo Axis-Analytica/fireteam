@@ -27,7 +27,7 @@ RowLayout {
                     readonly property bool current: track.live && index === track.done
                     color: index < track.done || current ? theme.accent : Style.line
                     SequentialAnimation on opacity {
-                        running: segment.current
+                        running: segment.current && !Prefs.reduceMotion
                         loops: Animation.Infinite
                         NumberAnimation { to: 0.25; duration: 600; easing.type: Easing.InOutSine }
                         NumberAnimation { to: 1; duration: 600; easing.type: Easing.InOutSine }
