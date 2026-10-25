@@ -27,6 +27,7 @@ Item {
     signal authorisationRequested()
     signal extractRequested()
     signal replayRequested()
+    signal graphRequested()
 
     Menu {
         id: exportMenu
@@ -97,6 +98,7 @@ Item {
                 Repeater {
                     model: [
                         { label: qsTr("Replay"), key: "⇧R", action: "replay" },
+                        { label: qsTr("Map"), key: "G", action: "graph" },
                         { label: qsTr("Export"), key: "", action: "export" },
                         { label: detail.op && detail.op.archived ? qsTr("Unarchive") : qsTr("Archive"), key: "", action: "archive" },
                         { label: qsTr("Authorised"), key: "A", action: "authorise" },
@@ -123,6 +125,7 @@ Item {
                             enabled: link.usable
                             onTapped: {
                                 if (link.modelData.action === "replay") detail.replayRequested()
+                                else if (link.modelData.action === "graph") detail.graphRequested()
                                 else if (link.modelData.action === "export") exportMenu.popup(link, 0, link.height + 4)
                                 else if (link.modelData.action === "archive") ops.setArchived(detail.row, !detail.op.archived)
                                 else if (link.modelData.action === "authorise") detail.authorisationRequested()

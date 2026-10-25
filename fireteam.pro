@@ -6,6 +6,7 @@ TEMPLATE = app
 
 HEADERS += src/notifier.h \
     src/fieldmanual.h \
+    src/graphs.h \
     src/fieldterminal.h \
     src/gates.h \
     src/fieldlink.h \
@@ -21,6 +22,7 @@ HEADERS += src/notifier.h \
 
 SOURCES += src/notifier.cpp \
     src/fieldmanual.cpp \
+    src/graphs.cpp \
     src/archive.cpp \
     src/fieldterminal.cpp \
     src/gates.cpp \

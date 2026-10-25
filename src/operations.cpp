@@ -1,6 +1,7 @@
 #include "operations.h"
 #include "fieldlink.h"
 #include "fieldmanual.h"
+#include "graphs.h"
 #include "gates.h"
 #include "intel.h"
 #include "stream.h"
@@ -210,6 +211,7 @@ void Operations::loadSettings() {
         settings = QJsonDocument::fromJson(file.readAll()).object();
     m_maxDeployed = qBound(0, settings.value("maxDeployed").toInt(3), 12);
     m_afterAction = settings.value("afterAction").toBool(true);
+    m_graphsAuto = settings.value("graphsAuto").toBool(true);
     m_loadouts = settings.contains("loadouts") ? settings.value("loadouts").toArray().toVariantList() : defaultLoadouts();
 }
 
@@ -217,7 +219,7 @@ void Operations::saveSettings() const {
     QSaveFile file(m_dataDirectory + "/settings.json");
     if (!file.open(QIODevice::WriteOnly))
         return;
-    file.write(QJsonDocument(QJsonObject{{"maxDeployed", m_maxDeployed}, {"afterAction", m_afterAction},
+    file.write(QJsonDocument(QJsonObject{{"maxDeployed", m_maxDeployed}, {"afterAction", m_afterAction}, {"graphsAuto", m_graphsAuto},
                                          {"loadouts", QJsonArray::fromVariantList(m_loadouts)}}).toJson());
     file.commit();
 }
@@ -600,6 +602,8 @@ void Operations::deploy(int row) {
     op.hold = false;
     op.fixRounds = 0;
     op.gateFixes = 0;
+    // A project's first operation maps it, for this and every later session.
+    refreshGraph(op.directory, true);
     start(op.id);
     if (m_ops.at(rowOf(op.id)).status == "deployed")
         emit deployed(rowOf(op.id));
@@ -812,6 +816,7 @@ bool Operations::extract(int row) {
     op.workdir.clear();
     op.branch.clear();
     op.baseCommit.clear();
+    refreshGraph(op.directory, false);
     changed(row);
     save();
     collectIntel(op.id);
@@ -925,7 +930,9 @@ void Operations::startCycle(const QString &id) {
                                    QFileInfo(report).absolutePath(), orders,
                                    QStringList{op.standing, Stream::criteriaBlock(op.criteria),
                                                brief.isEmpty() && !op.sessionId.isEmpty() ? QString()
-                                                   : FieldManual(m_dataDirectory, op.directory).brief()}
+                                                   : FieldManual(m_dataDirectory, op.directory).brief(),
+                                               brief.isEmpty() && !op.sessionId.isEmpty() ? QString()
+                                                   : graphBrief(op.directory)}
                                        .join("\n\n").trimmed()),
            false);
     Run &run = m_runs[id];
@@ -967,6 +974,9 @@ void Operations::launch(const QString &id, const QString &prompt, bool handoff, 
             {"args", QJsonArray{"mcp", "--op", op.id, "--socket", m_link->serverName()}}}}}}};
         arguments << "--mcp-config" << QString::fromUtf8(QJsonDocument(mcp).toJson(QJsonDocument::Compact));
         allowed << "mcp__fireteam__sitrep" << "mcp__fireteam__request_orders" << "mcp__fireteam__mark_objective";
+        // Asking the project's knowledge graph only reads it.
+        if (QFileInfo::exists(Graphs::graphFile(m_dataDirectory, op.directory)))
+            allowed << Graphs::allowedRules(graphify());
         // Supervised: anything that would need permission is put to the
         // operator, live, while the agent waits.
         if (op.roe == "supervised")
@@ -1360,7 +1370,17 @@ void Operations::record(Operation &op, const Run &run, int cycle, const QString 
         {"started", run.started.toString(Qt::ISODate)}, {"seconds", run.started.isValid() ? run.started.secsTo(now) : 0},
         {"cost", op.costUsd - run.costAtStart}, {"context", double(op.contextTokens)}, {"before", run.before},
         {"after", after}, {"files", files.size()}, {"added", added}, {"removed", removed}, {"outcome", outcome},
-        {"sitrep", outcome == "complete" ? op.sitrep : QString()}});
+        {"sitrep", outcome == "complete" ? op.sitrep : QString()}, {"paths", [&files] {
+            // Which files, for the knowledge graph's activity overlay.
+            QStringList paths;
+            for (int i = 0; i < files.size() && i < 300; ++i)
+                paths << files.at(i).toMap().value("path").toString();
+            return paths;
+        }()}});
+    // The map follows the code: a cycle in the project itself redraws it (a
+    // worktree's cycles reach the project when they're extracted).
+    if (files.size() > 0 && QDir::cleanPath(workdir(op)) == QDir::cleanPath(op.directory))
+        refreshGraph(op.directory, false);
 }
 
 QVariantList Operations::cycleChanges(int row, int run) const {
@@ -2131,7 +2151,9 @@ void Operations::launchPlanner(const QString &id) {
     campaign.error.clear();
     campaign.activity = tr("Surveying the project");
     // Read-only: the planner looks around but can't change anything.
-    QStringList arguments{"-p", Stream::campaignPrompt(campaign.name, campaign.objective),
+    const QString map = graphBrief(campaign.directory);
+    QStringList arguments{"-p", Stream::campaignPrompt(campaign.name, campaign.objective)
+                                    + (map.isEmpty() ? QString() : "\n\n" + map),
                           "--output-format", "stream-json", "--verbose", "--permission-mode", "plan"};
     if (!campaign.model.isEmpty())
         arguments << "--model" << campaign.model;
@@ -2609,4 +2631,194 @@ void Operations::proveCycle(const QString &id, int cycle) {
         shoot();
     });
     gates->run(workdir(op), enabled);
+}
+
+// Knowledge graphs ------------------------------------------------------------
+
+QString Operations::graphify() const { return Graphs::executable(m_dataDirectory); }
+
+void Operations::setGraphsAuto(bool on) {
+    if (on == m_graphsAuto)
+        return;
+    m_graphsAuto = on;
+    saveSettings();
+    emit graphsChanged();
+}
+
+// Builds a project's graph when it's due: create for a project's first
+// operation, otherwise only when there's a graph to keep current.
+void Operations::refreshGraph(const QString &directory, bool create) {
+    if (!m_graphsAuto || graphify().isEmpty() || !QFileInfo(directory).isDir())
+        return;
+    const bool exists = QFileInfo::exists(Graphs::graphFile(m_dataDirectory, QDir::cleanPath(directory)));
+    if (exists == create)
+        return;
+    buildGraph(directory);
+}
+
+void Operations::buildGraph(const QString &directory) {
+    const QString project = QDir::cleanPath(directory);
+    const QString executable = graphify();
+    if (executable.isEmpty() || project.isEmpty())
+        return;
+    // One build per project at a time; a change during one builds again after.
+    if (m_graphBuilds.value(project)) {
+        m_graphPending.insert(project);
+        return;
+    }
+    QDir().mkpath(Graphs::outputDirectory(m_dataDirectory, project));
+    auto *process = new QProcess(this);
+    process->setWorkingDirectory(project);
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    // No model: the code-only build is local and needs no key.
+    environment.insert("GRAPHIFY_BACKEND", "none");
+    process->setProcessEnvironment(environment);
+    process->setStandardInputFile(QProcess::nullDevice());
+    process->setProcessChannelMode(QProcess::MergedChannels);
+    m_graphBuilds.insert(project, process);
+    m_graphErrors.remove(project);
+    connect(process, &QProcess::finished, this, [this, process, project](int code, QProcess::ExitStatus status) {
+        const QString output = QString::fromUtf8(process->readAll());
+        process->deleteLater();
+        m_graphBuilds.remove(project);
+        if (code != 0 || status != QProcess::NormalExit || !QFileInfo::exists(Graphs::graphFile(m_dataDirectory, project))) {
+            const QStringList lines = output.trimmed().split('\n');
+            m_graphErrors.insert(project, output.trimmed().isEmpty() ? tr("graphify stopped.") : lines.last().left(300));
+        }
+        m_graphViews.remove(project);
+        emit graphChanged(project);
+        if (m_graphPending.remove(project))
+            buildGraph(project);
+    });
+    connect(process, &QProcess::errorOccurred, this, [this, process, project](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart)
+            return;
+        process->deleteLater();
+        m_graphBuilds.remove(project);
+        m_graphErrors.insert(project, tr("graphify couldn't start."));
+        emit graphChanged(project);
+    });
+    process->start(executable, Graphs::buildArguments(m_dataDirectory, project));
+    emit graphChanged(project);
+}
+
+QVariantMap Operations::graph(const QString &directory) {
+    const QString project = QDir::cleanPath(directory);
+    const QString file = Graphs::graphFile(m_dataDirectory, project);
+    QVariantMap result;
+    const QFileInfo info(file);
+    if (info.exists()) {
+        auto cached = m_graphViews.value(project);
+        if (cached.first != info.lastModified() || cached.second.isEmpty()) {
+            cached = qMakePair(info.lastModified(), Graphs::view(file));
+            m_graphViews.insert(project, cached);
+        }
+        result = cached.second;
+        result.insert("activity", graphActivity(project));
+    }
+    result.insert("state", m_graphBuilds.value(project) ? "building"
+                         : m_graphErrors.contains(project) ? "failed"
+                         : info.exists() ? "ready" : "none");
+    result.insert("error", m_graphErrors.value(project));
+    result.insert("directory", project);
+    result.insert("graphFile", file);
+    return result;
+}
+
+QVariantMap Operations::graphFileDetail(const QString &directory, const QString &path) const {
+    return Graphs::fileDetail(Graphs::graphFile(m_dataDirectory, QDir::cleanPath(directory)), path);
+}
+
+QVariantMap Operations::graphActivity(const QString &directory) const {
+    // Paths from git are from the top of the repository; the graph's are from
+    // the project, which may be a folder inside it.
+    const QString top = Intel::repository(directory).value("top").toString();
+    const QString prefix = top.isEmpty() ? QString()
+        : QDir(QFileInfo(top).canonicalFilePath()).relativeFilePath(QFileInfo(directory).canonicalFilePath());
+    const QString strip = prefix.isEmpty() || prefix == "." ? QString() : prefix + "/";
+    QVariantMap activity;
+    for (const Operation &op : m_ops) {
+        if (QDir::cleanPath(op.directory) != directory)
+            continue;
+        QHash<QString, int> cycles;
+        for (const QVariant &value : op.history) {
+            const QVariantMap entry = value.toMap();
+            QStringList paths = entry.value("paths").toStringList();
+            // Cycles from before paths were kept: read them back from the snapshots.
+            if (!entry.contains("paths"))
+                for (const QVariant &file : Intel::changes(op.directory, entry.value("before").toString(),
+                                                           entry.value("after").toString()))
+                    paths << file.toMap().value("path").toString();
+            for (QString path : paths) {
+                if (!strip.isEmpty()) {
+                    if (!path.startsWith(strip))
+                        continue;
+                    path = path.mid(strip.size());
+                }
+                cycles[path] += 1;
+            }
+        }
+        for (auto it = cycles.cbegin(); it != cycles.cend(); ++it) {
+            QVariantList list = activity.value(it.key()).toList();
+            list << QVariantMap{{"opId", op.id}, {"codename", op.codename}, {"cycles", it.value()}};
+            activity.insert(it.key(), list);
+        }
+    }
+    return activity;
+}
+
+QVariantList Operations::graphProjects() const {
+    QStringList directories;
+    for (const Operation &op : m_ops)
+        if (!directories.contains(QDir::cleanPath(op.directory)))
+            directories << QDir::cleanPath(op.directory);
+    for (const Campaign &campaign : m_campaigns)
+        if (!directories.contains(QDir::cleanPath(campaign.directory)))
+            directories << QDir::cleanPath(campaign.directory);
+    QVariantList list;
+    for (const QString &directory : directories) {
+        if (!QFileInfo(directory).isDir())
+            continue;
+        const bool ready = QFileInfo::exists(Graphs::graphFile(m_dataDirectory, directory));
+        list << QVariantMap{{"directory", directory},
+                            {"state", m_graphBuilds.value(directory) ? "building" : m_graphErrors.contains(directory) ? "failed"
+                                    : ready ? "ready" : "none"}};
+    }
+    return list;
+}
+
+QString Operations::graphBrief(const QString &directory) {
+    const QString project = QDir::cleanPath(directory);
+    const QString file = Graphs::graphFile(m_dataDirectory, project);
+    if (!QFileInfo::exists(file))
+        return {};
+    return Graphs::brief(graph(project), file, graphify());
+}
+
+void Operations::installGraphify() {
+    if (m_graphifyInstall == "installing")
+        return;
+    const QString python = QStandardPaths::findExecutable("python3");
+    if (python.isEmpty()) {
+        m_graphifyInstall = tr("Python 3 isn't installed, so graphify can't be.");
+        emit graphsChanged();
+        return;
+    }
+    // A virtual environment of its own in Fireteam's data directory: nothing
+    // system-wide, and removing the folder removes it.
+    const QString target = Graphs::installDirectory(m_dataDirectory);
+    auto *process = new QProcess(this);
+    process->setProcessChannelMode(QProcess::MergedChannels);
+    process->setStandardInputFile(QProcess::nullDevice());
+    m_graphifyInstall = "installing";
+    emit graphsChanged();
+    connect(process, &QProcess::finished, this, [this, process, target](int code, QProcess::ExitStatus status) {
+        const QStringList lines = QString::fromUtf8(process->readAll()).trimmed().split('\n');
+        process->deleteLater();
+        m_graphifyInstall = code == 0 && status == QProcess::NormalExit && QFileInfo(target + "/bin/graphify").isExecutable()
+            ? QString() : tr("graphify didn't install: %1").arg(lines.last().left(240));
+        emit graphsChanged();
+    });
+    process->start("/bin/sh", {"-c", "\"$0\" -m venv \"$1\" && \"$1/bin/pip\" install --quiet --disable-pip-version-check graphifyy",
+                               python, target});
 }

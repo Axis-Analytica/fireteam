@@ -7,7 +7,8 @@ license=('MIT' 'OFL-1.1')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'qt6-svg' 'qt6-multimedia' 'xdg-desktop-portal' 'git')
 optdepends=('claude-code: the agents themselves (any install of the claude command works)'
             'chromium: preview screenshots'
-            'qrencode: the pairing code for the field terminal')
+            'qrencode: the pairing code for the field terminal'
+            'python: installing graphify for knowledge graphs')
 makedepends=('gcc' 'make')
 source=()
 sha256sums=()

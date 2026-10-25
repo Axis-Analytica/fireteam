@@ -3,6 +3,7 @@
 #include <QAbstractListModel>
 #include <QDateTime>
 #include <QHash>
+#include <QSet>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QPointer>
@@ -136,6 +137,12 @@ class Operations : public QAbstractListModel {
     // project's field manual.
     Q_PROPERTY(bool afterAction READ afterAction WRITE setAfterAction NOTIFY afterActionChanged)
     Q_PROPERTY(int archivedCount READ archivedCount NOTIFY archivedChanged)
+    // Knowledge graphs: graphify's path (empty if it isn't installed), whether
+    // projects are mapped on their own, and Fireteam installing its own copy
+    // ("", "installing", or an error).
+    Q_PROPERTY(QString graphify READ graphify NOTIFY graphsChanged)
+    Q_PROPERTY(bool graphsAuto READ graphsAuto WRITE setGraphsAuto NOTIFY graphsChanged)
+    Q_PROPERTY(QString graphifyInstall READ graphifyInstall NOTIFY graphsChanged)
 
 public:
     enum Role {
@@ -230,6 +237,21 @@ public:
     // overwatch's verdicts.
     Q_INVOKABLE QVariantMap serviceRecord() const;
     Q_INVOKABLE void removeLoadout(const QString &name);
+    // Knowledge graphs.
+    QString graphify() const;
+    bool graphsAuto() const { return m_graphsAuto; }
+    void setGraphsAuto(bool on);
+    QString graphifyInstall() const { return m_graphifyInstall; }
+    // Builds (or rebuilds) a project's graph in the background.
+    Q_INVOKABLE void buildGraph(const QString &directory);
+    // A project's graph for the map: Graphs::view plus {state: none, building,
+    // ready or failed; error} and activity: {path: [{opId, codename, cycles}]}.
+    Q_INVOKABLE QVariantMap graph(const QString &directory);
+    Q_INVOKABLE QVariantMap graphFileDetail(const QString &directory, const QString &path) const;
+    // Every project an operation has worked in, or that has a graph:
+    // [{directory, state, files}].
+    Q_INVOKABLE QVariantList graphProjects() const;
+    Q_INVOKABLE void installGraphify();
     Q_INVOKABLE void deploy(int row);
     Q_INVOKABLE void sendOrders(int row, const QString &text, bool deployNow);
     Q_INVOKABLE void clearOrders(int row);
@@ -293,6 +315,8 @@ signals:
     void afterActionChanged();
     void archivedChanged();
     void lessonsChanged(const QString &directory);
+    void graphChanged(const QString &directory);
+    void graphsChanged();
     // Something worth telling someone who isn't looking at the board.
     void alert(const QString &opId, const QString &title, const QString &body);
 
@@ -401,4 +425,14 @@ private:
     QTimer *m_campaignNotice = nullptr;
     QHash<QString, QPointer<Gates>> m_gateRunners;
     bool m_afterAction = true;
+    bool m_graphsAuto = true;
+    QString m_graphifyInstall;
+    QHash<QString, QPointer<QProcess>> m_graphBuilds;
+    QSet<QString> m_graphPending;
+    QHash<QString, QString> m_graphErrors;
+    // Views by project, with the graph.json's time they were made from.
+    QHash<QString, QPair<QDateTime, QVariantMap>> m_graphViews;
+    void refreshGraph(const QString &directory, bool create);
+    QVariantMap graphActivity(const QString &directory) const;
+    QString graphBrief(const QString &directory);
 };

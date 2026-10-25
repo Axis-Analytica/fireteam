@@ -8,6 +8,9 @@
         <file alias="Brackets.qml">Brackets.qml</file>
         <file alias="DeploySequence.qml">DeploySequence.qml</file>
         <file alias="Sfx.qml">Sfx.qml</file>
+        <file alias="Prefs.qml">Prefs.qml</file>
+        <file alias="OptionsPanel.qml">OptionsPanel.qml</file>
+        <file alias="GraphPanel.qml">GraphPanel.qml</file>
         <file alias="ServiceRecord.qml">ServiceRecord.qml</file>
         <file alias="TacticalMap.qml">TacticalMap.qml</file>
         <file alias="sounds/tick.wav">sounds/tick.wav</file>

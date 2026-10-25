@@ -199,6 +199,7 @@ own.
 | `F` | Field manual |
 | `Shift+R` | Replay the operation |
 | `Ctrl+F` | Search everything |
+| `G` | Knowledge graph of the project |
 | `C` | Campaigns |
 | `S` | Service record |
 | `M` | Switch between the board and the theatre map |
@@ -209,6 +210,7 @@ own.
 | `Del` | Stand down (remove) the operation |
 | `Ctrl+Enter` | Deploy from the briefing |
 | `Esc` | Close a panel |
+| `,` | Options and About |
 | `?` | Show the controls |
 | `Q` | Quit (asks first while agents are deployed) |
 
@@ -332,6 +334,36 @@ it against the objective, and grades it **pass**, **needs work**, or **fail**
 with findings. The review goes in the dossier and on the operation's chip.
 *Review and fix* sends a short-of-the-mark operation back for one more cycle
 with the findings as orders, then reviews it again.
+
+## Knowledge graphs
+
+`G` maps a project's code as a survey of its files, built by
+[graphify](https://github.com/Graphify-Labs/graphify) from the code alone:
+locally, with no model and no API key. Each file is a square sized by the
+symbols it holds, lines join files that lean on each other, and dashed rings
+mark the communities they form. Files that operations changed are lit in the
+accent, brighter the more cycles touched them; pick one operation under *Work
+shown*, or press *Map* (`G`) on an operation, to see only its work. Click a file
+for its symbols, the files it's linked to, and who changed it. Drag to pan,
+scroll or `+` `-` to zoom, `0` to fit.
+
+- The graph is kept in Fireteam's data folder, never in the project.
+- A project is mapped when its first operation deploys, and the map is redrawn
+  after each cycle in the project and after each extraction.
+- Agents and campaign planners get a short brief: the hubs, the files that
+  work together, and how to ask the graph more. They may run graphify's
+  read-only `query`, `explain`, `affected`, `path` and `god-nodes` commands
+  without asking.
+- Without graphify, Options (`,`) installs it into a virtual environment in
+  Fireteam's data folder, or install the `graphifyy` package yourself with uv
+  or pip. *Map projects automatically* turns the automatic part off.
+
+## Options and About
+
+`,` opens Options: interface sounds, the insertion screen, backdrop motion,
+squad size, the loadout a new briefing starts from, after-action reviews,
+saved loadouts, knowledge graphs, the field terminal, and the data folder. The
+About tab shows the version, the Claude link, what's installed, and credits.
 
 ## Service record
 

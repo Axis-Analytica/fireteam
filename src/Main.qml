@@ -34,6 +34,7 @@ ApplicationWindow {
                                         || insertion.visible || authorisation.visible || serviceRecord.visible
                                         || waitingPanel.visible || campaignBoard.visible || terminalPanel.visible
                                         || manualPanel.visible || replayView.visible || searchPanel.visible
+                                        || optionsPanel.visible || graphPanel.visible
     // The theatre map in place of the roster and detail.
     property bool mapView: false
     readonly property var selected: roster.currentItem
@@ -147,7 +148,7 @@ ApplicationWindow {
         }
         function onDeployed(row) {
             const op = roster.itemAtIndex(row)
-            if (!op || !win.active)
+            if (!op || !win.active || !Prefs.insertion)
                 return
             const lines = [qsTr("Fireteam %1, you are cleared hot."), qsTr("%1, green light. Move out."),
                            qsTr("%1, you're go for insertion."), qsTr("All stations, %1 is on the move.")]
@@ -204,6 +205,8 @@ ApplicationWindow {
     Shortcut { sequence: "Shift+R"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen && win.selected !== null; onActivated: replayView.open(win.selected, roster.currentIndex) }
     Shortcut { sequences: [StandardKey.Find]; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: searchPanel.open() }
     Shortcut { sequence: "P"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: terminalPanel.open() }
+    Shortcut { sequences: [",", StandardKey.Preferences]; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: optionsPanel.open("options") }
+    Shortcut { sequence: "G"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: graphPanel.open(win.selected ? win.selected.directory : "", "") }
     Shortcut { sequence: "C"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: campaignBoard.open() }
     Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: serviceRecord.open() }
     Shortcut { sequence: "A"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: win.authoriseSelected() }
@@ -235,6 +238,8 @@ ApplicationWindow {
             else if (manualPanel.visible) manualPanel.close()
             else if (replayView.visible) replayView.close()
             else if (searchPanel.visible) searchPanel.close()
+            else if (optionsPanel.visible) optionsPanel.close()
+            else if (graphPanel.visible) graphPanel.close()
             else if (serviceRecord.visible) serviceRecord.close()
             else if (radio.visible) radio.close()
             else briefing.close()
@@ -250,7 +255,7 @@ ApplicationWindow {
         anchors.fill: parent
         accent: theme.accent
         heat: ops.deployedCount
-        active: win.visibility !== Window.Minimized
+        active: win.visibility !== Window.Minimized && Prefs.motion
     }
 
     // Right-to-left languages mirror the window; the Translator sets the
@@ -537,6 +542,7 @@ ApplicationWindow {
                     onAuthorisationRequested: win.authoriseSelected()
                     onExtractRequested: win.extractSelected()
                     onReplayRequested: replayView.open(win.selected, roster.currentIndex)
+                    onGraphRequested: graphPanel.open(win.selected.directory, win.selected.opId)
                     onDiscardRequested: win.discardSelected()
                 }
             }
@@ -573,14 +579,15 @@ ApplicationWindow {
                         KeyHint { key: "X"; label: qsTr("Abort") }
                         KeyHint { key: "V"; label: qsTr("Intel") }
                         KeyHint { key: "M"; label: win.mapView ? qsTr("Board") : qsTr("Map") }
+                        KeyHint { key: "G"; label: qsTr("Graph") }
                         KeyHint { key: "C"; label: qsTr("Campaigns") }
                         KeyHint { key: "S"; label: qsTr("Record") }
                         KeyHint { key: "R"; label: qsTr("Debrief") }
                     }
                 }
+                KeyHint { key: ","; label: qsTr("Options") }
                 KeyHint { key: "?"; label: qsTr("Controls") }
                 KeyHint { key: "Q"; label: qsTr("Quit") }
-                KeyHint { visible: !win.narrow; key: "Shift+M"; label: Sfx.enabled ? qsTr("Sound on") : qsTr("Sound off"); opacity: Sfx.enabled ? 1 : 0.6 }
                 Text {
                     visible: win.width > 1560
                     text: "fireteam " + Qt.application.version
@@ -667,6 +674,18 @@ ApplicationWindow {
             id: serviceRecord
             anchors.fill: parent
             onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
+        }
+        GraphPanel {
+            id: graphPanel
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
+        }
+        OptionsPanel {
+            id: optionsPanel
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
+            onTerminalRequested: { optionsPanel.close(); terminalPanel.open() }
+            onControlsRequested: { optionsPanel.close(); help.visible = true }
         }
         HelpOverlay { id: help; anchors.fill: parent; onVisibleChanged: if (visible) Sfx.play("open") }
         ConfirmPanel { id: confirm; anchors.fill: parent }

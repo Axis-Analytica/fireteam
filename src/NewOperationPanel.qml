@@ -93,6 +93,10 @@ Item {
         previewCommand.text = ""
         previewUrl.text = ""
         overwatchBox.currentIndex = 0
+        // The loadout chosen in Options, if it still exists.
+        const start = ops.loadouts.find(l => l.name === Prefs.defaultLoadout)
+        if (start)
+            applyLoadout(start)
         refreshRepo()
         visible = true
         enter.restart()

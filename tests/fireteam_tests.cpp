@@ -1228,6 +1228,74 @@ private slots:
         QCOMPARE(theme.accentForeground(), QString("white"));
     }
 
+    void mapsProjectsWithGraphify()
+    {
+        // A stand-in graphify that writes a small graph where it's told.
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        QVERIFY(gitIn(project.path(), {"init", "-q", "-b", "main"}));
+        write(project.filePath("a.cpp"), "int a() { return b(); }\n");
+        QVERIFY(gitIn(project.path(), {"add", "-A"}));
+        QVERIFY(gitIn(project.path(), {"-c", "user.name=T", "-c", "user.email=t@x", "commit", "-q", "-m", "start"}));
+        auto node = [](const char *id, const char *label, const char *file, const char *line, int community) {
+            return QJsonObject{{"id", id}, {"label", label}, {"source_file", file}, {"source_location", line}, {"community", community}};
+        };
+        auto link = [](const char *from, const char *to) { return QJsonObject{{"source", from}, {"target", to}, {"weight", 1}}; };
+        const QByteArray graph = QJsonDocument(QJsonObject{
+            {"nodes", QJsonArray{node("a", "a()", "src/a.cpp", "L1", 0), node("b", "b()", "src/b.cpp", "L3", 0),
+                                 node("c", "c()", "src/b.cpp", "L9", 0), node("s", "install", "bin/install", "", 1),
+                                 node("q", "QString", "", "", 0)}},
+            {"links", QJsonArray{link("a", "b"), link("a", "c"), link("b", "q")}},
+            {"built_at_commit", "abc1234"}}).toJson();
+        write(bin.filePath("graph.json"), graph);
+        write(bin.filePath("graphify"), "#!/bin/sh\n# extract <project> --code-only --out <dir>\nmkdir -p \"$5/graphify-out\"\n"
+                                        "cp '" + bin.filePath("graph.json").toUtf8() + "' \"$5/graphify-out/graph.json\"\n"
+                                        "echo '{\"gods\": [{\"id\": \"a\", \"label\": \"a()\", \"degree\": 2}]}' > \"$5/graphify-out/.graphify_analysis.json\"\n");
+        QVERIFY(QFile::setPermissions(bin.filePath("graphify"), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        qputenv("FIRETEAM_GRAPHIFY", bin.filePath("graphify").toUtf8());
+
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.graphify(), bin.filePath("graphify"));
+        QCOMPARE(ops.graph(project.path()).value("state").toString(), QString("none"));
+        QSignalSpy built(&ops, &Operations::graphChanged);
+        ops.buildGraph(project.path());
+        QTRY_COMPARE_WITH_TIMEOUT(ops.graph(project.path()).value("state").toString(), QString("ready"), 5000);
+        QVERIFY(!QFile::exists(project.filePath("graphify-out")));
+
+        // Folded into files: two linked, one loose; the external type belongs to none.
+        const QVariantMap map = ops.graph(project.path());
+        QCOMPARE(map.value("stats").toMap().value("files").toInt(), 3);
+        QCOMPARE(map.value("stats").toMap().value("symbols").toInt(), 4);
+        QCOMPARE(map.value("links").toList().size(), 1);
+        QCOMPARE(map.value("links").toList().first().toMap().value("weight").toDouble(), 2.0);
+        for (const QVariant &file : map.value("files").toList()) {
+            const double x = file.toMap().value("x").toDouble(), y = file.toMap().value("y").toDouble();
+            QVERIFY(x >= 0 && x <= 1 && y >= 0 && y <= 1);
+            if (file.toMap().value("path") == "bin/install")
+                QCOMPARE(y, 0.95);
+        }
+        QCOMPARE(map.value("hubs").toList().first().toMap().value("path").toString(), QString("src/a.cpp"));
+        const QVariantMap detail = ops.graphFileDetail(project.path(), "src/b.cpp");
+        QCOMPARE(detail.value("symbols").toList().size(), 2);
+        QCOMPARE(detail.value("neighbours").toList().first().toMap().value("path").toString(), QString("src/a.cpp"));
+
+        // An operation there is briefed on the map and may query it; what it
+        // changes shows on the map.
+        QCOMPARE(ops.create("", project.path(), "Build", 1, "restricted", "", 250000, false), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        QFile log(bin.filePath("args.log"));
+        QVERIFY(log.open(QIODevice::ReadOnly));
+        const QString arguments = QString::fromUtf8(log.readAll());
+        QVERIFY(arguments.contains("PROJECT MAP"));
+        QVERIFY(arguments.contains("Hubs, the most connected code: a() (src/a.cpp, 2 links)"));
+        QVERIFY(arguments.contains("Bash(" + bin.filePath("graphify") + " query:*)"));
+        QTRY_VERIFY_WITH_TIMEOUT(ops.graph(project.path()).value("activity").toMap().contains("notes.txt"), 5000);
+        qunsetenv("FIRETEAM_GRAPHIFY");
+    }
+
     void themeTintsTheGroundTowardTheAccent()
     {
         QTemporaryDir dir;
