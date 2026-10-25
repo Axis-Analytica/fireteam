@@ -277,17 +277,19 @@ static QString exportPage(const QString &title, const QString &body) {
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>%1</title>
 <style>
-:root{--bg:#07090b;--panel:#0f1215;--line:#1f2428;--text:#e8e6e1;--dim:#8b8f94;--accent:#f97316;--good:#86e07d;--bad:#ff4f45}
-body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 system-ui,sans-serif}
-main{max-width:920px;margin:0 auto;padding:40px 20px}
-h1{font-size:36px;letter-spacing:.12em;margin:0}h2{font-size:13px;letter-spacing:.3em;text-transform:uppercase;color:var(--accent);margin:32px 0 10px}
-.tag{font:12px ui-monospace,monospace;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
-.panel{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);padding:14px 18px;white-space:pre-wrap;margin-bottom:10px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.stat{background:var(--panel);border:1px solid var(--line);padding:12px}
-.stat b{display:block;font:700 22px ui-monospace,monospace}.stat span{color:var(--dim);font-size:12px;letter-spacing:.15em;text-transform:uppercase}
-details{background:var(--panel);border:1px solid var(--line);margin-bottom:10px}summary{cursor:pointer;padding:12px 16px;font-weight:700;letter-spacing:.08em}
+:root{--bg:#0f100e;--panel:#161714;--line:#2a2b27;--line2:#3b3d37;--text:#ecebe6;--text2:#c9c8c1;--dim:#93948d;--accent:#ffd60a;--good:#7ccf8a;--bad:#f0605a;--mono:"Martian Mono",ui-monospace,monospace}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 "Red Hat Text",system-ui,sans-serif}
+main{max-width:920px;margin:0 auto;padding:48px 20px}
+h1{font:500 38px/1.1 var(--mono);letter-spacing:-.02em;margin:0}
+h2{font:500 14px "Red Hat Text",system-ui,sans-serif;color:var(--text2);margin:36px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+h2::before{content:"";display:inline-block;width:5px;height:5px;background:var(--accent);margin-right:10px;vertical-align:middle}
+.tag{font:12px var(--mono);color:var(--dim)}
+.panel{background:var(--panel);border:1px solid var(--line);border-left:2px solid var(--accent);padding:14px 18px;white-space:pre-wrap;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;border:1px solid var(--line)}.stat{padding:14px 16px;border-right:1px solid var(--line)}
+.stat b{display:block;font:300 26px var(--mono);letter-spacing:-.01em}.stat span{color:var(--dim);font:11px var(--mono)}.stat span::before{content:"# "}
+details{background:var(--panel);border:1px solid var(--line);margin-bottom:10px}summary{cursor:pointer;padding:12px 16px;font-weight:500}
 iframe{width:100%;height:640px;border:0;background:#fff}img{max-width:100%;border:1px solid var(--line)}
-.met{color:var(--good)}.unmet{color:var(--bad)}code{font-family:ui-monospace,monospace}
+.met{color:var(--good)}.unmet{color:var(--bad)}code{font-family:var(--mono)}
 </style></head><body><main>%2<p class="tag" style="margin-top:40px">Exported from Fireteam</p></main></body></html>
 )").arg(escape(title), body);
 }

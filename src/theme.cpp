@@ -9,6 +9,7 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <algorithm>
 #include <cmath>
 
 Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
@@ -79,6 +80,48 @@ QString Theme::accentForeground() const {
     auto linear = [](double v) { return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4); };
     const double luminance = .2126 * linear(c.redF()) + .7152 * linear(c.greenF()) + .0722 * linear(c.blueF());
     return luminance > .179 ? "black" : "white";
+}
+
+// The accent's hue in OKLCH, and whether it has one at all: a grey or white
+// accent tints nothing.
+static void accentHue(const QString &accent, double *hue, double *chroma) {
+    const QColor c(accent);
+    auto linear = [](double v) { return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4); };
+    const double r = linear(c.redF()), g = linear(c.greenF()), b = linear(c.blueF());
+    const double l = std::cbrt(.4122214708 * r + .5363325363 * g + .0514459929 * b);
+    const double m = std::cbrt(.2119034982 * r + .6806995451 * g + .1073969566 * b);
+    const double s = std::cbrt(.0883024619 * r + .2817188376 * g + .6299787005 * b);
+    const double A = 1.9779984951 * l - 2.4285922050 * m + .4505937099 * s;
+    const double B = .0259040371 * l + .7827717662 * m - .8086757660 * s;
+    *chroma = std::hypot(A, B);
+    *hue = std::atan2(B, A) * 180 / M_PI;
+}
+
+QString Theme::oklch(double lightness, double chroma, double hue) {
+    const double L = lightness / 100, a = chroma * std::cos(hue * M_PI / 180), b = chroma * std::sin(hue * M_PI / 180);
+    const double l = std::pow(L + .3963377774 * a + .2158037573 * b, 3);
+    const double m = std::pow(L - .1055613458 * a - .0638541728 * b, 3);
+    const double s = std::pow(L - .0894841775 * a - 1.2914855480 * b, 3);
+    auto gamma = [](double v) {
+        v = std::clamp(v, 0.0, 1.0);
+        return v <= .0031308 ? 12.92 * v : 1.055 * std::pow(v, 1 / 2.4) - .055;
+    };
+    return QColor::fromRgbF(gamma(4.0767416621 * l - 3.3077115913 * m + .2309699292 * s),
+                            gamma(-1.2684380046 * l + 2.6097574011 * m - .3413193965 * s),
+                            gamma(-.0041960863 * l - .7034186147 * m + 1.7076147010 * s)).name();
+}
+
+QString Theme::tint(double lightness, double chroma) const {
+    double hue = 0, accentChroma = 0;
+    accentHue(m_accent, &hue, &accentChroma);
+    return oklch(lightness, accentChroma < .03 ? 0 : chroma, hue);
+}
+
+// What's added or selected: a dim wash of the accent over the ground.
+QString Theme::wash() const {
+    double hue = 0, accentChroma = 0;
+    accentHue(m_accent, &hue, &accentChroma);
+    return oklch(20, std::min(accentChroma * .25, .045), hue);
 }
 
 void Theme::reload() {

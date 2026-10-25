@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 
-// One slanted segment per cycle: filled when done, pulsing while in action.
+// One square segment per cycle: filled when done, pulsing while in action.
 RowLayout {
     id: track
     property int cycles: 1
@@ -9,7 +9,7 @@ RowLayout {
     property bool live: false
     property int segmentHeight: 14
     property bool labels: true
-    spacing: 4
+    spacing: 3
 
     Repeater {
         model: track.cycles
@@ -24,11 +24,8 @@ RowLayout {
                 Rectangle {
                     id: segment
                     anchors.fill: parent
-                    antialiasing: true
                     readonly property bool current: track.live && index === track.done
-                    color: index < track.done ? theme.accent : current ? theme.accent : Qt.rgba(1, 1, 1, 0.07)
-                    border.color: index < track.done ? "transparent" : Qt.rgba(1, 1, 1, 0.12)
-                    transform: Matrix4x4 { matrix: Qt.matrix4x4(1, -0.6, 0, track.segmentHeight * 0.3, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) }
+                    color: index < track.done || current ? theme.accent : Style.line
                     SequentialAnimation on opacity {
                         running: segment.current
                         loops: Animation.Infinite
@@ -41,8 +38,9 @@ RowLayout {
             Text {
                 visible: track.labels
                 text: Style.pad(index + 1)
-                color: index < track.done ? Style.text : Style.faint
+                color: index < track.done ? Style.text2 : Style.faint
                 font.family: Style.mono
+                font.variableAxes: Style.narrow
                 font.pixelSize: 10
             }
         }

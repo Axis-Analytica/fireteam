@@ -3,51 +3,117 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#05070a">
+<meta name="theme-color" content="#121110">
 <title>Fireteam · Field terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Martian+Mono:wdth,wght@87.5..112.5,100..800&family=Red+Hat+Text:wght@400;500;600&display=swap">
 <style>
-:root{--bg:#05070a;--panel:#0b0e12;--line:#1d2329;--text:#ebe9e4;--dim:#858b91;--faint:#3b4248;--accent:#ffd60a;--ink:#05070a;--danger:#ff4f45;--good:#86e07d;--amber:#e9b44c}
+/* The same tokens as the app: a near-black ground and pale ink in a few
+   lightness steps, tinted toward the accent's hue, and the accent as the one
+   signal colour. The hex values are the fallback for the default yellow. */
+:root{
+  --accent:#ffd60a;
+  --bg:#121110;--panel:#1a1917;--raised:#252321;--line:#2c2a27;--line-strong:#43403b;
+  --text:#ecebe7;--text2:#c4c1bb;--dim:#8f8c86;--faint:#625f5a;--wash:#2a2412;--ink:#121110;
+  --danger:#f0605a;--good:#7ccf8a;--amber:#e6b85c;
+  --mono:"Martian Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --body:"Red Hat Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+@supports (color: oklch(from red l c h)){
+  :root{
+    --bg:oklch(from var(--accent) .125 min(c, .012) h);
+    --panel:oklch(from var(--accent) .16 min(c, .015) h);
+    --raised:oklch(from var(--accent) .205 min(c, .018) h);
+    --line:oklch(from var(--accent) .26 min(c, .018) h);
+    --line-strong:oklch(from var(--accent) .36 min(c, .024) h);
+    --text:oklch(from var(--accent) .94 min(c, .012) h);
+    --text2:oklch(from var(--accent) .82 min(c, .016) h);
+    --dim:oklch(from var(--accent) .64 min(c, .02) h);
+    --faint:oklch(from var(--accent) .46 min(c, .02) h);
+    --wash:oklch(from var(--accent) .22 min(calc(c * .3), .06) h);
+    /* Dark ink on a light accent, pale ink on a dark one. */
+    --ink:oklch(from var(--accent) clamp(.125, calc((.62 - l) * 1000), .97) min(c, .012) h);
+  }
+}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-text-size-adjust:100%}
+html,body{margin:0;background:var(--bg);color:var(--text2);font:400 15px/1.5 var(--body);-webkit-text-size-adjust:100%}
 body{padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom));max-width:720px;margin:0 auto}
-header{display:flex;align-items:center;gap:12px;margin-bottom:18px}
-header .bar{width:5px;height:42px;background:var(--accent)}
-h1{margin:0;font-size:26px;font-weight:900;letter-spacing:.24em}
-.tag{font:12px ui-monospace,monospace;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
-.link{margin-left:auto;text-align:right}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--faint);margin-right:6px}
+button{cursor:pointer}
+
+/* Header: the wordmark as the app prints it, the link's state at the end. */
+header{display:flex;align-items:flex-start;gap:12px;padding:4px 0 16px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+header .bar{width:6px;height:6px;background:var(--accent);margin-top:11px;flex:none}
+h1{margin:0;font:500 24px/1.15 var(--mono);font-stretch:112.5%;letter-spacing:-.5px;color:var(--text)}
+.tag{font:400 13px/1.4 var(--body);color:var(--dim)}
+.link{margin-left:auto;text-align:right;font:400 11px/1.4 var(--mono);font-stretch:87.5%;padding-top:7px;white-space:nowrap}
+.dot{display:inline-block;width:6px;height:6px;background:var(--faint);margin-right:7px;vertical-align:1px}
 .dot.on{background:var(--good)}
-.card{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--faint);color:inherit;padding:12px 14px;margin:0 0 10px;font:inherit;border-radius:4px}
-.card.deployed{border-left-color:var(--accent)}
-.card.waiting{border-left-color:var(--danger);box-shadow:0 0 0 1px var(--danger) inset}
-.card .name{font-weight:900;letter-spacing:.12em;font-size:17px}
-.card .meta{font:12px ui-monospace,monospace;color:var(--dim);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.badge{font:11px ui-monospace,monospace;font-weight:700;letter-spacing:.08em;padding:2px 6px;border-radius:3px;margin-left:8px;vertical-align:2px}
-.badge.red{background:var(--danger);color:var(--ink)}
-.badge.amber{background:var(--amber);color:var(--ink)}
-.progress{height:4px;background:var(--line);margin-top:8px;border-radius:2px;overflow:hidden}
+
+/* An operation on the board: a raised row, its state as a square. */
+.card{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--line);color:inherit;padding:12px 14px 13px;margin:0 0 8px;font:inherit;border-radius:0;position:relative}
+.card:active{background:var(--raised)}
+@media (hover:hover){.card:hover{background:var(--raised)}}
+.card.waiting{border-color:var(--danger)}
+.card.waiting::before{content:"";position:absolute;left:-1px;top:-1px;bottom:-1px;width:2px;background:var(--danger)}
+.card .name{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font:500 17px/1.3 var(--mono);font-stretch:112.5%;letter-spacing:-.3px;color:var(--text)}
+.card .name::before{content:"";width:7px;height:7px;flex:none;background:var(--faint)}
+.card.deployed .name::before{background:var(--accent)}
+.card.complete .name::before{background:var(--good)}
+.card.failed .name::before,.card.aborted .name::before{background:var(--danger)}
+.card.held .name::before,.card.interrupted .name::before,.card.pinned .name::before{background:var(--amber)}
+.card .meta{font:400 12px/1.45 var(--mono);font-stretch:87.5%;color:var(--dim);margin-top:4px;padding-left:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .progress{margin-left:17px}
+.badge{display:inline-flex;align-items:center;gap:7px;font:500 12px/1 var(--body);letter-spacing:0;color:var(--text2);background:var(--bg);border:1px solid var(--line);padding:5px 8px}
+.badge::before{content:"";width:6px;height:6px}
+.badge.red{border-color:var(--danger);color:var(--text)}
+.badge.red::before{background:var(--danger)}
+.badge.amber::before{background:var(--amber)}
+.progress{height:3px;background:var(--line);margin-top:10px}
 .progress i{display:block;height:100%;background:var(--accent)}
-h2{font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--dim);margin:22px 0 8px;border-left:3px solid var(--accent);padding-left:8px}
-.back{background:none;border:0;color:var(--accent);font:600 14px system-ui;letter-spacing:.15em;text-transform:uppercase;padding:6px 0;margin-bottom:6px}
-.big{font-size:30px;font-weight:900;letter-spacing:.14em;margin:0}
-.box{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:12px 14px;margin-bottom:10px}
+
+/* Section heads: a small accent square, the name, a hairline to the end. */
+h2{display:flex;align-items:center;gap:10px;font:500 13px/1.3 var(--body);color:var(--text2);margin:24px 0 10px}
+h2::before{content:"";width:5px;height:5px;background:var(--accent);flex:none}
+h2::after{content:"";flex:1;height:1px;background:var(--line)}
+
+.back{background:none;border:0;color:var(--dim);font:500 14px var(--body);padding:8px 0;margin:0 0 6px}
+.back:active{color:var(--text)}
+@media (hover:hover){.back:hover{color:var(--text)}}
+#main > .tag{font:400 12px/1.5 var(--mono);font-stretch:87.5%}
+.big{font:500 28px/1.15 var(--mono);font-stretch:112.5%;letter-spacing:-.8px;color:var(--text);margin:6px 0 10px;overflow-wrap:anywhere}
+.box{background:var(--panel);border:1px solid var(--line);padding:12px 14px;margin-bottom:8px;color:var(--text2);position:relative;overflow-wrap:anywhere}
+.box.red,.box.amber{color:var(--text)}
+.box.red::before,.box.amber::before{content:"";position:absolute;left:-1px;top:-1px;bottom:-1px;width:2px;background:var(--danger)}
+.box.amber::before{background:var(--amber)}
 .box.red{border-color:var(--danger)}
-.box.amber{border-color:var(--amber)}
-.comms{font:12px/1.5 ui-monospace,monospace;max-height:340px;overflow:auto}
-.comms div{margin-bottom:4px;word-break:break-word}
-.comms b{display:inline-block;width:62px;color:var(--dim)}
+.comms{background:var(--bg);font:400 12px/1.55 var(--mono);font-stretch:87.5%;max-height:340px;overflow:auto;color:var(--text2)}
+.comms div{margin-bottom:3px;word-break:break-word}
+.comms b{display:inline-block;width:64px;color:var(--dim);font-weight:560}
+.k-say{color:var(--text)}.k-sys{color:var(--dim)}
 .k-tool b,.k-report b{color:var(--accent)}.k-error b,.k-ask b{color:var(--danger)}.k-cmd b,.k-denied b{color:var(--amber)}.k-result b,.k-review b{color:var(--good)}
-.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-button.act{flex:1 1 auto;min-height:44px;background:transparent;color:var(--text);border:1px solid #ffffff33;border-radius:4px;font:800 13px system-ui;letter-spacing:.14em;text-transform:uppercase;padding:10px 14px}
+.k-error,.k-ask{color:var(--danger)}
+
+/* Keys as the app draws them: square, a firm border, the primary in the accent. */
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.row > input{flex:1 1 180px;width:auto}
+button.act{flex:1 1 auto;min-height:44px;background:var(--panel);color:var(--text);border:1px solid var(--line-strong);border-radius:0;font:600 14px/1.2 var(--body);letter-spacing:0;padding:10px 16px}
+button.act:active{background:var(--raised)}
+@media (hover:hover){button.act:hover{background:var(--raised);border-color:var(--text2)}}
 button.act.primary{background:var(--accent);color:var(--ink);border-color:var(--accent)}
-button.act.danger{color:var(--danger);border-color:var(--danger)}
-button.act:disabled{opacity:.35}
-textarea,input{width:100%;background:#000;color:var(--text);border:1px solid var(--line);border-radius:4px;padding:10px;font:15px system-ui}
-textarea{min-height:76px;resize:vertical}
-.mono{font-family:ui-monospace,monospace;font-size:13px}
-.empty{color:var(--faint);text-align:center;padding:40px 0;letter-spacing:.2em;text-transform:uppercase;font-size:13px}
-.criteria div{margin:4px 0}.met{color:var(--good)}.unmet{color:var(--danger)}.claimed{color:var(--amber)}
-.toast{position:fixed;left:16px;right:16px;bottom:max(16px,env(safe-area-inset-bottom));background:var(--panel);border:1px solid var(--accent);padding:12px;border-radius:4px;display:none}
+button.act.danger{color:var(--danger)}
+@media (hover:hover){button.act.danger:hover{border-color:var(--danger)}}
+button.act:disabled{opacity:.4}
+textarea,input{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line-strong);border-radius:0;padding:11px 12px;font:400 16px/1.4 var(--body);outline:none}
+textarea:focus,input:focus{border-color:var(--accent)}
+textarea::placeholder,input::placeholder{color:var(--faint)}
+textarea{min-height:84px;resize:vertical;display:block}
+.mono{font-family:var(--mono);font-stretch:87.5%;font-size:12px;line-height:1.55}
+.box.mono{color:var(--text2)}
+.empty{color:var(--dim);text-align:center;padding:56px 12px;font:400 14px/1.5 var(--body)}
+.criteria div{margin:4px 0}
+.met{color:var(--good)}.unmet{color:var(--danger)}.claimed{color:var(--amber)}
+.toast{position:fixed;left:16px;right:16px;bottom:max(16px,env(safe-area-inset-bottom));background:var(--panel);color:var(--text);border:1px solid var(--line-strong);border-left:2px solid var(--accent);padding:12px 14px;font:500 14px var(--body);display:none;max-width:688px;margin:0 auto}
 </style>
 </head>
 <body>
@@ -95,6 +161,11 @@ function toast(text) {
 const label = s => ({ deployed: "Deployed", complete: "Complete", failed: "Failed", aborted: "Aborted", held: "Holding",
   staged: "Staged", pinned: "Pinned down", interrupted: "Interrupted" })[s] || "Standby";
 
+function setAccent(accent) {
+  if (/^#[0-9a-f]{6}$/i.test(accent || "")) document.documentElement.style.setProperty("--accent", accent);
+}
+// An operation opened straight from a link still takes the accent.
+api("/api/state").then(state => setAccent(state.accent)).catch(() => {});
 async function render() {
   if (!token) { main.replaceChildren(el("div", { class: "empty" }, "Scan the pairing code in Fireteam (P) to connect.")); return }
   try { current ? await renderOp(current) : await renderList() }
@@ -102,16 +173,17 @@ async function render() {
 }
 async function renderList() {
   const state = await api("/api/state");
+  setAccent(state.accent);
   document.getElementById("squad").textContent = state.deployed + " / " + (state.maxDeployed || "∞") + " deployed";
   if (!state.operations.length) { main.replaceChildren(el("div", { class: "empty" }, "No operations on the board")); return }
   main.replaceChildren(...state.operations.map(op => {
     const waiting = op.waiting > 0;
     return el("button", { class: "card " + op.status + (waiting ? " waiting" : ""), onclick: () => { current = op.id; render() } },
       el("div", { class: "name" }, op.codename,
-        waiting ? el("span", { class: "badge red" }, "WAITING ON YOU") : null,
-        op.requests ? el("span", { class: "badge amber" }, op.requests + " TO APPROVE") : null),
+        waiting ? el("span", { class: "badge red" }, "Waiting on you") : null,
+        op.requests ? el("span", { class: "badge amber" }, op.requests + " to approve") : null),
       el("div", { class: "meta" }, op.status === "deployed" && op.activity ? "▸ " + op.activity
-        : label(op.status).toUpperCase() + " · cycle " + op.cyclesDone + "/" + op.cycles + " · ≈$" + op.cost.toFixed(2)),
+        : label(op.status) + " · cycle " + op.cyclesDone + "/" + op.cycles + " · ≈$" + op.cost.toFixed(2)),
       op.status === "deployed" && op.progress >= 0 ? el("div", { class: "progress" }, el("i", { style: "width:" + op.progress + "%" })) : null);
   }));
 }
@@ -144,14 +216,14 @@ async function renderOp(id) {
     el("div", { class: c.state }, (c.state === "met" ? "● " : c.state === "unmet" ? "✕ " : c.state === "claimed" ? "◐ " : "○ ") + c.text))));
   if (op.gates) parts.push(el("h2", {}, "Gates"), el("div", { class: "box mono" }, ...op.gates.map(g => el("div", { class: g.passed ? "met" : "unmet" }, (g.passed ? "✓ " : "✕ ") + g.name + "  " + g.command))));
   if (op.sitrep) parts.push(el("h2", {}, "Sitrep"), el("div", { class: "box" }, op.sitrep));
-  if (op.review) parts.push(el("h2", {}, "Overwatch"), el("div", { class: "box" }, String(op.review.grade).toUpperCase() + " · " + op.review.summary));
+  if (op.review) parts.push(el("h2", {}, "Overwatch"), el("div", { class: "box" }, String(op.review.grade).replace(/^./, ch => ch.toUpperCase()).replace("-", " ") + " · " + op.review.summary));
   const order = el("textarea", { placeholder: "Orders for the next cycle" });
   parts.push(el("h2", {}, "Orders"), order, el("div", { class: "row" },
     el("button", { class: "act primary", onclick: async () => { if (order.value.trim()) { await act("order", { text: order.value }); toast("Orders queued.") } } }, "Send orders"),
     op.status === "deployed" ? el("button", { class: "act", onclick: () => act("hold") }, op.hold ? "Lift hold" : "Hold") : null,
     op.status === "held" ? el("button", { class: "act primary", onclick: () => act("resume") }, "Resume") : null,
     ["deployed", "staged", "pinned"].includes(op.status) ? el("button", { class: "act danger", onclick: () => confirm("Abort " + op.codename + "?") && act("abort") }, "Abort") : null));
-  parts.push(el("h2", {}, "Comms"), el("div", { class: "box comms" }, ...op.comms.map(c => el("div", { class: "k-" + c.kind }, el("b", {}, c.kind.toUpperCase()), c.text))));
+  parts.push(el("h2", {}, "Comms"), el("div", { class: "box comms" }, ...op.comms.map(c => el("div", { class: "k-" + c.kind }, el("b", {}, c.kind), c.text))));
   main.replaceChildren(...parts);
   const comms = main.querySelector(".comms"); if (comms) comms.scrollTop = comms.scrollHeight;
 }

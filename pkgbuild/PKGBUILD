@@ -3,7 +3,7 @@ pkgver=0.4.0
 pkgrel=1
 pkgdesc='Base camp for running Claude Code agents through development cycles, with HTML debriefs'
 arch=('x86_64' 'aarch64')
-license=('MIT')
+license=('MIT' 'OFL-1.1')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'qt6-svg' 'qt6-multimedia' 'xdg-desktop-portal' 'git')
 optdepends=('claude-code: the agents themselves (any install of the claude command works)'
             'chromium: preview screenshots'
@@ -21,6 +21,8 @@ package() {
   cd "$startdir/.."
   install -Dm755 build/fireteam "$pkgdir/usr/bin/fireteam"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 src/fonts/OFL-MartianMono.txt "$pkgdir/usr/share/licenses/$pkgname/OFL-MartianMono.txt"
+  install -Dm644 src/fonts/OFL-RedHat.txt "$pkgdir/usr/share/licenses/$pkgname/OFL-RedHat.txt"
   install -Dm644 "$startdir/fireteam.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/fireteam.svg"
   install -Dm644 "$startdir/fireteam.desktop" "$pkgdir/usr/share/applications/fireteam.desktop"
 }

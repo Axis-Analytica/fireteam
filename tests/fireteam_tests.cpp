@@ -1228,6 +1228,34 @@ private slots:
         QCOMPARE(theme.accentForeground(), QString("white"));
     }
 
+    void themeTintsTheGroundTowardTheAccent()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("theme");
+        auto accent = [&](const QByteArray &hex) {
+            QFile colors(dir.path() + "/theme/colors.toml");
+            colors.open(QIODevice::WriteOnly);
+            colors.write("accent = \"" + hex + "\"\n");
+        };
+        // OKLCH round trip: pure white and black come back exactly.
+        QCOMPARE(Theme::oklch(100, 0, 0), QString("#ffffff"));
+        QCOMPARE(Theme::oklch(0, 0, 0), QString("#000000"));
+
+        accent("#33ff66");
+        Theme green(dir.path());
+        const QColor ground(green.paper());
+        QVERIFY(ground.lightness() < 40);
+        QVERIFY(ground.green() > ground.red() && ground.green() > ground.blue());
+        QVERIFY(QColor(green.ink()).lightness() > 220);
+
+        // A grey accent has no hue to lend: the ground stays neutral.
+        accent("#888888");
+        Theme grey(dir.path());
+        const QColor neutral(grey.paper());
+        QCOMPARE(neutral.red(), neutral.green());
+        QCOMPARE(neutral.green(), neutral.blue());
+    }
+
     void themeFollowsHyprlandRounding()
     {
         QTemporaryDir dir;

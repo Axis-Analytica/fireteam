@@ -248,8 +248,8 @@
   "Queue for next cycle": "Mettre en file pour le prochain cycle",
   "Transmit": "Transmettre",
   "⚠ Awaiting authorisation · %1": "⚠ En attente d'autorisation · %1",
-  "STAGED · #%1 in queue · cycle %2/%3": "EN FILE · #%1 dans la file · cycle %2/%3",
-  "PINNED DOWN · resumes %1": "CLOUÉE AU SOL · reprise à %1",
+  "Staged · #%1 in queue · cycle %2/%3": "En file · #%1 dans la file · cycle %2/%3",
+  "Pinned down · resumes %1": "Clouée au sol · reprise à %1",
   "%1 · cycle %2/%3 · ctx %4 · ≈$%5": "%1 · cycle %2/%3 · ctx %4 · ≈%5 $",
   "Holding next": "Pause ensuite",
   "%1h %2m": "%1 h %2 min",
@@ -285,7 +285,6 @@
   "No cycles in the last eight weeks": "Aucun cycle ces huit dernières semaines",
   "Busiest projects": "Projets les plus actifs",
   "cycles run": "cycles exécutés",
-  "%1 · %2": "%1 · %2",
   "No operations yet.": "Aucune opération pour l'instant.",
   "Overwatch verdicts": "Verdicts de la surveillance",
   "Deployed": "Déployée",
@@ -634,5 +633,7 @@
   "passed": "réussi",
   "FAILED": "ÉCHOUÉ",
   "%1: %2 of %3 gates failed": "%1 : %2 contrôles sur %3 en échec",
-  "The next cycle is told to fix them.": "Le cycle suivant a ordre de les corriger."
+  "The next cycle is told to fix them.": "Le cycle suivant a ordre de les corriger.",
+  "The project has checks now; gates from here on: %1": "Le projet a maintenant des vérifications ; portes désormais : %1",
+  "The working directory %1 doesn't exist.": "Le dossier de travail %1 n’existe pas."
 }

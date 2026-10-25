@@ -238,8 +238,8 @@
   "Queue for next cycle": "次のサイクルにキュー",
   "Transmit": "送信",
   "⚠ Awaiting authorisation · %1": "⚠ 承認待ち · %1",
-  "STAGED · #%1 in queue · cycle %2/%3": "出撃待ち · キュー #%1 · サイクル %2/%3",
-  "PINNED DOWN · resumes %1": "釘付け · %1 に再開",
+  "Staged · #%1 in queue · cycle %2/%3": "出撃待ち · キュー #%1 · サイクル %2/%3",
+  "Pinned down · resumes %1": "釘付け · %1 に再開",
   "%1 · cycle %2/%3 · ctx %4 · ≈$%5": "%1 · サイクル %2/%3 · ctx %4 · ≈$%5",
   "Holding next": "次で一時停止",
   "%1h %2m": "%1時間%2分",
@@ -269,7 +269,6 @@
   "No cycles in the last eight weeks": "直近 8 週間にサイクルはありません",
   "Busiest projects": "稼働の多いプロジェクト",
   "cycles run": "実行サイクル",
-  "%1 · %2": "%1 · %2",
   "No operations yet.": "作戦はまだありません。",
   "Overwatch verdicts": "オーバーウォッチ判定",
   "Deployed": "展開中",
@@ -592,5 +591,7 @@
   "passed": "合格",
   "FAILED": "不合格",
   "%1: %2 of %3 gates failed": "%1: ゲート %3 件中 %2 件が不合格",
-  "The next cycle is told to fix them.": "次のサイクルで修正するよう指示します。"
+  "The next cycle is told to fix them.": "次のサイクルで修正するよう指示します。",
+  "The project has checks now; gates from here on: %1": "プロジェクトにチェックができました。以降のゲート: %1",
+  "The working directory %1 doesn't exist.": "作業ディレクトリ %1 が存在しません。"
 }

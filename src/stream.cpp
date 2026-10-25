@@ -283,8 +283,11 @@ QString cyclePrompt(const QString &codename, const QString &objective, int cycle
     return QString("OPERATION %1, CYCLE %2 OF %3\n\nOBJECTIVE:\n%4\n\nORDERS:\n%5\n\n"
                    "When this cycle's work is done, write a debrief as one self-contained HTML file to:\n%6\n"
                    "Cover what was done this cycle, the files changed, how it was verified, problems found, and "
-                   "the plan for the next cycle. Use inline CSS only with a dark background, and no external "
-                   "resources. End with a two-sentence plain-text summary as your final reply.")
+                   "the plan for the next cycle. Use inline CSS only and no external resources, styled like Fireteam: "
+                   "a near-black ground (#0f100e) with raised panels (#161714), 1px hairlines (#2a2b27), pale ink "
+                   "(#ecebe6) and muted text (#93948d), one accent (#ffd60a) used sparingly; headings, figures and code "
+                   "in a monospace stack, prose in a sans stack; square corners, no shadows or gradients, sentence "
+                   "case. End with a two-sentence plain-text summary as your final reply.")
         .arg(codename).arg(cycle).arg(cycles).arg(objective, orders, reportPath);
 }
 
@@ -319,14 +322,15 @@ static QString page(const QString &title, const QString &body) {
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>%1</title>
 <style>
-body{margin:0;background:#07090b;color:#e8e6e1;font:15px/1.6 system-ui,sans-serif}
-main{max-width:860px;margin:0 auto;padding:40px 20px}
-h1{font-size:34px;letter-spacing:.12em;text-transform:uppercase;margin:0}
-h2{font-size:13px;letter-spacing:.3em;text-transform:uppercase;color:#f97316;margin:32px 0 8px}
-.tag{font:12px ui-monospace,monospace;letter-spacing:.2em;color:#8b8f94;text-transform:uppercase}
-.panel{background:#0f1215;border:1px solid #1f2428;border-left:3px solid #f97316;padding:14px 18px;white-space:pre-wrap}
-ul{font:13px/1.7 ui-monospace,monospace;color:#c4c2bd;padding-left:18px}
-a{color:#f97316}
+body{margin:0;background:#0f100e;color:#ecebe6;font:15px/1.6 "Red Hat Text",system-ui,sans-serif}
+main{max-width:860px;margin:0 auto;padding:48px 20px}
+h1{font:500 34px/1.1 "Martian Mono",ui-monospace,monospace;letter-spacing:-.02em;margin:0}
+h2{font:500 14px "Red Hat Text",system-ui,sans-serif;color:#c9c8c1;margin:36px 0 10px;padding-bottom:6px;border-bottom:1px solid #2a2b27}
+h2::before{content:"";display:inline-block;width:5px;height:5px;background:#ffd60a;margin-right:10px;vertical-align:middle}
+.tag{font:12px ui-monospace,monospace;color:#93948d}
+.panel{background:#161714;border:1px solid #2a2b27;border-left:2px solid #ffd60a;padding:14px 18px;white-space:pre-wrap}
+ul{font:13px/1.7 "Martian Mono",ui-monospace,monospace;color:#c9c8c1;padding-left:18px}
+a{color:#ffd60a}
 </style></head><body><main>%2</main></body></html>
 )").arg(title.toHtmlEscaped(), body);
 }

@@ -2,21 +2,37 @@ pragma Singleton
 import QtQuick
 
 QtObject {
-    readonly property color bg: "#05070a"
-    readonly property color panel: "#0b0e12"
-    readonly property color line: "#1d2329"
-    readonly property color text: "#ebe9e4"
-    readonly property color dim: "#858b91"
-    readonly property color faint: "#3b4248"
-    readonly property color danger: "#ff4f45"
-    readonly property color good: "#86e07d"
-    readonly property color amber: "#e9b44c"
+    // The ground and ink follow the Omarchy accent's hue (see Theme): a near-
+    // black ground in three lightness steps, pale ink, one signal colour.
+    readonly property color bg: theme.paper
+    readonly property color panel: theme.paper2
+    readonly property color raised: theme.paper3
+    readonly property color line: theme.rule
+    readonly property color lineStrong: theme.rule2
+    readonly property color text: theme.ink
+    readonly property color text2: theme.ink2
+    readonly property color dim: theme.muted
+    readonly property color faint: theme.faint
+    readonly property color wash: theme.wash
+    // States, kept few and quiet beside the accent.
+    readonly property color danger: "#f0605a"
+    readonly property color good: "#7ccf8a"
+    readonly property color amber: "#e6b85c"
 
-    readonly property string display: "Adwaita Sans"
-    readonly property string mono: "GeistMono Nerd Font"
+    // Martian Mono for callsigns, figures and anything typed; Red Hat for
+    // reading. Wide heads, narrow text.
+    readonly property string mono: "Martian Mono"
+    readonly property string display: "Red Hat Display"
+    readonly property string body: "Red Hat Text"
+    // Martian Mono's width and weight are axes of one variable font, and Qt
+    // sets them through variableAxes (font.weight alone doesn't move them).
+    readonly property var wide: ({ "wdth": 112.5, "wght": 500 })
+    readonly property var figure: ({ "wdth": 112.5, "wght": 300 })
+    readonly property var narrow: ({ "wdth": 87.5, "wght": 400 })
+    readonly property var narrowMedium: ({ "wdth": 87.5, "wght": 560 })
 
-    // The tactical letter-spacing, which would pull apart the joined letters
-    // of right-to-left scripts like Arabic, so it's off for them.
+    // Letter-spacing for the few tracked labels left, off for right-to-left
+    // scripts, whose joined letters it would pull apart.
     readonly property real tracking: Qt.application.layoutDirection === Qt.RightToLeft ? 0 : 1
 
     function statusColor(status, accent) {

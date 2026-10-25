@@ -243,8 +243,8 @@
   "Queue for next cycle": "Sæt i kø til næste cyklus",
   "Transmit": "Afsend",
   "⚠ Awaiting authorisation · %1": "⚠ Afventer godkendelse · %1",
-  "STAGED · #%1 in queue · cycle %2/%3": "OPSTILLET · #%1 i kø · cyklus %2/%3",
-  "PINNED DOWN · resumes %1": "HOLDT NEDE · fortsætter %1",
+  "Staged · #%1 in queue · cycle %2/%3": "Opstillet · #%1 i kø · cyklus %2/%3",
+  "Pinned down · resumes %1": "Holdt nede · fortsætter %1",
   "%1 · cycle %2/%3 · ctx %4 · ≈$%5": "%1 · cyklus %2/%3 · ktx %4 · ≈$%5",
   "Holding next": "Standser næste",
   "%1h %2m": "%1 t %2 min",
@@ -277,7 +277,6 @@
   "No cycles in the last eight weeks": "Ingen cyklusser de seneste otte uger",
   "Busiest projects": "Travleste projekter",
   "cycles run": "kørte cyklusser",
-  "%1 · %2": "%1 · %2",
   "No operations yet.": "Ingen operationer endnu.",
   "Overwatch verdicts": "Overwatch-vurderinger",
   "Deployed": "Udsendt",
@@ -613,5 +612,7 @@
   "◉ %n on link": {
     "one": "◉ %n forbundet",
     "other": "◉ %n forbundet"
-  }
+  },
+  "The project has checks now; gates from here on: %1": "Projektet har nu tjek; porte fra nu af: %1",
+  "The working directory %1 doesn't exist.": "Arbejdsmappen %1 findes ikke."
 }

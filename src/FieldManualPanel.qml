@@ -51,7 +51,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.8)
+        color: Qt.rgba(Style.bg.r, Style.bg.g, Style.bg.b, 0.86)
         // A MouseArea, unlike a TapHandler, stops the click here.
         MouseArea { anchors.fill: parent; onClicked: panel.close() }
     }
@@ -60,201 +60,257 @@ Item {
         id: sheet
         anchors.centerIn: parent
         width: Math.min(880, parent.width - 48)
-        height: Math.min(column.implicitHeight + 64, parent.height - 48)
-        color: Qt.rgba(0.04, 0.05, 0.065, 0.97)
-        border.color: Style.line
+        height: Math.min(layout.implicitHeight + 2 * layout.anchors.margins, parent.height - 48)
+        color: Style.panel
+        border.color: Style.lineStrong
         radius: theme.radius
         // Clicks on the panel itself mustn't reach the dismissing backdrop.
         MouseArea { anchors.fill: parent }
-        Rectangle { width: parent.width; height: 3; color: theme.accent }
+        Brackets { anchors.fill: parent; anchors.margins: -1; size: 12 }
 
         ParallelAnimation {
             id: enter
-            NumberAnimation { target: sheet; property: "opacity"; from: 0; to: 1; duration: 160 }
-            NumberAnimation { target: sheet; property: "scale"; from: 0.97; to: 1; duration: 220; easing.type: Easing.OutCubic }
+            NumberAnimation { target: sheet; property: "opacity"; from: 0; to: 1; duration: 140 }
+            NumberAnimation { target: sheet; property: "anchors.verticalCenterOffset"; from: 8; to: 0; duration: 140; easing.type: Easing.OutCubic }
         }
 
-        ScrollView {
+        ColumnLayout {
+            id: layout
             anchors.fill: parent
-            anchors.margins: 32
-            contentWidth: availableWidth
-            clip: true
+            anchors.margins: 28
+            spacing: 16
 
+            // Eyebrow, title and what the manual is.
             ColumnLayout {
-                id: column
-                width: parent.width
+                Layout.fillWidth: true
+                spacing: 4
+                Text {
+                    Layout.fillWidth: true
+                    text: "# " + qsTr("Institutional memory").toLowerCase()
+                    elide: Text.ElideRight
+                    color: Style.dim
+                    font.family: Style.mono
+                    font.variableAxes: Style.narrow
+                    font.pixelSize: 11
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Field manual")
+                    elide: Text.ElideRight
+                    color: Style.text
+                    font.family: Style.display
+                    font.pixelSize: 28
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: -0.6
+                }
+                Text {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
+                    text: qsTr("What operations learned about a project, kept by Fireteam (not in the project) and given to every new session that works there.")
+                    wrapMode: Text.Wrap
+                    color: Style.text2
+                    font.family: Style.body
+                    font.pixelSize: 13
+                    lineHeight: 1.15
+                }
+            }
+
+            // Which project, and whether finished operations add to it.
+            RowLayout {
+                Layout.fillWidth: true
                 spacing: 12
+                ComboBox {
+                    id: projects
+                    Layout.fillWidth: true
+                    Material.background: Style.bg
+                    font.family: Style.mono
+                    font.variableAxes: Style.narrow
+                    font.pixelSize: 12
+                    onActivated: (index) => { panel.project = model[index]; panel.refresh() }
+                }
+                Switch {
+                    checked: ops.afterAction
+                    onToggled: ops.afterAction = checked
+                }
+                Text {
+                    text: qsTr("After-action reviews")
+                    color: Style.text2
+                    font.family: Style.body
+                    font.pixelSize: 13
+                    font.weight: Font.Medium
+                    ToolTip.visible: reviewHover.hovered
+                    ToolTip.text: qsTr("After each finished operation, a short read-only haiku session adds what it learned.")
+                    HoverHandler { id: reviewHover }
+                }
+            }
+
+            ScrollView {
+                id: scroller
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.preferredHeight: column.implicitHeight
+                Layout.minimumHeight: Math.min(column.implicitHeight, 96)
+                contentWidth: availableWidth
+                clip: true
 
                 ColumnLayout {
-                    spacing: 2
+                    id: column
+                    width: scroller.availableWidth
+                    spacing: 0
+
+                    Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Style.lineStrong }
                     Text {
-                        text: qsTr("Institutional memory")
-                        color: theme.accent
-                        font.family: Style.mono
-                        font.pixelSize: 11
-                        font.letterSpacing: 4 * Style.tracking
-                        font.capitalization: Font.AllUppercase
-                    }
-                    Text {
-                        text: qsTr("Field manual")
-                        color: Style.text
-                        font.family: Style.display
-                        font.pixelSize: 30
-                        font.weight: Font.Black
-                        font.letterSpacing: 5 * Style.tracking
-                        font.capitalization: Font.AllUppercase
-                    }
-                    Text {
+                        visible: panel.lessons.length === 0
                         Layout.fillWidth: true
-                        Layout.topMargin: 4
-                        text: qsTr("What operations learned about a project, kept by Fireteam (not in the project) and given to every new session that works there.")
+                        Layout.topMargin: 18
+                        Layout.bottomMargin: 18
+                        text: panel.project.length === 0 ? qsTr("No field manuals yet. They fill in as operations finish.")
+                                                         : qsTr("No lessons for this project yet.")
                         wrapMode: Text.Wrap
                         color: Style.dim
-                        font.family: Style.display
+                        font.family: Style.body
                         font.pixelSize: 13
                     }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 12
-                    ComboBox {
-                        id: projects
-                        Layout.fillWidth: true
-                        font.family: Style.mono
-                        font.pixelSize: 12
-                        onActivated: (index) => { panel.project = model[index]; panel.refresh() }
-                    }
-                    Switch {
-                        checked: ops.afterAction
-                        onToggled: ops.afterAction = checked
-                    }
-                    Text {
-                        text: qsTr("After-action reviews")
-                        color: Style.dim
-                        font.family: Style.display
-                        font.pixelSize: 12
-                        font.weight: Font.Bold
-                        font.letterSpacing: 2 * Style.tracking
-                        font.capitalization: Font.AllUppercase
-                        ToolTip.visible: reviewHover.hovered
-                        ToolTip.text: qsTr("After each finished operation, a short read-only haiku session adds what it learned.")
-                        HoverHandler { id: reviewHover }
-                    }
-                }
-
-                Text {
-                    visible: panel.lessons.length === 0
-                    Layout.fillWidth: true
-                    text: panel.project.length === 0 ? qsTr("No field manuals yet. They fill in as operations finish.")
-                                                     : qsTr("No lessons for this project yet.")
-                    wrapMode: Text.Wrap
-                    color: Style.faint
-                    font.family: Style.display
-                    font.pixelSize: 13
-                }
-                Repeater {
-                    model: panel.lessons
-                    delegate: Rectangle {
-                        id: lesson
-                        required property var modelData
-                        readonly property bool editing: panel.editing === modelData.id
-                        Layout.fillWidth: true
-                        implicitHeight: lessonRow.implicitHeight + 16
-                        color: lessonHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
-                        border.color: Style.line
-                        radius: Math.min(4, theme.radius)
-                        RowLayout {
-                            id: lessonRow
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.leftMargin: 6
-                            anchors.rightMargin: 10
-                            spacing: 8
-                            CheckBox {
-                                checked: panel.chosen[lesson.modelData.id] === true
-                                onToggled: {
-                                    const next = Object.assign({}, panel.chosen)
-                                    next[lesson.modelData.id] = checked
-                                    panel.chosen = next
-                                }
+                    Repeater {
+                        model: panel.lessons
+                        delegate: Rectangle {
+                            id: lesson
+                            required property var modelData
+                            readonly property bool editing: panel.editing === modelData.id
+                            readonly property bool picked: panel.chosen[modelData.id] === true
+                            Layout.fillWidth: true
+                            implicitHeight: lessonRow.implicitHeight + 16
+                            color: lesson.picked ? Style.wash : lessonHover.hovered ? Style.raised : "transparent"
+                            Rectangle {
+                                visible: lesson.picked
+                                width: 2
+                                height: parent.height
+                                color: theme.accent
                             }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-                                Text {
-                                    visible: !lesson.editing
-                                    Layout.fillWidth: true
-                                    text: lesson.modelData.text
-                                    wrapMode: Text.Wrap
-                                    color: Style.text
-                                    font.family: Style.display
-                                    font.pixelSize: 13
-                                    textFormat: Text.PlainText
-                                    TapHandler { onDoubleTapped: panel.editing = lesson.modelData.id }
+                            Rectangle {
+                                anchors.bottom: parent.bottom
+                                width: parent.width
+                                height: 1
+                                color: Style.line
+                            }
+                            RowLayout {
+                                id: lessonRow
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.leftMargin: 4
+                                anchors.rightMargin: 12
+                                spacing: 6
+                                CheckBox {
+                                    Layout.alignment: Qt.AlignTop
+                                    Layout.topMargin: -6
+                                    checked: lesson.picked
+                                    onToggled: {
+                                        const next = Object.assign({}, panel.chosen)
+                                        next[lesson.modelData.id] = checked
+                                        panel.chosen = next
+                                    }
                                 }
-                                TextField {
-                                    visible: lesson.editing
+                                ColumnLayout {
                                     Layout.fillWidth: true
-                                    text: lesson.modelData.text
-                                    font.family: Style.display
-                                    font.pixelSize: 13
-                                    onAccepted: ops.editLesson(panel.project, lesson.modelData.id, text)
-                                    Keys.onEscapePressed: panel.editing = ""
+                                    spacing: 4
+                                    Text {
+                                        visible: !lesson.editing
+                                        Layout.fillWidth: true
+                                        text: lesson.modelData.text
+                                        wrapMode: Text.Wrap
+                                        color: Style.text
+                                        font.family: Style.body
+                                        font.pixelSize: 14
+                                        textFormat: Text.PlainText
+                                        TapHandler { onDoubleTapped: panel.editing = lesson.modelData.id }
+                                    }
+                                    TextField {
+                                        visible: lesson.editing
+                                        Layout.fillWidth: true
+                                        text: lesson.modelData.text
+                                        font.family: Style.body
+                                        font.pixelSize: 14
+                                        onAccepted: ops.editLesson(panel.project, lesson.modelData.id, text)
+                                        Keys.onEscapePressed: panel.editing = ""
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        elide: Text.ElideRight
+                                        text: qsTr("from %1 · %2").arg(lesson.modelData.source).arg(String(lesson.modelData.added).slice(0, 10))
+                                        color: Style.dim
+                                        font.family: Style.mono
+                                        font.variableAxes: Style.narrow
+                                        font.pixelSize: 10
+                                    }
                                 }
                                 Text {
-                                    text: qsTr("from %1 · %2").arg(lesson.modelData.source).arg(String(lesson.modelData.added).slice(0, 10))
-                                    color: Style.faint
+                                    Layout.alignment: Qt.AlignTop
+                                    Layout.leftMargin: 8
+                                    text: "✎"
+                                    color: editHover.hovered || lesson.editing ? theme.accent : Style.dim
                                     font.family: Style.mono
-                                    font.pixelSize: 10
+                                    font.pixelSize: 13
+                                    HoverHandler { id: editHover; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: panel.editing = lesson.editing ? "" : lesson.modelData.id }
+                                }
+                                Text {
+                                    Layout.alignment: Qt.AlignTop
+                                    Layout.leftMargin: 6
+                                    text: "✕"
+                                    color: removeHover.hovered ? Style.danger : Style.dim
+                                    font.family: Style.mono
+                                    font.pixelSize: 13
+                                    HoverHandler { id: removeHover; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: ops.removeLesson(panel.project, lesson.modelData.id) }
                                 }
                             }
-                            Text {
-                                text: "✎"
-                                color: editHover.hovered ? theme.accent : Style.dim
-                                font.pixelSize: 13
-                                HoverHandler { id: editHover; cursorShape: Qt.PointingHandCursor }
-                                TapHandler { onTapped: panel.editing = lesson.editing ? "" : lesson.modelData.id }
-                            }
-                            Text {
-                                text: "✕"
-                                color: removeHover.hovered ? Style.danger : Style.dim
-                                font.pixelSize: 13
-                                HoverHandler { id: removeHover; cursorShape: Qt.PointingHandCursor }
-                                TapHandler { onTapped: ops.removeLesson(panel.project, lesson.modelData.id) }
-                            }
+                            HoverHandler { id: lessonHover }
                         }
-                        HoverHandler { id: lessonHover }
                     }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: panel.project.length > 0
-                    spacing: 10
-                    TextField {
-                        id: newLesson
+                    RowLayout {
                         Layout.fillWidth: true
-                        placeholderText: qsTr("Add a lesson, e.g. Run the tests with DATABASE_URL=sqlite://test.db")
-                        font.family: Style.display
-                        font.pixelSize: 13
-                        onAccepted: if (text.trim().length > 0 && ops.addLesson(panel.project, text)) text = ""
+                        Layout.topMargin: 14
+                        visible: panel.project.length > 0
+                        spacing: 10
+                        TextField {
+                            id: newLesson
+                            Layout.fillWidth: true
+                            placeholderText: qsTr("Add a lesson, e.g. Run the tests with DATABASE_URL=sqlite://test.db")
+                            Material.background: Style.bg
+                            font.family: Style.body
+                            font.pixelSize: 13
+                            onAccepted: if (text.trim().length > 0 && ops.addLesson(panel.project, text)) text = ""
+                        }
+                        TacticalButton {
+                            text: qsTr("Add")
+                            enabled: newLesson.text.trim().length > 0
+                            onClicked: if (ops.addLesson(panel.project, newLesson.text)) newLesson.text = ""
+                        }
                     }
-                    TacticalButton {
-                        text: qsTr("Add")
-                        enabled: newLesson.text.trim().length > 0
-                        onClicked: if (ops.addLesson(panel.project, newLesson.text)) newLesson.text = ""
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 10
+                        visible: panel.notice.length > 0
+                        spacing: 8
+                        Rectangle { implicitWidth: 6; implicitHeight: 6; color: Style.good; Layout.alignment: Qt.AlignVCenter }
+                        Text {
+                            Layout.fillWidth: true
+                            text: panel.notice
+                            wrapMode: Text.Wrap
+                            color: Style.text2
+                            font.family: Style.mono
+                            font.variableAxes: Style.narrow
+                            font.pixelSize: 11
+                        }
                     }
                 }
-                Text {
-                    Layout.fillWidth: true
-                    visible: panel.notice.length > 0
-                    text: panel.notice
-                    wrapMode: Text.Wrap
-                    color: Style.good
-                    font.family: Style.mono
-                    font.pixelSize: 12
-                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 16
+                Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Style.line }
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 10
@@ -263,6 +319,7 @@ Item {
                     TacticalButton {
                         text: qsTr("Promote %n to CLAUDE.md", "", Object.keys(panel.chosen).filter(k => panel.chosen[k]).length)
                         enabled: Object.keys(panel.chosen).some(k => panel.chosen[k])
+                        primary: enabled
                         onClicked: panel.promote()
                     }
                 }

@@ -1,7 +1,9 @@
 import QtQuick
 import QtQuick.Layouts
 
-// A menu button: the accent slab sweeps in on hover, with its key beside it.
+// A moulded key: square, a lit top edge and a shaded bottom one, sinking a
+// pixel when pressed. The primary is the accent with ink on it. State changes
+// switch at once rather than fading, as a terminal would.
 Item {
     id: button
     property string text
@@ -10,49 +12,57 @@ Item {
     property bool danger: false
     signal clicked()
 
-    readonly property color tone: danger ? Style.danger : theme.accent
-    readonly property bool lit: (hover.hovered || primary) && enabled
+    readonly property color fill: primary ? (danger ? Style.danger : theme.accent)
+                                : hover.hovered && enabled ? Style.raised : Style.panel
+    readonly property color ink: primary ? (danger ? "#140606" : theme.accentForeground)
+                               : danger ? Style.danger : Style.text
 
     implicitWidth: row.implicitWidth + 32
     implicitHeight: 40
-    opacity: enabled ? 1 : 0.35
+    opacity: enabled ? 1 : 0.4
 
     Rectangle {
+        id: cap
         anchors.fill: parent
-        color: "transparent"
-        border.color: button.lit ? button.tone : Qt.rgba(1, 1, 1, 0.16)
+        anchors.topMargin: tap.pressed ? 1 : 0
+        anchors.bottomMargin: tap.pressed ? -1 : 0
+        color: button.fill
         radius: Math.min(4, theme.radius)
-    }
-    Rectangle {
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        width: button.lit ? parent.width : 3
-        color: button.lit ? button.tone : Qt.rgba(1, 1, 1, 0.3)
-        radius: Math.min(4, theme.radius)
-        Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-    }
-    RowLayout {
-        id: row
-        anchors.centerIn: parent
-        spacing: 10
-        Text {
-            visible: button.key.length > 0
-            text: button.key
-            color: button.lit ? (button.danger ? "white" : theme.accentForeground) : Style.dim
-            opacity: 0.75
-            font.family: Style.mono
-            font.pixelSize: 11
-            font.bold: true
+        border.color: button.primary ? Qt.darker(button.fill, 1.35)
+                    : hover.hovered && button.enabled ? (button.danger ? Style.danger : Style.text2) : Style.lineStrong
+        // The lit top edge and the shaded bottom one.
+        Rectangle {
+            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+            anchors.margins: 1
+            height: 1
+            color: Qt.rgba(1, 1, 1, button.primary ? 0.32 : 0.07)
         }
-        Text {
-            text: button.text
-            color: button.lit ? (button.danger ? "white" : theme.accentForeground) : Style.text
-            font.family: Style.display
-            font.pixelSize: 13
-            font.weight: Font.Black
-            font.letterSpacing: 3 * Style.tracking
-            font.capitalization: Font.AllUppercase
+        Rectangle {
+            anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+            anchors.margins: 1
+            height: 1
+            color: Qt.rgba(0, 0, 0, tap.pressed ? 0 : 0.35)
+        }
+        RowLayout {
+            id: row
+            anchors.centerIn: parent
+            spacing: 10
+            Text {
+                visible: button.key.length > 0
+                text: button.key
+                color: button.ink
+                opacity: 0.6
+                font.family: Style.mono
+                font.variableAxes: Style.narrow
+                font.pixelSize: 11
+            }
+            Text {
+                text: button.text
+                color: button.ink
+                font.family: Style.body
+                font.pixelSize: 13
+                font.weight: Font.DemiBold
+            }
         }
     }
     HoverHandler {
@@ -60,5 +70,5 @@ Item {
         cursorShape: Qt.PointingHandCursor
         onHoveredChanged: if (hovered && button.enabled) Sfx.play("tick")
     }
-    TapHandler { onTapped: if (button.enabled) button.clicked() }
+    TapHandler { id: tap; onTapped: if (button.enabled) button.clicked() }
 }

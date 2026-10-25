@@ -238,8 +238,8 @@
   "Queue for next cycle": "排入下一轮",
   "Transmit": "发送",
   "⚠ Awaiting authorisation · %1": "⚠ 等待授权 · %1",
-  "STAGED · #%1 in queue · cycle %2/%3": "待出击 · 队列 #%1 · 第 %2/%3 轮",
-  "PINNED DOWN · resumes %1": "被压制 · %1 恢复",
+  "Staged · #%1 in queue · cycle %2/%3": "待出击 · 队列 #%1 · 第 %2/%3 轮",
+  "Pinned down · resumes %1": "被压制 · %1 恢复",
   "%1 · cycle %2/%3 · ctx %4 · ≈$%5": "%1 · 第 %2/%3 轮 · ctx %4 · ≈$%5",
   "Holding next": "下轮暂停",
   "%1h %2m": "%1小时%2分",
@@ -269,7 +269,6 @@
   "No cycles in the last eight weeks": "最近八周没有运行轮次",
   "Busiest projects": "最繁忙的项目",
   "cycles run": "已运行轮次",
-  "%1 · %2": "%1 · %2",
   "No operations yet.": "还没有行动。",
   "Overwatch verdicts": "警戒评定",
   "Deployed": "部署中",
@@ -592,5 +591,7 @@
   "passed": "通过",
   "FAILED": "未通过",
   "%1: %2 of %3 gates failed": "%1：%3 个门禁中有 %2 个未通过",
-  "The next cycle is told to fix them.": "下一轮将奉命修复。"
+  "The next cycle is told to fix them.": "下一轮将奉命修复。",
+  "The project has checks now; gates from here on: %1": "项目现在有检查了；此后的关卡：%1",
+  "The working directory %1 doesn't exist.": "工作目录 %1 不存在。"
 }

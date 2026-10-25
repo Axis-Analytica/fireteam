@@ -248,8 +248,8 @@
   "Queue for next cycle": "Encolar para el siguiente ciclo",
   "Transmit": "Transmitir",
   "⚠ Awaiting authorisation · %1": "⚠ Esperando autorización · %1",
-  "STAGED · #%1 in queue · cycle %2/%3": "EN COLA · #%1 en la cola · ciclo %2/%3",
-  "PINNED DOWN · resumes %1": "INMOVILIZADO · reanuda %1",
+  "Staged · #%1 in queue · cycle %2/%3": "En cola · #%1 en la cola · ciclo %2/%3",
+  "Pinned down · resumes %1": "Inmovilizado · reanuda %1",
   "%1 · cycle %2/%3 · ctx %4 · ≈$%5": "%1 · ciclo %2/%3 · ctx %4 · ≈$%5",
   "Holding next": "Pausa al terminar",
   "%1h %2m": "%1h %2m",
@@ -285,7 +285,6 @@
   "No cycles in the last eight weeks": "Sin ciclos en las últimas ocho semanas",
   "Busiest projects": "Proyectos más activos",
   "cycles run": "ciclos ejecutados",
-  "%1 · %2": "%1 · %2",
   "No operations yet.": "Aún no hay operaciones.",
   "Overwatch verdicts": "Veredictos de vigilancia",
   "Deployed": "Desplegado",
@@ -634,5 +633,7 @@
     "one": "◉ %n en enlace",
     "many": "◉ %n en enlace",
     "other": "◉ %n en enlace"
-  }
+  },
+  "The project has checks now; gates from here on: %1": "El proyecto ya tiene comprobaciones; puertas a partir de ahora: %1",
+  "The working directory %1 doesn't exist.": "El directorio de trabajo %1 no existe."
 }

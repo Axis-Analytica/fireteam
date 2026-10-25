@@ -1,35 +1,38 @@
 import QtQuick
 import QtQuick.Layouts
 
-// "[SPACE] DEPLOY" in the footer style of a game menu.
+// A key and what it does, for the footer: a small moulded cap and a label.
 RowLayout {
     property string key
     property string label
     property color accent: theme.accent
-    spacing: 8
+    spacing: 7
     Rectangle {
-        implicitWidth: keyText.implicitWidth + 12
+        implicitWidth: Math.max(20, keyText.implicitWidth + 10)
         implicitHeight: 20
-        color: "transparent"
-        border.color: Qt.rgba(1, 1, 1, 0.35)
+        color: Style.panel
+        border.color: Style.lineStrong
         radius: Math.min(3, theme.radius)
+        Rectangle {
+            anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+            anchors.margins: 1
+            height: 1
+            color: Qt.rgba(0, 0, 0, 0.4)
+        }
         Text {
             id: keyText
             anchors.centerIn: parent
             text: parent.parent.key
             color: Style.text
             font.family: Style.mono
-            font.pixelSize: 11
-            font.bold: true
+            font.variableAxes: Style.narrow
+            font.pixelSize: 10
         }
     }
     Text {
         text: parent.label
         color: Style.dim
-        font.family: Style.display
+        font.family: Style.body
         font.pixelSize: 12
-        font.weight: Font.DemiBold
-        font.letterSpacing: 2 * Style.tracking
-        font.capitalization: Font.AllUppercase
     }
 }

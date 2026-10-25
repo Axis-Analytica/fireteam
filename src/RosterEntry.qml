@@ -61,66 +61,49 @@ Item {
     readonly property int waitingOn: questions.length + prompts.length
 
     readonly property bool selected: ListView.isCurrentItem
-    readonly property color ink: selected ? theme.accentForeground : Style.text
+    readonly property color tone: Style.statusColor(status, theme.accent)
     signal activated()
 
     width: ListView.view ? ListView.view.width : 360
     visible: !hidden
-    height: hidden ? 0 : campaign.length > 0 ? 98 : 84
+    height: hidden ? 0 : campaign.length > 0 ? 96 : 80
     opacity: archived ? 0.55 : 1
 
-    Shape {
-        id: slab
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        anchors.topMargin: 4
-        anchors.bottomMargin: 4
-        width: entry.selected ? entry.width : 0
-        opacity: entry.selected ? 1 : 0
-        Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-        Behavior on opacity { NumberAnimation { duration: 140 } }
-        ShapePath {
-            fillColor: theme.accent
-            strokeColor: "transparent"
-            startX: 0; startY: 0
-            PathLine { x: slab.width; y: 0 }
-            PathLine { x: Math.max(0, slab.width - 18); y: slab.height }
-            PathLine { x: 0; y: slab.height }
-            PathLine { x: 0; y: 0 }
-        }
-    }
-    Rectangle {
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        width: 3
-        height: hover.hovered && !entry.selected ? parent.height - 20 : 0
-        color: theme.accent
-        Behavior on height { NumberAnimation { duration: 120 } }
-    }
+    // Selected: a wash of the accent, a rule down the leading edge, and corner
+    // marks. Hover lifts the row a step. Both switch at once.
     Rectangle {
         anchors.fill: parent
-        anchors.topMargin: 4
-        anchors.bottomMargin: 4
-        visible: hover.hovered && !entry.selected
-        color: Qt.rgba(1, 1, 1, 0.04)
+        anchors.topMargin: 3
+        anchors.bottomMargin: 3
+        color: entry.selected ? Style.wash : hover.hovered ? Style.panel : "transparent"
+        Rectangle {
+            visible: entry.selected
+            width: 2
+            height: parent.height
+            color: theme.accent
+        }
+        Brackets {
+            anchors.fill: parent
+            visible: entry.selected
+            size: 7
+        }
     }
 
     ColumnLayout {
         anchors.fill: parent
         anchors.leftMargin: 18
-        anchors.rightMargin: 30
-        anchors.topMargin: 12
+        anchors.rightMargin: 16
+        anchors.topMargin: 13
         anchors.bottomMargin: 12
-        spacing: 3
+        spacing: 4
 
         RowLayout {
             spacing: 10
             Rectangle {
                 id: dot
-                implicitWidth: 8
-                implicitHeight: 8
-                radius: 4
-                color: entry.selected ? entry.ink : Style.statusColor(entry.status, theme.accent)
+                implicitWidth: 7
+                implicitHeight: 7
+                color: entry.tone
                 SequentialAnimation on opacity {
                     running: entry.status === "deployed"
                     loops: Animation.Infinite
@@ -133,11 +116,12 @@ Item {
                 Layout.fillWidth: true
                 text: entry.codename
                 elide: Text.ElideRight
-                color: entry.ink
-                font.family: Style.display
-                font.pixelSize: 22
-                font.weight: Font.Black
-                font.letterSpacing: 3 * Style.tracking
+                color: entry.selected ? Style.text : Style.text2
+                font.family: Style.mono
+                font.variableAxes: Style.wide
+                font.pixelSize: 17
+                font.weight: Font.Medium
+                font.letterSpacing: -0.3
             }
             ActivityPulse {
                 visible: entry.status === "deployed"
@@ -145,7 +129,7 @@ Item {
                 Layout.preferredHeight: 16
                 events: entry.events
                 live: entry.status === "deployed"
-                tone: entry.selected ? entry.ink : theme.accent
+                tone: theme.accent
             }
         }
         Text {
@@ -157,15 +141,14 @@ Item {
                   ? qsTr("⚠ Awaiting authorisation · %1").arg(entry.requests.length)
                   : entry.status === "deployed" && entry.activity.length > 0
                   ? entry.activity
-                  : entry.status === "staged" ? qsTr("STAGED · #%1 in queue · cycle %2/%3").arg(entry.queue).arg(entry.cyclesDone).arg(entry.cycles)
-                  : entry.status === "pinned" ? qsTr("PINNED DOWN · resumes %1").arg(Qt.formatTime(new Date(entry.resumeAt * 1000), "HH:mm"))
-                  : qsTr("%1 · cycle %2/%3 · ctx %4 · ≈$%5").arg((entry.hold && entry.status === "deployed" ? qsTr("Holding next") : Style.statusLabel(entry.status)).toUpperCase())
+                  : entry.status === "staged" ? qsTr("Staged · #%1 in queue · cycle %2/%3").arg(entry.queue).arg(entry.cyclesDone).arg(entry.cycles)
+                  : entry.status === "pinned" ? qsTr("Pinned down · resumes %1").arg(Qt.formatTime(new Date(entry.resumeAt * 1000), "HH:mm"))
+                  : qsTr("%1 · cycle %2/%3 · ctx %4 · ≈$%5").arg(entry.hold && entry.status === "deployed" ? qsTr("Holding next") : Style.statusLabel(entry.status))
                         .arg(entry.cyclesDone).arg(entry.cycles).arg(Style.tokens(entry.context))
                         .arg(entry.cost.toLocaleString(Qt.locale(), 'f', 2))
-            color: entry.selected ? entry.ink : entry.waitingOn > 0 ? Style.danger : entry.requests.length > 0 ? Style.amber : Style.dim
-            opacity: entry.selected ? 0.8 : 1
-            font.bold: entry.requests.length > 0 || entry.waitingOn > 0
+            color: entry.waitingOn > 0 ? Style.danger : entry.requests.length > 0 ? Style.amber : Style.dim
             font.family: Style.mono
+            font.variableAxes: Style.narrow
             font.pixelSize: 11
         }
         Text {
@@ -173,21 +156,19 @@ Item {
             visible: entry.campaign.length > 0
             text: "◆ " + entry.campaign
             elide: Text.ElideRight
-            color: entry.selected ? entry.ink : theme.accent
-            opacity: 0.8
+            color: Style.text2
             font.family: Style.mono
+            font.variableAxes: Style.narrow
             font.pixelSize: 10
-            font.letterSpacing: 1 * Style.tracking
         }
         CycleTrack {
             Layout.fillWidth: true
-            Layout.topMargin: 4
+            Layout.topMargin: 3
             cycles: entry.cycles
             done: entry.cyclesDone
             live: entry.status === "deployed"
-            segmentHeight: 4
+            segmentHeight: 2
             labels: false
-            opacity: entry.selected ? 0.0 : 1
         }
     }
 

@@ -53,21 +53,15 @@ Item {
     Material.accent: theme.accent
     Material.roundedScale: theme.radius
 
-    // The codename glitches in whenever the selection changes.
+    // The codename settles in whenever the selection changes, its corner
+    // marks closing on it like a reticle.
     onOpChanged: if (op) intro.restart()
-    SequentialAnimation {
+    ParallelAnimation {
         id: intro
-        ParallelAnimation {
-            NumberAnimation { target: title; property: "opacity"; from: 0; to: 1; duration: 260 }
-            NumberAnimation { target: title; property: "x"; from: -24; to: 0; duration: 320; easing.type: Easing.OutCubic }
-            NumberAnimation { target: ghost; property: "opacity"; from: 0.8; to: 0; duration: 420 }
-            NumberAnimation { target: wipe; property: "x"; from: -wipe.width; to: detail.width; duration: 420; easing.type: Easing.OutQuad }
-            SequentialAnimation {
-                NumberAnimation { target: wipe; property: "opacity"; from: 0; to: 0.6; duration: 60 }
-                PauseAnimation { duration: 240 }
-                NumberAnimation { target: wipe; property: "opacity"; to: 0; duration: 120 }
-            }
-        }
+        NumberAnimation { target: title; property: "opacity"; from: 0; to: 1; duration: 180 }
+        NumberAnimation { target: title; property: "x"; from: -10; to: 0; duration: 240; easing.type: Easing.OutCubic }
+        NumberAnimation { target: reticle; property: "anchors.margins"; from: -14; to: -6; duration: 260; easing.type: Easing.OutCubic }
+        NumberAnimation { target: reticle; property: "opacity"; from: 0; to: 1; duration: 200 }
     }
 
     ColumnLayout {
@@ -78,21 +72,28 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 2
-            RowLayout {
+            GridLayout {
                 Layout.fillWidth: true
-                spacing: 16
+                columns: detail.compact ? 1 : 2
+                columnSpacing: 16
+                rowSpacing: 6
                 Text {
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     text: detail.op ? qsTr("Operation // %1 · planned %2").arg(detail.op.opId)
                                           .arg(Qt.formatDateTime(detail.op.created, "d MMM HH:mm")) : ""
                     elide: Text.ElideRight
                     color: Style.dim
                     font.family: Style.mono
+                    font.variableAxes: Style.narrow
                     font.pixelSize: 11
-                    font.letterSpacing: 2 * Style.tracking
-                    font.capitalization: Font.AllUppercase
                 }
-                // The less frequent actions, as links, so the main row fits.
+                // The less frequent actions, as links, so the main row fits;
+                // short of room they wrap onto their own lines.
+                Flow {
+                    Layout.fillWidth: detail.compact
+                    Layout.minimumWidth: 0
+                    spacing: 16
                 Repeater {
                     model: [
                         { label: qsTr("Replay"), key: "⇧R", action: "replay" },
@@ -113,12 +114,10 @@ Item {
                         text: modelData.label + "  <font color=\"" + Style.faint + "\">" + modelData.key + "</font>"
                         textFormat: Text.StyledText
                         opacity: usable ? 1 : 0.35
-                        color: linkHover.hovered && usable ? (modelData.action === "remove" ? Style.danger : theme.accent) : Style.dim
-                        font.family: Style.display
-                        font.pixelSize: 11
-                        font.weight: Font.Bold
-                        font.letterSpacing: 2 * Style.tracking
-                        font.capitalization: Font.AllUppercase
+                        color: linkHover.hovered && usable ? (modelData.action === "remove" ? Style.danger : theme.accent) : Style.text2
+                        font.family: Style.body
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
                         HoverHandler { id: linkHover; cursorShape: link.usable ? Qt.PointingHandCursor : Qt.ArrowCursor }
                         TapHandler {
                             enabled: link.usable
@@ -135,28 +134,37 @@ Item {
                     }
                 }
             }
+            }
             Item {
                 Layout.fillWidth: true
+                Layout.topMargin: 4
                 implicitHeight: title.implicitHeight
-                clip: true
-                Text {
-                    id: ghost
-                    x: title.x + 4
-                    text: title.text
-                    color: theme.accent
-                    opacity: 0
-                    font: title.font
-                }
                 Text {
                     id: title
                     width: parent.width
+                    leftPadding: 10
+                    topPadding: 6
+                    bottomPadding: 6
                     text: detail.op ? detail.op.codename : ""
                     elide: Text.ElideRight
                     color: Style.text
-                    font.family: Style.display
-                    font.pixelSize: detail.compact || detail.tight ? 34 : 52
-                    font.weight: Font.Black
-                    font.letterSpacing: 6 * Style.tracking
+                    font.family: Style.mono
+                    font.variableAxes: Style.wide
+                    font.pixelSize: detail.compact || detail.tight ? 30 : 42
+                    font.weight: Font.Medium
+                    font.letterSpacing: -1
+                    rightPadding: leftPadding
+                    // Around the codename itself, on whichever side the text sits
+                    // (codenames stay left to right in a mirrored window).
+                    Brackets {
+                        id: reticle
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.margins: -6
+                        width: Math.min(parent.width, parent.contentWidth + 2 * parent.leftPadding) + 12
+                        x: parent.effectiveHorizontalAlignment === Text.AlignRight ? parent.width - width + 6 : -6
+                        size: 10
+                    }
                 }
             }
         }
@@ -173,6 +181,7 @@ Item {
                 text: !detail.op ? "" : detail.op.roe === "free" ? qsTr("ROE · weapons free")
                     : detail.op.roe === "supervised" ? qsTr("ROE · supervised") : qsTr("ROE · restricted")
                 tone: detail.op && detail.op.roe === "free" ? Style.danger : detail.op && detail.op.roe === "supervised" ? theme.accent : Style.dim
+                marked: true
             }
             Chip { text: detail.op && detail.op.model ? detail.op.model : qsTr("Default model"); tone: Style.dim }
             Chip {
@@ -185,6 +194,7 @@ Item {
                 visible: detail.op !== null && detail.op.orders.length > 0
                 text: detail.op ? qsTr("%n order(s) queued", "", detail.op.orders.length) : ""
                 tone: Style.amber
+                marked: true
             }
             Chip {
                 visible: detail.live && detail.op.hold
@@ -200,6 +210,7 @@ Item {
                 text: passed === gates.length ? qsTr("Gates ✓ %1/%2").arg(passed).arg(gates.length)
                                               : qsTr("Gates ✕ %1/%2").arg(passed).arg(gates.length)
                 tone: passed === gates.length ? Style.good : Style.danger
+                marked: true
                 solid: passed < gates.length
             }
             // The latest overwatch verdict; opens the review.
@@ -210,14 +221,14 @@ Item {
                 text: review ? qsTr("Overwatch · %1 ↗").arg(Style.gradeLabel(review.grade))
                              : qsTr("Overwatch · %1").arg(detail.op && detail.op.overwatch === "fix" ? qsTr("review and fix") : qsTr("review"))
                 tone: review ? Style.gradeColor(review.grade) : Style.dim
-                solid: review !== null
+                marked: true
                 HoverHandler { cursorShape: verdict.review ? Qt.PointingHandCursor : Qt.ArrowCursor }
                 TapHandler { enabled: verdict.review !== null; onTapped: ops.openReport(verdict.review.file) }
             }
             Chip {
                 visible: detail.op !== null && detail.op.worktree
                 text: !detail.op ? "" : detail.op.branch.length > 0 ? "⎇ " + detail.op.branch : qsTr("⎇ Own worktree on deploy")
-                tone: theme.accent
+                tone: Style.text2
                 mono: true
             }
             Chip { text: detail.op ? detail.op.directory : ""; tone: Style.dim; mono: true }
@@ -282,11 +293,9 @@ Item {
                     visible: detail.op !== null && detail.op.handoffBrief.length > 0
                     text: qsTr("Handoff brief ↗")
                     color: theme.accent
-                    font.family: Style.display
-                    font.pixelSize: 11
-                    font.weight: Font.Bold
-                    font.letterSpacing: 2 * Style.tracking
-                    font.capitalization: Font.AllUppercase
+                    font.family: Style.body
+                    font.pixelSize: 12
+                    font.weight: Font.Medium
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: ops.openReport(detail.op.handoffBrief) }
                 }
@@ -299,22 +308,25 @@ Item {
                 Layout.topMargin: 4
                 visible: count > 0
                 implicitHeight: 48
-                color: Qt.rgba(Style.danger.r, Style.danger.g, Style.danger.b, waitHover.hovered ? 0.22 : 0.14)
+                color: Qt.rgba(Style.danger.r, Style.danger.g, Style.danger.b, waitHover.hovered ? 0.16 : 0.09)
                 border.color: Style.danger
-                border.width: 2
-                radius: Math.min(4, theme.radius)
-                SequentialAnimation on opacity {
-                    running: waitBanner.visible
-                    loops: Animation.Infinite
-                    NumberAnimation { to: 0.7; duration: 600 }
-                    NumberAnimation { to: 1; duration: 600 }
-                }
+                radius: Math.min(2, theme.radius)
+                Rectangle { width: 3; height: parent.height; color: Style.danger }
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 14
                     anchors.rightMargin: 10
                     spacing: 12
-                    Text { text: "◉"; color: Style.danger; font.pixelSize: 16 }
+                    Rectangle {
+                        implicitWidth: 8; implicitHeight: 8
+                        color: Style.danger
+                        SequentialAnimation on opacity {
+                            running: waitBanner.visible
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 0.2; duration: 500 }
+                            NumberAnimation { to: 1; duration: 500 }
+                        }
+                    }
                     Text {
                         Layout.fillWidth: true
                         text: !detail.op || waitBanner.count === 0 ? ""
@@ -324,8 +336,8 @@ Item {
                         elide: Text.ElideRight
                         color: Style.text
                         font.family: Style.mono
+                        font.variableAxes: Style.narrow
                         font.pixelSize: 12
-                        font.bold: true
                         textFormat: Text.PlainText
                     }
                     KeyHint { key: "A"; label: qsTr("Respond") }
@@ -340,15 +352,10 @@ Item {
                 Layout.topMargin: 4
                 visible: detail.op !== null && detail.op.requests.length > 0
                 implicitHeight: 44
-                color: Qt.rgba(Style.amber.r, Style.amber.g, Style.amber.b, bannerHover.hovered ? 0.2 : 0.12)
+                color: Qt.rgba(Style.amber.r, Style.amber.g, Style.amber.b, bannerHover.hovered ? 0.15 : 0.08)
                 border.color: Style.amber
-                radius: Math.min(4, theme.radius)
-                SequentialAnimation on border.width {
-                    running: authBanner.visible
-                    loops: Animation.Infinite
-                    NumberAnimation { to: 2; duration: 500 }
-                    NumberAnimation { to: 1; duration: 500 }
-                }
+                radius: Math.min(2, theme.radius)
+                Rectangle { width: 3; height: parent.height; color: Style.amber }
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 14
@@ -357,7 +364,7 @@ Item {
                     Text {
                         text: "⚠"
                         color: Style.amber
-                        font.pixelSize: 18
+                        font.pixelSize: 15
                     }
                     Text {
                         Layout.fillWidth: true
@@ -367,8 +374,8 @@ Item {
                         elide: Text.ElideRight
                         color: Style.text
                         font.family: Style.mono
+                        font.variableAxes: Style.narrow
                         font.pixelSize: 12
-                        font.bold: true
                         textFormat: Text.PlainText
                     }
                     KeyHint { key: "A"; label: qsTr("Review"); accent: Style.amber }
@@ -386,6 +393,7 @@ Item {
                 elide: Text.ElideRight
                 color: Style.amber
                 font.family: Style.mono
+                font.variableAxes: Style.narrow
                 font.pixelSize: 12
             }
             // The agent's own progress report, when it has sent one.
@@ -395,13 +403,11 @@ Item {
                 spacing: 10
                 Rectangle {
                     Layout.preferredWidth: 120
-                    implicitHeight: 6
-                    radius: 3
-                    color: Qt.rgba(1, 1, 1, 0.07)
+                    implicitHeight: 4
+                    color: Style.line
                     Rectangle {
                         width: parent.width * Math.max(0, detail.op ? detail.op.progress : 0) / 100
                         height: parent.height
-                        radius: 3
                         color: theme.accent
                         Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
                     }
@@ -412,6 +418,7 @@ Item {
                     elide: Text.ElideRight
                     color: Style.dim
                     font.family: Style.mono
+                    font.variableAxes: Style.narrow
                     font.pixelSize: 11
                     textFormat: Text.PlainText
                 }
@@ -423,6 +430,7 @@ Item {
                 elide: Text.ElideRight
                 color: theme.accent
                 font.family: Style.mono
+                font.variableAxes: Style.narrow
                 font.pixelSize: 12
             }
         }
@@ -456,7 +464,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         Layout.preferredWidth: filters.implicitWidth
-                        implicitHeight: 18
+                        implicitHeight: 22
                         clip: true
                         Flow {
                             id: filters
@@ -474,14 +482,20 @@ Item {
                                     required property var modelData
                                     readonly property bool chosen: detail.commsFilter === modelData.key
                                     text: modelData.label
-                                    color: chosen ? theme.accent : Style.dim
-                                    font.family: Style.display
-                                    font.pixelSize: 11
-                                    font.weight: Font.Bold
-                                    font.letterSpacing: 2 * Style.tracking
-                                    font.capitalization: Font.AllUppercase
-                                    font.underline: chosen
-                                    rightPadding: 4
+                                    color: chosen ? Style.text : filterHover.hovered ? Style.text2 : Style.dim
+                                    font.family: Style.body
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                    rightPadding: 6
+                                    bottomPadding: 4
+                                    Rectangle {
+                                        visible: parent.chosen
+                                        anchors.bottom: parent.bottom
+                                        width: parent.width - parent.rightPadding
+                                        height: 2
+                                        color: theme.accent
+                                    }
+                                    HoverHandler { id: filterHover }
                                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                                     TapHandler { onTapped: detail.commsFilter = modelData.key }
                                 }
@@ -497,6 +511,7 @@ Item {
                         Layout.preferredHeight: 30
                         placeholderText: qsTr("Search  /")
                         font.family: Style.mono
+                        font.variableAxes: Style.narrow
                         font.pixelSize: 12
                         topPadding: 4
                         bottomPadding: 4
@@ -507,7 +522,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: detail.tight ? 80 : 120
-                    color: Qt.rgba(0, 0, 0, 0.45)
+                    color: Style.panel
                     border.color: Style.line
                     radius: theme.radius
                     ListView {
@@ -530,7 +545,7 @@ Item {
                             readonly property color tone: {
                                 switch (modelData.kind) {
                                 case "error": return Style.danger
-                                case "tool": return theme.accent
+                                                case "tool": return Style.text2
                                 case "result": return Style.good
                                 case "cmd": return Style.amber
                                 case "denied": return Style.amber
@@ -546,6 +561,7 @@ Item {
                                 text: line.modelData.time
                                 color: Style.faint
                                 font.family: Style.mono
+                                font.variableAxes: Style.narrow
                                 font.pixelSize: 11
                             }
                             Text {
@@ -565,10 +581,10 @@ Item {
                                     }
                                     return qsTr("AGENT")
                                 }
-                                color: line.tone
+                                color: line.modelData.kind === "say" ? theme.accent : line.modelData.kind === "tool" ? Style.dim : line.tone
                                 font.family: Style.mono
+                                font.variableAxes: Style.narrowMedium
                                 font.pixelSize: 11
-                                font.bold: true
                             }
                             Text {
                                 Layout.fillWidth: true
@@ -577,10 +593,11 @@ Item {
                                 maximumLineCount: ["say", "cmd", "review", "ask"].indexOf(line.modelData.kind) >= 0 ? 12 : 3
                                 elide: Text.ElideRight
                                 color: line.modelData.kind === "say" ? Style.text : line.tone
-                                font.bold: line.modelData.kind === "cmd"
-                                opacity: line.modelData.kind === "sys" ? 0.9 : 1
+                                font.weight: line.modelData.kind === "cmd" ? Font.Medium : Font.Normal
                                 font.family: Style.mono
+                                font.variableAxes: Style.narrow
                                 font.pixelSize: 12
+                                lineHeight: 1.15
                                 textFormat: Text.PlainText
                             }
                         }
@@ -590,10 +607,8 @@ Item {
                         visible: comms.count === 0
                         text: detail.op && detail.op.comms.length > 0 ? qsTr("Nothing matches") : qsTr("Radio silence")
                         color: Style.faint
-                        font.family: Style.display
+                        font.family: Style.body
                         font.pixelSize: 13
-                        font.letterSpacing: 4 * Style.tracking
-                        font.capitalization: Font.AllUppercase
                     }
                 }
             }
@@ -619,10 +634,10 @@ Item {
                     elide: Text.ElideRight
                     text: detail.op ? detail.op.objective : ""
                     wrapMode: Text.Wrap
-                    color: Style.text
-                    font.family: Style.display
-                    font.pixelSize: 13
-                    lineHeight: 1.25
+                    color: Style.text2
+                    font.family: Style.body
+                    font.pixelSize: 14
+                    lineHeight: 1.3
                     textFormat: Text.PlainText
                 }
 
@@ -656,9 +671,9 @@ Item {
                             wrapMode: Text.Wrap
                             maximumLineCount: 2
                             elide: Text.ElideRight
-                            color: criterion.modelData.state === "met" ? Style.text : Style.dim
-                            font.family: Style.display
-                            font.pixelSize: 12
+                            color: criterion.modelData.state === "met" ? Style.text2 : Style.dim
+                            font.family: Style.body
+                            font.pixelSize: 13
                             textFormat: Text.PlainText
                             ToolTip.visible: criterionHover.hovered && (criterion.modelData.note || criterion.modelData.evidence)
                             ToolTip.text: criterion.modelData.note || criterion.modelData.evidence || ""
@@ -675,10 +690,10 @@ Item {
                     elide: Text.ElideRight
                     text: detail.op && detail.op.sitrep ? detail.op.sitrep : qsTr("No sitrep yet.")
                     wrapMode: Text.Wrap
-                    color: detail.op && detail.op.sitrep ? Style.text : Style.faint
-                    font.family: Style.display
-                    font.pixelSize: 13
-                    lineHeight: 1.25
+                    color: detail.op && detail.op.sitrep ? Style.text2 : Style.faint
+                    font.family: Style.body
+                    font.pixelSize: 14
+                    lineHeight: 1.3
                     textFormat: Text.PlainText
                 }
 
@@ -705,27 +720,27 @@ Item {
                         height: 30
                         Rectangle {
                             anchors.fill: parent
-                            color: debriefHover.hovered ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
-                            radius: Math.min(4, theme.radius)
+                            color: debriefHover.hovered ? Style.panel : "transparent"
+                            border.color: debriefHover.hovered ? Style.line : "transparent"
                         }
                         RowLayout {
                             anchors.fill: parent
                             anchors.leftMargin: 8
                             anchors.rightMargin: 8
                             Text {
-                                text: "▤"
+                                text: Style.pad(detail.op.reports.length - debrief.index)
                                 color: theme.accent
-                                font.pixelSize: 13
+                                font.family: Style.mono
+                                font.variableAxes: Style.narrow
+                                font.pixelSize: 11
                             }
                             Text {
                                 Layout.fillWidth: true
                                 text: qsTr("Cycle %1 debrief").arg(Style.pad(detail.op.reports.length - debrief.index))
-                                color: Style.text
-                                font.family: Style.display
-                                font.pixelSize: 12
-                                font.weight: Font.Bold
-                                font.letterSpacing: 2 * Style.tracking
-                                font.capitalization: Font.AllUppercase
+                                color: Style.text2
+                                font.family: Style.body
+                                font.pixelSize: 13
+                                font.weight: Font.Medium
                             }
                             Text { text: "↗"; color: Style.dim; font.pixelSize: 13 }
                         }
@@ -739,7 +754,7 @@ Item {
                     wrapMode: Text.Wrap
                     text: qsTr("Debriefs land here as each cycle completes.")
                     color: Style.faint
-                    font.family: Style.display
+                    font.family: Style.body
                     font.pixelSize: 12
                 }
 
@@ -763,15 +778,16 @@ Item {
                         width: ListView.view.width - 10
                         text: modelData
                         elide: Text.ElideMiddle
-                        color: modelData.startsWith("??") ? Style.good : modelData.startsWith(" D") || modelData.startsWith("D") ? Style.danger : Style.dim
+                        color: modelData.startsWith("??") || modelData.startsWith("A") ? Style.text : modelData.startsWith(" D") || modelData.startsWith("D") ? Style.danger : Style.text2
                         font.family: Style.mono
+                        font.variableAxes: Style.narrow
                         font.pixelSize: 11
                     }
                     Text {
                         visible: parent.count === 0
                         text: qsTr("No changed files reported by git.")
                         color: Style.faint
-                        font.family: Style.display
+                        font.family: Style.body
                         font.pixelSize: 12
                     }
                 }
@@ -851,34 +867,17 @@ Item {
             text: qsTr("No operations on the board")
             color: Style.text
             font.family: Style.display
-            font.pixelSize: 26
-            font.weight: Font.Black
-            font.letterSpacing: 5 * Style.tracking
-            font.capitalization: Font.AllUppercase
+            font.pixelSize: 28
+            font.weight: Font.DemiBold
+            font.letterSpacing: -0.6
         }
         Text {
             Layout.alignment: Qt.AlignHCenter
             text: qsTr("Plan one and send a fireteam of Claude Code agents in.")
             color: Style.dim
-            font.family: Style.display
+            font.family: Style.body
             font.pixelSize: 14
         }
         KeyHint { Layout.alignment: Qt.AlignHCenter; Layout.topMargin: 8; key: "N"; label: qsTr("Plan operation") }
-    }
-
-    // A scan line that crosses the panel when the selection changes.
-    Rectangle {
-        id: wipe
-        y: 0
-        x: -width
-        width: 140
-        height: parent.height
-        opacity: 0
-        gradient: Gradient {
-            orientation: Gradient.Horizontal
-            GradientStop { position: 0; color: "transparent" }
-            GradientStop { position: 0.96; color: Qt.rgba(theme.accent.r, theme.accent.g, theme.accent.b, 0.25) }
-            GradientStop { position: 1; color: theme.accent }
-        }
     }
 }

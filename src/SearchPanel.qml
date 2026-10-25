@@ -27,7 +27,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.8)
+        color: Qt.rgba(Style.bg.r, Style.bg.g, Style.bg.b, 0.86)
         // A MouseArea, unlike a TapHandler, stops the click here.
         MouseArea { anchors.fill: parent; onClicked: panel.close() }
     }
@@ -37,13 +37,13 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         y: 60
         width: Math.min(900, parent.width - 48)
-        height: Math.min(column.implicitHeight + 48, parent.height - 120)
-        color: Qt.rgba(0.04, 0.05, 0.065, 0.98)
-        border.color: Style.line
+        height: Math.min(column.implicitHeight + 40, parent.height - 120)
+        color: Style.panel
+        border.color: Style.lineStrong
         radius: theme.radius
         // Clicks on the panel itself mustn't reach the dismissing backdrop.
         MouseArea { anchors.fill: parent }
-        Rectangle { width: parent.width; height: 3; color: theme.accent }
+        Brackets { anchors.fill: parent; anchors.margins: -1; size: 12 }
 
         ParallelAnimation {
             id: enter
@@ -55,13 +55,14 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: 24
+            anchors.margins: 20
             spacing: 12
             TextField {
                 id: query
                 Layout.fillWidth: true
                 placeholderText: qsTr("Search every operation: objectives, debriefs, briefs, reviews, comms")
-                font.family: Style.display
+                Material.background: Style.bg
+                font.family: Style.body
                 font.pixelSize: 16
                 onTextChanged: debounce.restart()
                 Keys.onDownPressed: list.forceActiveFocus()
@@ -69,19 +70,27 @@ Item {
             }
             Text {
                 visible: query.text.trim().length >= 2 && panel.results.length === 0 && !debounce.running
+                Layout.leftMargin: 2
+                Layout.bottomMargin: 4
                 text: qsTr("Nothing found")
-                color: Style.faint
-                font.family: Style.display
+                color: Style.dim
+                font.family: Style.body
                 font.pixelSize: 13
-                font.letterSpacing: 3 * Style.tracking
-                font.capitalization: Font.AllUppercase
+            }
+            Rectangle {
+                visible: panel.results.length > 0
+                Layout.fillWidth: true
+                implicitHeight: 1
+                color: Style.lineStrong
             }
             ListView {
                 id: list
                 Layout.fillWidth: true
+                Layout.topMargin: -12
                 Layout.preferredHeight: Math.min(contentHeight, sheet.parent ? sheet.parent.height - 260 : 400)
+                visible: count > 0
                 clip: true
-                spacing: 4
+                spacing: 0
                 model: panel.results
                 keyNavigationEnabled: true
                 ScrollBar.vertical: ScrollBar {}
@@ -89,32 +98,48 @@ Item {
                     id: result
                     required property var modelData
                     required property int index
+                    readonly property bool current: ListView.isCurrentItem
                     width: ListView.view.width - 10
-                    height: resultColumn.implicitHeight + 16
-                    color: resultHover.hovered || ListView.isCurrentItem ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
-                    radius: Math.min(4, theme.radius)
+                    height: resultColumn.implicitHeight + 20
+                    color: current ? Style.wash : resultHover.hovered ? Style.raised : "transparent"
+                    Rectangle {
+                        visible: result.current
+                        width: 2
+                        height: parent.height
+                        color: theme.accent
+                    }
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 1
+                        color: Style.line
+                    }
                     ColumnLayout {
                         id: resultColumn
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: 12
+                        anchors.leftMargin: 14
                         anchors.rightMargin: 12
-                        spacing: 2
+                        spacing: 4
                         RowLayout {
+                            Layout.fillWidth: true
                             spacing: 10
                             Text {
                                 text: result.modelData.codename
                                 color: Style.text
-                                font.family: Style.display
+                                font.family: Style.mono
+                                font.variableAxes: Style.wide
                                 font.pixelSize: 13
-                                font.weight: Font.Black
-                                font.letterSpacing: 2 * Style.tracking
+                                font.letterSpacing: -0.2
                             }
                             Text {
-                                text: result.modelData.kind.toUpperCase() + (result.modelData.archived ? qsTr(" · archived") : "")
-                                color: theme.accent
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                text: "# " + result.modelData.kind + (result.modelData.archived ? qsTr(" · archived") : "")
+                                color: Style.dim
                                 font.family: Style.mono
+                                font.variableAxes: Style.narrow
                                 font.pixelSize: 10
                             }
                         }
@@ -124,9 +149,11 @@ Item {
                             wrapMode: Text.Wrap
                             maximumLineCount: 2
                             elide: Text.ElideRight
-                            color: Style.dim
+                            color: Style.text2
                             font.family: Style.mono
+                            font.variableAxes: Style.narrow
                             font.pixelSize: 11
+                            lineHeight: 1.1
                             textFormat: Text.PlainText
                         }
                     }

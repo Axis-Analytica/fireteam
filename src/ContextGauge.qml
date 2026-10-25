@@ -1,7 +1,8 @@
 import QtQuick
 
-// How full the session's context is, with a tick at the hand-off line. It
-// warms to amber approaching the line and turns red past it.
+// How full the session's context is, as a thin flat bar with a tick at the
+// hand-off line and a red one at the ceiling. It turns amber approaching the
+// line and red past it.
 Item {
     id: gauge
     property real used: 0
@@ -14,37 +15,38 @@ Item {
     readonly property color tone: line > 0 && used >= line ? Style.danger
                                 : line > 0 && used >= line * 0.8 ? Style.amber
                                 : theme.accent
-    implicitHeight: 8
+    implicitHeight: 12
 
     Rectangle {
-        anchors.fill: parent
-        color: Qt.rgba(1, 1, 1, 0.07)
-        border.color: Qt.rgba(1, 1, 1, 0.12)
-    }
-    Rectangle {
+        id: track
         anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        width: parent.width * gauge.fraction
-        color: gauge.tone
-        Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
-        Behavior on color { ColorAnimation { duration: 300 } }
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        height: 4
+        color: Style.line
+        Rectangle {
+            width: parent.width * gauge.fraction
+            height: parent.height
+            color: gauge.tone
+            Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
+        }
     }
+    // The hand-off line.
     Rectangle {
         visible: gauge.line > 0 && gauge.window > 0
-        x: parent.width * Math.min(1, gauge.line / gauge.window) - 1
-        y: -4
+        x: Math.round(parent.width * Math.min(1, gauge.line / gauge.window)) - 1
+        anchors.verticalCenter: parent.verticalCenter
         width: 2
-        height: parent.height + 8
-        color: Style.text
+        height: parent.height
+        color: Style.text2
     }
+    // The ceiling.
     Rectangle {
         visible: gauge.ceiling > 0 && gauge.window > 0
-        x: parent.width * Math.min(1, gauge.ceiling / gauge.window) - 1
-        y: -4
+        x: Math.round(parent.width * Math.min(1, gauge.ceiling / gauge.window)) - 1
+        anchors.verticalCenter: parent.verticalCenter
         width: 2
-        height: parent.height + 8
+        height: parent.height
         color: Style.danger
-        opacity: 0.8
     }
 }

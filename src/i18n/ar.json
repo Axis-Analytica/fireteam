@@ -263,8 +263,8 @@
   "Queue for next cycle": "إلى طابور الدورة التالية",
   "Transmit": "إرسال",
   "⚠ Awaiting authorisation · %1": "⚠ بانتظار التفويض · %1",
-  "STAGED · #%1 in queue · cycle %2/%3": "في الانتظار · #%1 في الطابور · الدورة %2/%3",
-  "PINNED DOWN · resumes %1": "تحت النيران · الاستئناف عند %1",
+  "Staged · #%1 in queue · cycle %2/%3": "في الانتظار · #%1 في الطابور · الدورة %2/%3",
+  "Pinned down · resumes %1": "تحت النيران · الاستئناف عند %1",
   "%1 · cycle %2/%3 · ctx %4 · ≈$%5": "%1 · الدورة %2/%3 · السياق %4 · ≈$%5",
   "Holding next": "توقف تالٍ",
   "%1h %2m": "%1س %2د",
@@ -309,7 +309,6 @@
   "No cycles in the last eight weeks": "لا دورات في الأسابيع الثمانية الأخيرة",
   "Busiest projects": "أكثر المشاريع نشاطًا",
   "cycles run": "دورات منفّذة",
-  "%1 · %2": "%1 · %2",
   "No operations yet.": "لا عمليات بعد.",
   "Overwatch verdicts": "أحكام المراقبة",
   "Deployed": "منتشرة",
@@ -697,5 +696,7 @@
   "passed": "نجح",
   "FAILED": "فشل",
   "%1: %2 of %3 gates failed": "%1: فشل %2 من أصل %3 من الفحوص",
-  "The next cycle is told to fix them.": "تُكلَّف الدورة التالية بإصلاحها."
+  "The next cycle is told to fix them.": "تُكلَّف الدورة التالية بإصلاحها.",
+  "The project has checks now; gates from here on: %1": "أصبح للمشروع فحوص الآن؛ البوابات من الآن فصاعدًا: %1",
+  "The working directory %1 doesn't exist.": "مجلد العمل %1 غير موجود."
 }

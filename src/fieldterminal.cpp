@@ -1,5 +1,6 @@
 #include "fieldterminal.h"
 #include "operations.h"
+#include "theme.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -343,7 +344,9 @@ QJsonObject FieldTerminal::state() const {
                                       {"requests", int(op.requests.size())}});
     }
     return {{"operations", operations}, {"deployed", m_ops.deployedCount()}, {"maxDeployed", m_ops.maxDeployed()},
-            {"usage", QJsonObject::fromVariantMap(m_ops.usage())}};
+            {"usage", QJsonObject::fromVariantMap(m_ops.usage())},
+            // The phone page takes the desktop's accent, as the window does.
+            {"accent", Theme::readAccent(QDir::homePath() + "/.local/state/omarchy/current/theme/colors.toml")}};
 }
 
 QJsonObject FieldTerminal::act(int row, const QString &action, const QJsonObject &body) {

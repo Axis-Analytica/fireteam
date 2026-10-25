@@ -16,6 +16,17 @@ ApplicationWindow {
     Material.theme: Material.Dark
     Material.accent: theme.accent
     Material.roundedScale: theme.radius
+    Material.background: Style.panel
+    font.family: Style.body
+
+    FontLoader { source: "qrc:/fonts/MartianMono.ttf" }
+    // Red Hat ships as static weights: Qt matches font.weight to them exactly,
+    // which it doesn't do for a variable font's weight axis.
+    FontLoader { source: "qrc:/fonts/RedHatText-Regular.ttf" }
+    FontLoader { source: "qrc:/fonts/RedHatText-Medium.ttf" }
+    FontLoader { source: "qrc:/fonts/RedHatText-SemiBold.ttf" }
+    FontLoader { source: "qrc:/fonts/RedHatDisplay-Medium.ttf" }
+    FontLoader { source: "qrc:/fonts/RedHatDisplay-SemiBold.ttf" }
 
     // Hyprland tiles windows, so the board has to read in a narrow column too.
     readonly property bool narrow: width < 1100
@@ -255,60 +266,45 @@ ApplicationWindow {
             anchors.bottomMargin: 20
             spacing: 18
 
-            // Header: the title on the left, the link and the clock on the right.
+            // Header: the wordmark on the left; the link, usage, squad and clock
+            // on the right, printed as a tool prints its figures.
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 24
-                Rectangle { implicitWidth: 6; implicitHeight: 64; color: theme.accent }
+                spacing: 22
                 ColumnLayout {
-                    spacing: 0
-                    Text {
-                        id: brand
-                        text: "FIRETEAM"
-                        color: Style.text
-                        font.family: Style.display
-                        font.pixelSize: 46
-                        font.weight: Font.Black
-                        font.letterSpacing: 12 * Style.tracking
-                        // An occasional flicker, like a menu waking up.
-                        SequentialAnimation on opacity {
-                            loops: Animation.Infinite
-                            PauseAnimation { duration: 5200 }
-                            NumberAnimation { to: 0.4; duration: 40 }
-                            NumberAnimation { to: 1; duration: 60 }
-                            NumberAnimation { to: 0.6; duration: 30 }
-                            NumberAnimation { to: 1; duration: 80 }
+                    spacing: 6
+                    RowLayout {
+                        spacing: 12
+                        Rectangle { implicitWidth: 10; implicitHeight: 10; color: theme.accent; Layout.alignment: Qt.AlignVCenter }
+                        Text {
+                            id: brand
+                            text: "FIRETEAM"
+                            color: Style.text
+                            font.family: Style.mono
+                            font.variableAxes: Style.wide
+                            font.pixelSize: 30
+                            font.weight: Font.Medium
+                            font.letterSpacing: -0.6
                         }
                     }
                     Text {
+                        Layout.leftMargin: 22
                         text: qsTr("Base camp  //  operations board")
                         color: Style.dim
-                        font.family: Style.mono
-                        font.pixelSize: 12
-                        font.letterSpacing: 4 * Style.tracking
-                        font.capitalization: Font.AllUppercase
+                        font.family: Style.body
+                        font.pixelSize: 13
                     }
                 }
                 Item { Layout.fillWidth: true }
 
                 ColumnLayout {
                     visible: win.width > 820
-                    spacing: 4
-                    Text {
-                        Layout.alignment: Qt.AlignRight
-                        text: qsTr("Claude link")
-                        color: Style.dim
-                        font.family: Style.display
-                        font.pixelSize: 11
-                        font.weight: Font.Bold
-                        font.letterSpacing: 3 * Style.tracking
-                        font.capitalization: Font.AllUppercase
-                    }
+                    spacing: 2
                     RowLayout {
                         Layout.alignment: Qt.AlignRight
                         spacing: 8
                         Rectangle {
-                            implicitWidth: 8; implicitHeight: 8; radius: 4
+                            implicitWidth: 6; implicitHeight: 6
                             color: ops.linkStatus === "online" ? Style.good : ops.linkStatus === "checking" ? Style.amber : Style.danger
                         }
                         Text {
@@ -316,52 +312,50 @@ ApplicationWindow {
                                 : ops.linkStatus === "checking" ? qsTr("Checking…")
                                 : ops.linkStatus === "missing" ? qsTr("claude not installed")
                                 : qsTr("Not logged in: run claude to sign in")
-                            color: ops.linkStatus === "online" ? Style.text : Style.danger
+                            color: ops.linkStatus === "online" ? Style.text2 : Style.danger
                             font.family: Style.mono
+                            font.variableAxes: Style.narrow
                             font.pixelSize: 12
                         }
                     }
+                    Text {
+                        Layout.alignment: Qt.AlignRight
+                        text: "# " + qsTr("Claude link").toLowerCase()
+                        color: Style.dim
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 10
+                    }
                 }
-                Rectangle { visible: win.width > 820; implicitWidth: 1; implicitHeight: 44; color: Style.line }
+                Rectangle { visible: win.width > 820; implicitWidth: 1; implicitHeight: 40; color: Style.line }
                 // The field terminal, while it's on.
                 ColumnLayout {
                     visible: terminal.enabled && win.width > 900
-                    spacing: 4
-                    Text {
-                        Layout.alignment: Qt.AlignRight
-                        text: qsTr("Terminal")
-                        color: Style.dim
-                        font.family: Style.display
-                        font.pixelSize: 11
-                        font.weight: Font.Bold
-                        font.letterSpacing: 3 * Style.tracking
-                        font.capitalization: Font.AllUppercase
-                    }
+                    spacing: 2
                     Text {
                         Layout.alignment: Qt.AlignRight
                         text: terminal.listening ? qsTr("◉ %n on link", "", terminal.clients) : qsTr("Not listening")
-                        color: terminal.listening ? (terminal.clients > 0 ? Style.good : Style.text) : Style.danger
+                        color: terminal.listening ? (terminal.clients > 0 ? Style.good : Style.text2) : Style.danger
                         font.family: Style.mono
+                        font.variableAxes: Style.narrow
                         font.pixelSize: 12
                         HoverHandler { cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: terminalPanel.open() }
                     }
+                    Text {
+                        Layout.alignment: Qt.AlignRight
+                        text: "# " + qsTr("Terminal").toLowerCase()
+                        color: Style.dim
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 10
+                    }
                 }
-                Rectangle { visible: terminal.enabled && win.width > 900; implicitWidth: 1; implicitHeight: 44; color: Style.line }
+                Rectangle { visible: terminal.enabled && win.width > 900; implicitWidth: 1; implicitHeight: 40; color: Style.line }
                 // The plan's usage, from the latest run's report.
                 ColumnLayout {
                     visible: win.width > 980 && ops.usage.windows !== undefined
                     spacing: 4
-                    Text {
-                        Layout.alignment: Qt.AlignRight
-                        text: ops.usage.status === "rejected" ? qsTr("Plan · limit reached") : qsTr("Plan usage")
-                        color: ops.usage.status === "rejected" ? Style.danger : Style.dim
-                        font.family: Style.display
-                        font.pixelSize: 11
-                        font.weight: Font.Bold
-                        font.letterSpacing: 3 * Style.tracking
-                        font.capitalization: Font.AllUppercase
-                    }
                     Repeater {
                         model: [["five_hour", qsTr("5H")], ["seven_day", qsTr("7D")]]
                         delegate: RowLayout {
@@ -371,93 +365,95 @@ ApplicationWindow {
                             readonly property real used: window ? window.utilization : 0
                             visible: window !== undefined
                             Layout.alignment: Qt.AlignRight
-                            spacing: 6
+                            spacing: 8
                             Text {
                                 text: usageRow.modelData[1]
                                 color: Style.dim
                                 font.family: Style.mono
+                                font.variableAxes: Style.narrow
                                 font.pixelSize: 10
                             }
-                            Rectangle {
-                                implicitWidth: 70
-                                implicitHeight: 5
-                                color: Qt.rgba(1, 1, 1, 0.08)
-                                Rectangle {
-                                    width: parent.width * Math.min(1, usageRow.used)
-                                    height: parent.height
-                                    color: usageRow.used >= 0.9 ? Style.danger : usageRow.used >= 0.7 ? Style.amber : theme.accent
+                            // Ten cells, lit as the window fills.
+                            Row {
+                                spacing: 2
+                                Repeater {
+                                    model: 10
+                                    Rectangle {
+                                        required property int index
+                                        width: 5; height: 8
+                                        color: index < Math.round(usageRow.used * 10)
+                                               ? (usageRow.used >= 0.9 ? Style.danger : usageRow.used >= 0.7 ? Style.amber : theme.accent)
+                                               : Style.line
+                                    }
                                 }
                             }
                             Text {
-                                Layout.preferredWidth: 30
+                                Layout.preferredWidth: 34
                                 horizontalAlignment: Text.AlignRight
                                 text: Math.round(usageRow.used * 100) + "%"
-                                color: Style.text
+                                color: Style.text2
                                 font.family: Style.mono
+                                font.variableAxes: Style.narrow
                                 font.pixelSize: 10
                             }
                         }
                     }
+                    Text {
+                        Layout.alignment: Qt.AlignRight
+                        text: "# " + (ops.usage.status === "rejected" ? qsTr("Plan · limit reached") : qsTr("Plan usage")).toLowerCase()
+                        color: ops.usage.status === "rejected" ? Style.danger : Style.dim
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 10
+                    }
                 }
-                Rectangle { visible: win.width > 980 && ops.usage.windows !== undefined; implicitWidth: 1; implicitHeight: 44; color: Style.line }
+                Rectangle { visible: win.width > 980 && ops.usage.windows !== undefined; implicitWidth: 1; implicitHeight: 40; color: Style.line }
                 // Deployed against the squad's limit, with the queue behind it.
                 ColumnLayout {
-                    spacing: 0
+                    spacing: 2
                     RowLayout {
                         Layout.alignment: Qt.AlignRight
-                        spacing: 8
+                        spacing: 10
                         Text {
                             text: "−"
                             color: squadLess.hovered ? theme.accent : Style.faint
                             font.family: Style.mono
-                            font.pixelSize: 13
+                            font.pixelSize: 14
                             HoverHandler { id: squadLess; cursorShape: Qt.PointingHandCursor }
                             TapHandler { onTapped: ops.maxDeployed = ops.maxDeployed === 0 ? 6 : Math.max(1, ops.maxDeployed - 1) }
                         }
                         Text {
-                            text: qsTr("Squad")
-                            color: Style.dim
-                            font.family: Style.display
-                            font.pixelSize: 11
-                            font.weight: Font.Bold
-                            font.letterSpacing: 3 * Style.tracking
-                            font.capitalization: Font.AllUppercase
+                            text: Style.pad(ops.deployedCount) + "/" + (ops.maxDeployed === 0 ? "∞" : Style.pad(ops.maxDeployed))
+                            color: ops.deployedCount > 0 ? theme.accent : Style.text
+                            font.family: Style.mono
+                            font.variableAxes: Style.figure
+                            font.pixelSize: 24
                         }
                         Text {
                             text: "+"
                             color: squadMore.hovered ? theme.accent : Style.faint
                             font.family: Style.mono
-                            font.pixelSize: 13
+                            font.pixelSize: 14
                             HoverHandler { id: squadMore; cursorShape: Qt.PointingHandCursor }
                             TapHandler { onTapped: ops.maxDeployed = ops.maxDeployed === 0 || ops.maxDeployed >= 6 ? 0 : ops.maxDeployed + 1 }
                         }
                     }
                     Text {
                         Layout.alignment: Qt.AlignRight
-                        text: Style.pad(ops.deployedCount) + " / " + (ops.maxDeployed === 0 ? "∞" : Style.pad(ops.maxDeployed))
-                        color: ops.deployedCount > 0 ? theme.accent : Style.text
+                        text: "# " + qsTr("Squad").toLowerCase() + (ops.stagedCount > 0 ? " · " + qsTr("+%1 staged").arg(ops.stagedCount) : "")
+                        color: ops.stagedCount > 0 ? Style.amber : Style.dim
                         font.family: Style.mono
-                        font.pixelSize: 24
-                        font.bold: true
-                    }
-                    Text {
-                        Layout.alignment: Qt.AlignRight
-                        visible: ops.stagedCount > 0
-                        text: qsTr("+%1 staged").arg(ops.stagedCount)
-                        color: Style.amber
-                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
                         font.pixelSize: 10
                     }
                 }
-                Rectangle { visible: !win.narrow; implicitWidth: 1; implicitHeight: 44; color: Style.line }
-                Text {
+                Rectangle { visible: !win.narrow; implicitWidth: 1; implicitHeight: 40; color: Style.line }
+                Figure {
                     id: clock
                     visible: !win.narrow
-                    text: Qt.formatTime(new Date(), "HH:mm:ss")
-                    color: Style.text
-                    font.family: Style.mono
-                    font.pixelSize: 24
-                    Timer { interval: 1000; running: true; repeat: true; onTriggered: clock.text = Qt.formatTime(new Date(), "HH:mm:ss") }
+                    value: Qt.formatTime(new Date(), "HH:mm:ss")
+                    comment: Qt.formatDate(new Date(), "ddd d MMM").toLowerCase()
+                    Timer { interval: 1000; running: true; repeat: true; onTriggered: { clock.value = Qt.formatTime(new Date(), "HH:mm:ss"); clock.comment = Qt.formatDate(new Date(), "ddd d MMM").toLowerCase() } }
                 }
             }
 
@@ -509,11 +505,8 @@ ApplicationWindow {
                         text: win.showArchived ? qsTr("Hide the archive") : qsTr("Show the archive (%1)").arg(ops.archivedCount)
                         horizontalAlignment: Text.AlignHCenter
                         color: archiveHover.hovered ? theme.accent : Style.dim
-                        font.family: Style.display
-                        font.pixelSize: 11
-                        font.weight: Font.Bold
-                        font.letterSpacing: 2 * Style.tracking
-                        font.capitalization: Font.AllUppercase
+                        font.family: Style.body
+                        font.pixelSize: 12
                         HoverHandler { id: archiveHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: win.showArchived = !win.showArchived }
                     }
@@ -590,11 +583,11 @@ ApplicationWindow {
                 KeyHint { visible: !win.narrow; key: "Shift+M"; label: Sfx.enabled ? qsTr("Sound on") : qsTr("Sound off"); opacity: Sfx.enabled ? 1 : 0.6 }
                 Text {
                     visible: win.width > 1560
-                    text: "FIRETEAM " + Qt.application.version
+                    text: "fireteam " + Qt.application.version
                     color: Style.faint
                     font.family: Style.mono
+                    font.variableAxes: Style.narrow
                     font.pixelSize: 11
-                    font.letterSpacing: 2 * Style.tracking
                 }
             }
         }
@@ -684,5 +677,4 @@ ApplicationWindow {
         }
     }
 
-    Scanlines { anchors.fill: parent }
 }

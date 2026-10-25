@@ -62,7 +62,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.88)
+        color: Qt.rgba(Style.bg.r, Style.bg.g, Style.bg.b, 0.86)
         // A MouseArea, unlike a TapHandler, stops the click here.
         MouseArea { anchors.fill: parent; onClicked: replay.close() }
     }
@@ -72,82 +72,97 @@ Item {
         anchors.centerIn: parent
         width: Math.min(1180, parent.width - 48)
         height: parent.height - 48
-        color: Qt.rgba(0.03, 0.035, 0.045, 0.98)
-        border.color: Style.line
+        color: Style.panel
+        border.color: Style.lineStrong
         radius: theme.radius
         // Clicks on the panel itself mustn't reach the dismissing backdrop.
         MouseArea { anchors.fill: parent }
-        Rectangle { width: parent.width; height: 3; color: Style.danger }
+        Brackets { anchors.fill: parent; anchors.margins: -1; size: 12 }
 
         ParallelAnimation {
             id: enter
-            NumberAnimation { target: sheet; property: "opacity"; from: 0; to: 1; duration: 160 }
-            NumberAnimation { target: sheet; property: "scale"; from: 1.02; to: 1; duration: 260; easing.type: Easing.OutCubic }
+            NumberAnimation { target: sheet; property: "opacity"; from: 0; to: 1; duration: 140 }
+            NumberAnimation { target: sheet; property: "anchors.verticalCenterOffset"; from: 8; to: 0; duration: 140; easing.type: Easing.OutCubic }
         }
 
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: 28
-            spacing: 12
+            spacing: 16
 
+            // Eyebrow and codename; the playhead's clock against the run's length.
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 16
                 ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Text {
+                        Layout.fillWidth: true
+                        text: "# " + qsTr("After-action replay").toLowerCase()
+                        elide: Text.ElideRight
+                        color: Style.dim
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 11
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: replay.op ? replay.op.codename : ""
+                        elide: Text.ElideRight
+                        color: Style.text
+                        font.family: Style.mono
+                        font.variableAxes: Style.wide
+                        font.pixelSize: 28
+                        font.letterSpacing: -0.8
+                    }
+                }
+                ColumnLayout {
+                    Layout.alignment: Qt.AlignBottom
                     spacing: 2
                     Text {
-                        text: qsTr("After-action replay")
-                        color: Style.danger
+                        Layout.alignment: Qt.AlignRight
+                        text: replay.clock(replay.position)
+                        color: replay.playing ? Style.text : Style.text2
                         font.family: Style.mono
-                        font.pixelSize: 11
-                        font.letterSpacing: 4 * Style.tracking
-                        font.capitalization: Font.AllUppercase
+                        font.variableAxes: Style.figure
+                        font.pixelSize: 28
+                        font.features: { "tnum": 1 }
                     }
                     Text {
-                        text: replay.op ? replay.op.codename : ""
-                        color: Style.text
-                        font.family: Style.display
-                        font.pixelSize: 34
-                        font.weight: Font.Black
-                        font.letterSpacing: 5 * Style.tracking
+                        Layout.alignment: Qt.AlignRight
+                        text: "/ " + replay.clock(replay.duration)
+                        color: Style.dim
+                        font.family: Style.mono
+                        font.variableAxes: Style.narrow
+                        font.pixelSize: 10
+                        font.features: { "tnum": 1 }
                     }
                 }
-                Item { Layout.fillWidth: true }
-                Text {
-                    text: replay.clock(replay.position)
-                    color: Style.text
-                    font.family: Style.mono
-                    font.pixelSize: 28
-                    font.bold: true
-                }
-                Text {
-                    text: "/ " + replay.clock(replay.duration)
-                    color: Style.faint
-                    font.family: Style.mono
-                    font.pixelSize: 14
-                }
             }
+
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Style.line }
 
             // The run so far, newest at the bottom.
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: Qt.rgba(0, 0, 0, 0.5)
+                color: Style.bg
                 border.color: Style.line
-                radius: theme.radius
+                radius: Math.min(2, theme.radius)
                 ListView {
                     id: lines
                     anchors.fill: parent
-                    anchors.margins: 12
+                    anchors.margins: 14
                     clip: true
-                    spacing: 5
+                    spacing: 4
                     model: replay.timeline.slice(Math.max(0, replay.shown - 300), replay.shown)
                     onCountChanged: positionViewAtEnd()
                     delegate: RowLayout {
                         id: line
                         required property var modelData
                         width: ListView.view.width - 10
-                        spacing: 10
+                        spacing: 12
                         readonly property color tone: {
                             switch (modelData.kind) {
                             case "error": return Style.danger
@@ -157,23 +172,25 @@ Item {
                             case "ask": return Style.danger
                             case "sys": return Style.dim
                             }
-                            return Style.text
+                            return Style.text2
                         }
                         Text {
                             Layout.alignment: Qt.AlignTop
                             text: replay.clock(line.modelData.t)
                             color: Style.faint
                             font.family: Style.mono
+                            font.variableAxes: Style.narrow
                             font.pixelSize: 11
+                            font.features: { "tnum": 1 }
                         }
                         Text {
                             Layout.alignment: Qt.AlignTop
-                            Layout.preferredWidth: 60
-                            text: line.modelData.kind.toUpperCase()
+                            Layout.preferredWidth: 54
+                            text: line.modelData.kind
                             color: line.tone
                             font.family: Style.mono
+                            font.variableAxes: Style.narrowMedium
                             font.pixelSize: 11
-                            font.bold: true
                         }
                         Text {
                             Layout.fillWidth: true
@@ -181,8 +198,12 @@ Item {
                             wrapMode: Text.Wrap
                             maximumLineCount: 6
                             elide: Text.ElideRight
-                            color: line.modelData.kind === "say" ? Style.text : line.tone
+                            color: line.modelData.kind === "say" ? Style.text
+                                 : line.modelData.kind === "sys" ? Style.dim
+                                 : line.modelData.kind === "error" || line.modelData.kind === "ask" ? Style.danger
+                                 : Style.text2
                             font.family: Style.mono
+                            font.variableAxes: Style.narrow
                             font.pixelSize: 12
                             textFormat: Text.PlainText
                         }
@@ -192,64 +213,69 @@ Item {
                     anchors.centerIn: parent
                     visible: replay.timeline.length === 0
                     text: qsTr("Nothing recorded to replay")
-                    color: Style.faint
-                    font.family: Style.display
+                    color: Style.dim
+                    font.family: Style.body
                     font.pixelSize: 14
-                    font.letterSpacing: 4 * Style.tracking
-                    font.capitalization: Font.AllUppercase
                 }
             }
 
-            // The scrubber, with a tick per cycle and a red one per failure.
+            // The scrubber, with a tick per cycle and a red square per failure.
             Item {
                 Layout.fillWidth: true
-                implicitHeight: 34
+                implicitHeight: 30
                 Rectangle {
                     id: track
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width
-                    height: 6
-                    color: Qt.rgba(1, 1, 1, 0.08)
-                    radius: 3
+                    height: 4
+                    color: Style.line
                     Rectangle {
                         width: replay.duration > 0 ? parent.width * replay.position / replay.duration : 0
                         height: parent.height
-                        radius: 3
-                        color: Style.danger
+                        color: theme.accent
                     }
                 }
                 Repeater {
                     model: replay.cycles
                     delegate: Rectangle {
                         required property var modelData
-                        x: replay.duration > 0 ? track.width * modelData.t / replay.duration - 1 : 0
-                        y: track.y - 7
+                        x: replay.duration > 0 ? Math.round(track.width * modelData.t / replay.duration) - 1 : 0
+                        y: track.y - 6
                         width: 2
-                        height: track.height + 14
-                        color: Style.text
-                        opacity: 0.7
+                        height: track.height + 12
+                        color: Style.text2
                     }
                 }
                 Repeater {
                     model: replay.failures
                     delegate: Rectangle {
                         required property var modelData
-                        x: replay.duration > 0 ? track.width * modelData.t / replay.duration - 3 : 0
-                        y: track.y + track.height + 4
+                        x: replay.duration > 0 ? Math.round(track.width * modelData.t / replay.duration) - 3 : 0
+                        y: track.y + track.height + 5
                         width: 6
                         height: 6
-                        radius: 3
                         color: Style.danger
                     }
+                }
+                // The playhead.
+                Rectangle {
+                    x: (replay.duration > 0 ? Math.round(track.width * replay.position / replay.duration) : 0) - 1
+                    y: track.y - 8
+                    width: 2
+                    height: track.height + 16
+                    color: Style.text
                 }
                 MouseArea {
                     anchors.fill: parent
                     preventStealing: true
+                    cursorShape: Qt.PointingHandCursor
                     function seek(x) { replay.position = Math.max(0, Math.min(1, x / width)) * replay.duration }
                     onPressed: (mouse) => seek(mouse.x)
                     onPositionChanged: (mouse) => { if (pressed) seek(mouse.x) }
                 }
             }
+
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Style.line }
 
             RowLayout {
                 Layout.fillWidth: true
@@ -265,20 +291,67 @@ Item {
                     }
                 }
                 Item { Layout.fillWidth: true }
-                Repeater {
-                    model: [1, 10, 60, 300]
-                    delegate: TacticalButton {
-                        required property int modelData
-                        text: modelData + "×"
-                        primary: replay.speed === modelData
-                        onClicked: replay.speed = modelData
-                    }
-                }
                 Text {
+                    Layout.rightMargin: 6
                     text: qsTr("%1 of %2 lines").arg(replay.shown).arg(replay.timeline.length)
-                    color: Style.faint
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: 200
+                    color: Style.dim
                     font.family: Style.mono
+                    font.variableAxes: Style.narrow
                     font.pixelSize: 11
+                    font.features: { "tnum": 1 }
+                }
+                // Playback speed, as a row of segments: the current one washed
+                // and underlined in the accent.
+                Rectangle {
+                    implicitWidth: speeds.implicitWidth + 2
+                    implicitHeight: 40
+                    color: Style.panel
+                    border.color: Style.lineStrong
+                    radius: Math.min(2, theme.radius)
+                    Row {
+                        id: speeds
+                        x: 1
+                        y: 1
+                        Repeater {
+                            model: [1, 10, 60, 300]
+                            delegate: Rectangle {
+                                id: speed
+                                required property int modelData
+                                required property int index
+                                readonly property bool current: replay.speed === modelData
+                                width: Math.max(48, speedLabel.implicitWidth + 24)
+                                height: 38
+                                color: current ? Style.wash : speedHover.hovered ? Style.raised : "transparent"
+                                Rectangle {
+                                    visible: speed.index > 0
+                                    width: 1
+                                    height: parent.height
+                                    color: Style.line
+                                }
+                                Text {
+                                    id: speedLabel
+                                    anchors.centerIn: parent
+                                    text: speed.modelData + "×"
+                                    color: speed.current ? Style.text : Style.dim
+                                    font.family: Style.mono
+                                    font.variableAxes: Style.narrow
+                                    font.pixelSize: 12
+                                    font.features: { "tnum": 1 }
+                                }
+                                Rectangle {
+                                    visible: speed.current
+                                    anchors.bottom: parent.bottom
+                                    width: parent.width
+                                    height: 2
+                                    color: theme.accent
+                                }
+                                HoverHandler { id: speedHover; cursorShape: Qt.PointingHandCursor }
+                                TapHandler { onTapped: replay.speed = speed.modelData }
+                            }
+                        }
+                    }
                 }
             }
         }

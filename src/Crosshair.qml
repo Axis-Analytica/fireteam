@@ -1,39 +1,32 @@
 import QtQuick
 
-// A slowly turning reticle for empty states.
+// A still reticle for empty states: corner marks, hairs at the edges, and a
+// square at the centre where nothing is yet.
 Item {
+    id: reticle
     implicitWidth: 120
     implicitHeight: 120
-    Rectangle {
-        anchors.centerIn: parent
-        width: 96; height: 96; radius: 48
-        color: "transparent"
-        border.color: Qt.rgba(1, 1, 1, 0.18)
-    }
+
     Item {
-        anchors.fill: parent
-        RotationAnimation on rotation { from: 0; to: 360; duration: 12000; loops: Animation.Infinite }
-        Repeater {
-            model: 4
-            Rectangle {
-                required property int index
-                x: parent.width / 2 - 1
-                y: 0
-                width: 2; height: 22
-                color: theme.accent
-                transformOrigin: Item.Bottom
-                transform: Rotation { origin.x: 1; origin.y: 60; angle: index * 90 }
-            }
-        }
-    }
-    Rectangle {
+        id: frame
         anchors.centerIn: parent
-        width: 6; height: 6; radius: 3
-        color: theme.accent
-        SequentialAnimation on opacity {
-            loops: Animation.Infinite
-            NumberAnimation { to: 0.2; duration: 700 }
-            NumberAnimation { to: 1; duration: 700 }
+        width: 88
+        height: 88
+        Brackets {
+            anchors.fill: parent
+            color: Style.lineStrong
+            size: 14
+        }
+        // Hairs from each edge toward the centre.
+        Rectangle { anchors.horizontalCenter: parent.horizontalCenter; y: 0; width: 1; height: 18; color: theme.accent }
+        Rectangle { anchors.horizontalCenter: parent.horizontalCenter; y: parent.height - height; width: 1; height: 18; color: theme.accent }
+        Rectangle { anchors.verticalCenter: parent.verticalCenter; x: 0; width: 18; height: 1; color: theme.accent }
+        Rectangle { anchors.verticalCenter: parent.verticalCenter; x: parent.width - width; width: 18; height: 1; color: theme.accent }
+        Rectangle {
+            anchors.centerIn: parent
+            width: 5
+            height: 5
+            color: theme.accent
         }
     }
 }

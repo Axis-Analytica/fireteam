@@ -34,7 +34,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.78)
+        color: Qt.rgba(Style.bg.r, Style.bg.g, Style.bg.b, 0.86)
         // A MouseArea, unlike a TapHandler, stops the click here.
         MouseArea { anchors.fill: parent; onClicked: radio.close() }
     }
@@ -43,111 +43,149 @@ Item {
         id: sheet
         anchors.centerIn: parent
         width: Math.min(640, parent.width - 48)
-        height: Math.min(column.implicitHeight + 64, parent.height - 48)
-        color: Qt.rgba(0.04, 0.05, 0.065, 0.97)
-        border.color: Style.line
+        height: Math.min(column.implicitHeight, parent.height - 48)
+        color: Style.panel
+        border.color: Style.lineStrong
         radius: theme.radius
         // Clicks on the panel itself mustn't reach the dismissing backdrop.
         MouseArea { anchors.fill: parent }
-        Rectangle { width: parent.width; height: 3; color: Style.amber }
+        Brackets { anchors.fill: parent; anchors.margins: -1; size: 12 }
 
         ParallelAnimation {
             id: enter
-            NumberAnimation { target: sheet; property: "opacity"; from: 0; to: 1; duration: 160 }
-            NumberAnimation { target: sheet; property: "scale"; from: 0.97; to: 1; duration: 220; easing.type: Easing.OutCubic }
+            NumberAnimation { target: sheet; property: "opacity"; from: 0; to: 1; duration: 140 }
+            NumberAnimation { target: sheet; property: "anchors.verticalCenterOffset"; from: 8; to: 0; duration: 140; easing.type: Easing.OutCubic }
         }
 
         ColumnLayout {
             id: column
             anchors.fill: parent
-            anchors.margins: 32
-            spacing: 14
+            spacing: 0
 
             ColumnLayout {
-                spacing: 2
+                Layout.fillWidth: true
+                Layout.margins: 32
+                Layout.topMargin: 28
+                Layout.bottomMargin: 20
+                spacing: 4
                 Text {
-                    text: radio.op ? qsTr("Radio // %1").arg(radio.op.codename) : ""
-                    color: Style.amber
+                    Layout.fillWidth: true
+                    text: radio.op ? "# " + qsTr("Radio // %1").arg(radio.op.codename) : ""
+                    elide: Text.ElideRight
+                    color: Style.dim
                     font.family: Style.mono
+                    font.variableAxes: Style.narrow
                     font.pixelSize: 11
-                    font.letterSpacing: 4 * Style.tracking
-                    font.capitalization: Font.AllUppercase
-                }
-                Text {
-                    text: qsTr("Send orders")
-                    color: Style.text
-                    font.family: Style.display
-                    font.pixelSize: 30
-                    font.weight: Font.Black
-                    font.letterSpacing: 5 * Style.tracking
-                    font.capitalization: Font.AllUppercase
                 }
                 Text {
                     Layout.fillWidth: true
-                    Layout.topMargin: 4
+                    text: qsTr("Send orders")
+                    elide: Text.ElideRight
+                    color: Style.text
+                    font.family: Style.display
+                    font.pixelSize: 28
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: -0.6
+                }
+                Text {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
                     text: radio.live
                           ? qsTr("The agent is mid-cycle. These orders go out at the start of its next cycle and take priority over its plan.")
                           : qsTr("Transmit sends the agent back in for a cycle that starts with these orders. Queue keeps them for the next deploy.")
                     wrapMode: Text.Wrap
-                    color: Style.dim
-                    font.family: Style.display
+                    color: Style.text2
+                    font.family: Style.body
                     font.pixelSize: 13
+                    lineHeight: 1.15
                 }
             }
 
-            // Orders already waiting, so nothing is sent twice by accident.
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Style.line }
+
             ColumnLayout {
                 Layout.fillWidth: true
-                visible: radio.op !== null && radio.op.orders.length > 0
-                spacing: 4
-                SectionLabel {
+                Layout.fillHeight: true
+                Layout.margins: 32
+                Layout.topMargin: 20
+                Layout.bottomMargin: 20
+                spacing: 16
+
+                // Orders already waiting, so nothing is sent twice by accident.
+                ColumnLayout {
                     Layout.fillWidth: true
-                    text: qsTr("Queued")
-                    detail: radio.op ? "" + radio.op.orders.length : ""
-                }
-                Repeater {
-                    model: radio.op ? radio.op.orders : []
-                    delegate: Text {
-                        required property string modelData
+                    visible: radio.op !== null && radio.op.orders.length > 0
+                    spacing: 6
+                    SectionLabel {
                         Layout.fillWidth: true
-                        text: "▸ " + modelData
-                        wrapMode: Text.Wrap
-                        maximumLineCount: 2
-                        elide: Text.ElideRight
-                        color: Style.amber
-                        font.family: Style.mono
+                        text: qsTr("Queued")
+                        detail: radio.op ? "" + radio.op.orders.length : ""
+                    }
+                    Repeater {
+                        model: radio.op ? radio.op.orders : []
+                        delegate: RowLayout {
+                            required property string modelData
+                            required property int index
+                            Layout.fillWidth: true
+                            spacing: 10
+                            Text {
+                                Layout.alignment: Qt.AlignTop
+                                text: Style.pad(index + 1)
+                                color: Style.faint
+                                font.family: Style.mono
+                                font.variableAxes: Style.narrow
+                                font.pixelSize: 11
+                                topPadding: 1
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: modelData
+                                wrapMode: Text.Wrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                                color: Style.text2
+                                font.family: Style.mono
+                                font.variableAxes: Style.narrow
+                                font.pixelSize: 12
+                                textFormat: Text.PlainText
+                            }
+                        }
+                    }
+                    Text {
+                        Layout.topMargin: 2
+                        text: qsTr("Withdraw queued orders")
+                        color: withdrawHover.hovered ? Style.danger : Style.dim
+                        font.family: Style.body
                         font.pixelSize: 12
-                        textFormat: Text.PlainText
+                        font.weight: Font.Medium
+                        font.underline: withdrawHover.hovered
+                        HoverHandler { id: withdrawHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: ops.clearOrders(radio.row) }
                     }
                 }
-                Text {
-                    text: qsTr("Withdraw queued orders")
-                    color: Style.dim
-                    font.family: Style.display
-                    font.pixelSize: 11
-                    font.weight: Font.Bold
-                    font.letterSpacing: 2 * Style.tracking
-                    font.capitalization: Font.AllUppercase
-                    HoverHandler { cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: ops.clearOrders(radio.row) }
+
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 140
+                    Layout.fillHeight: true
+                    TextArea {
+                        id: message
+                        placeholderText: qsTr("e.g. Use SQLite instead of JSON files, and add a test for the parser.")
+                        wrapMode: TextArea.Wrap
+                        font.family: Style.body
+                        font.pixelSize: 14
+                    }
                 }
             }
 
-            ScrollView {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 130
-                TextArea {
-                    id: message
-                    placeholderText: qsTr("e.g. Use SQLite instead of JSON files, and add a test for the parser.")
-                    wrapMode: TextArea.Wrap
-                    font.family: Style.display
-                    font.pixelSize: 14
-                }
-            }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Style.line }
 
             RowLayout {
                 Layout.fillWidth: true
-                Layout.topMargin: 4
+                Layout.leftMargin: 32
+                Layout.rightMargin: 32
+                Layout.topMargin: 16
+                Layout.bottomMargin: 16
                 spacing: 10
                 TacticalButton { text: qsTr("Cancel"); key: "Esc"; onClicked: radio.close() }
                 Item { Layout.fillWidth: true }

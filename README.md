@@ -65,16 +65,20 @@ Briefs are kept in `~/.local/share/fireteam/ops/<id>/handoffs/`.
 
 ## The board
 
+- **Look**: a near-black ground tinted toward your Omarchy accent, pale ink,
+  and the accent as the one signal colour, so a theme switch re-tints the
+  whole board live. Callsigns, figures and logs are set in Martian Mono, and
+  everything you read in Red Hat Text.
 - **Insertion**: deploying an operation plays a short insertion screen (the
-  codename, a radio call, a sweep). The agent is already on its way; any key
+  codename and a radio call, typed in). The agent is already on its way; any key
   or click skips it.
 - **Activity pulse**: each deployed operation shows a small oscilloscope of
   how much its agent is saying and doing, a quarter second per bar.
-- **Reactive backdrop**: embers rise faster the more agents are deployed. A
+- **Reactive backdrop**: a quiet survey of contours and dust; embers rise faster the more agents are deployed. A
   finished cycle throws sparks from its operation, a finished operation sends
   a wave up the screen, and a failure flares red.
 - **Theatre map** (`M`): base camp in the middle and each project as a site at
-  its own bearing, with every operation marked there. Deployed operations
+  its own bearing on a generated survey map, with every operation pinned there. Deployed operations
   pulse and are linked to camp; click one to select it.
 - **Sound** (`Shift+M`): short synthesized interface sounds for hovering,
   selecting, deploying, finishing, and failing. Off until switched on, and the
@@ -351,3 +355,11 @@ bin/build     # build/fireteam
 bin/test      # tests, offscreen, with a fake claude
 bin/install   # package and install, so it shows in the launcher
 ```
+
+## Credits
+
+Fonts bundled in the binary: [Martian Mono](https://github.com/evilmartians/mono)
+by Evil Martians and [Red Hat Text and Display](https://github.com/RedHatOfficial/RedHatFont)
+by Red Hat, both under the SIL Open Font License (`src/fonts/OFL-*.txt`).
+The visual language draws on the Terminal and Furrow themes of
+[Hallmark](https://github.com/Nutlope/hallmark).
