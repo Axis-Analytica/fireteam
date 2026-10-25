@@ -34,7 +34,8 @@ ApplicationWindow {
                                         || insertion.visible || authorisation.visible || serviceRecord.visible
                                         || waitingPanel.visible || campaignBoard.visible || terminalPanel.visible
                                         || manualPanel.visible || replayView.visible || searchPanel.visible
-                                        || optionsPanel.visible || graphPanel.visible
+                                        || optionsPanel.visible || graphPanel.visible || palette.visible
+                                        || inboxPanel.visible || setupPanel.visible
     // The theatre map in place of the roster and detail.
     property bool mapView: false
     readonly property var selected: roster.currentItem
@@ -89,16 +90,39 @@ ApplicationWindow {
                     qsTr("The agent is stopped mid-cycle. Files it already changed stay changed."),
                     qsTr("Abort"), () => ops.abort(row))
     }
+    // Standing down leaves the board at once, with a few seconds to undo it
+    // before anything is deleted.
+    property string pendingRemoval: ""
+    property string pendingCodename: ""
     function removeSelected() {
         if (!selected || selected.status === "deployed")
             return
-        const row = roster.currentIndex
-        confirm.ask(qsTr("Stand down %1?").arg(selected.codename),
-                    selected.branch.length > 0
-                    ? qsTr("The operation, its comms and its debriefs are deleted from Fireteam. Its worktree's work is committed to branch %1, which stays in your repository.").arg(selected.branch)
-                    : qsTr("The operation, its comms and its debriefs are deleted from Fireteam. The project itself isn't touched."),
-                    qsTr("Stand down"), () => ops.remove(row))
+        commitRemoval()
+        pendingRemoval = selected.opId
+        pendingCodename = selected.codename
+        removalTimer.restart()
+        win.move(1)
+        if (win.selected && win.selected.opId === pendingRemoval)
+            win.move(-1)
     }
+    function commitRemoval() {
+        removalTimer.stop()
+        if (pendingRemoval.length === 0)
+            return
+        const row = ops.rowOfId(pendingRemoval)
+        pendingRemoval = ""
+        if (row >= 0)
+            ops.remove(row)
+    }
+    function undoRemoval() {
+        removalTimer.stop()
+        const id = pendingRemoval
+        pendingRemoval = ""
+        const row = ops.rowOfId(id)
+        if (row >= 0)
+            roster.currentIndex = row
+    }
+    Timer { id: removalTimer; interval: 8000; onTriggered: win.commitRemoval() }
     function extractSelected() {
         if (!selected || selected.branch.length === 0)
             return
@@ -119,6 +143,7 @@ ApplicationWindow {
                     qsTr("Discard"), () => ops.discard(row))
     }
     function quit() {
+        commitRemoval()
         if (ops.deployedCount > 0)
             confirm.ask(qsTr("Pull out?"),
                         qsTr("%n agent(s) still deployed. Quitting stops them mid-cycle; you can resume later.", "", ops.deployedCount),
@@ -126,6 +151,54 @@ ApplicationWindow {
         else
             Qt.quit()
     }
+
+    // Every action the command palette offers: what it's called, its key,
+    // and what it does. The palette lists these beside operations and projects.
+    function actions() {
+        return [
+            { label: qsTr("Plan operation"), key: "N", run: () => briefing.open() },
+            { label: qsTr("Deploy, resume or redeploy the selected operation"), key: qsTr("Space"), run: () => win.deploySelected() },
+            { label: qsTr("Send orders"), key: "T", run: () => win.ordersSelected() },
+            { label: qsTr("Hold after this cycle, or lift the hold"), key: "H", run: () => win.holdSelected() },
+            { label: qsTr("Abort the selected operation"), key: "X", run: () => win.abortSelected() },
+            { label: qsTr("Amend the briefing"), key: "E", run: () => win.editSelected() },
+            { label: qsTr("Intel: what the latest cycle changed"), key: "V", run: () => win.diffSelected() },
+            { label: qsTr("Inbox: everything waiting on you"), key: "I", run: () => inboxPanel.open() },
+            { label: qsTr("Knowledge graph"), key: "G", run: () => graphPanel.open(win.selected ? win.selected.directory : "", "") },
+            { label: qsTr("Campaigns"), key: "C", run: () => campaignBoard.open() },
+            { label: qsTr("Service record"), key: "S", run: () => serviceRecord.open() },
+            { label: qsTr("Field manual"), key: "F", run: () => manualPanel.open(win.selected ? win.selected.directory : "") },
+            { label: qsTr("Field terminal"), key: "P", run: () => terminalPanel.open() },
+            { label: qsTr("Replay the selected operation"), key: "Shift+R", run: () => { if (win.selected) replayView.open(win.selected, roster.currentIndex) } },
+            { label: qsTr("Search every operation"), key: "Ctrl+F", run: () => searchPanel.open() },
+            { label: qsTr("Switch between the board and the theatre map"), key: "M", run: () => { win.mapView = !win.mapView } },
+            { label: qsTr("Open the latest debrief"), key: "R", run: () => ops.openLatestReport(roster.currentIndex) },
+            { label: qsTr("Open the dossier"), key: "D", run: () => ops.openDossier(roster.currentIndex) },
+            { label: qsTr("Open the project folder"), key: "O", run: () => ops.openProject(roster.currentIndex) },
+            { label: qsTr("Extract the selected operation's work"), key: "", run: () => win.extractSelected() },
+            { label: qsTr("Stand down the selected operation"), key: qsTr("Del"), run: () => win.removeSelected() },
+            { label: qsTr("Show or hide the archive"), key: "", run: () => { win.showArchived = !win.showArchived } },
+            { label: qsTr("Options"), key: ",", run: () => optionsPanel.open("options") },
+            { label: qsTr("About Fireteam"), key: "", run: () => optionsPanel.open("about") },
+            { label: qsTr("Setup checklist"), key: "", run: () => setupPanel.open() },
+            { label: qsTr("Turn interface sounds on or off"), key: "Shift+M", run: () => Sfx.toggle() },
+            { label: qsTr("Controls"), key: "?", run: () => { help.visible = true } },
+            { label: qsTr("Quit"), key: "Q", run: () => win.quit() }
+        ]
+    }
+    // A one-line request, deployed with the default loadout (or Standard).
+    function quickDeploy(plan) {
+        const loadout = ops.loadouts.find(l => l.name === Prefs.defaultLoadout) || ops.loadouts.find(l => l.name === "Standard") || {}
+        const repo = ops.repository(plan.directory)
+        const row = ops.create(plan.codename, plan.directory, plan.objective, loadout.cycles || 3, loadout.roe || "supervised",
+                               loadout.model || "", loadout.handoffAt || 250000, loadout.worktree === true && repo.commits === true,
+                               loadout.standing || "", loadout.overwatch || "off")
+        if (row < 0)
+            return
+        roster.currentIndex = row
+        ops.deploy(row)
+    }
+    Component.onCompleted: if (!Prefs.setupSeen && ops.rowCount() === 0) setupPanel.open()
 
     // Where on screen an operation's event happened: its roster entry, or its
     // marker on the map.
@@ -189,6 +262,7 @@ ApplicationWindow {
     }
 
     onClosing: (close) => {
+        commitRemoval()
         if (ops.deployedCount > 0 && !confirm.visible) {
             close.accepted = false
             quit()
@@ -206,6 +280,9 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.Find]; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: searchPanel.open() }
     Shortcut { sequence: "P"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: terminalPanel.open() }
     Shortcut { sequences: [",", StandardKey.Preferences]; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: optionsPanel.open("options") }
+    Shortcut { sequences: [StandardKey.Undo]; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen && win.pendingRemoval.length > 0; onActivated: win.undoRemoval() }
+    Shortcut { sequences: ["Ctrl+K", "Ctrl+P"]; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: palette.open() }
+    Shortcut { sequence: "I"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: inboxPanel.open() }
     Shortcut { sequence: "G"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: graphPanel.open(win.selected ? win.selected.directory : "", "") }
     Shortcut { sequence: "C"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: campaignBoard.open() }
     Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: !win.overlayOpen; onActivated: serviceRecord.open() }
@@ -240,6 +317,9 @@ ApplicationWindow {
             else if (searchPanel.visible) searchPanel.close()
             else if (optionsPanel.visible) optionsPanel.close()
             else if (graphPanel.visible) graphPanel.close()
+            else if (palette.visible) palette.close()
+            else if (inboxPanel.visible) inboxPanel.close()
+            else if (setupPanel.visible) setupPanel.close()
             else if (serviceRecord.visible) serviceRecord.close()
             else if (radio.visible) radio.close()
             else briefing.close()
@@ -301,6 +381,42 @@ ApplicationWindow {
                     }
                 }
                 Item { Layout.fillWidth: true }
+
+                // What's waiting on you, across every operation: opens the inbox.
+                Rectangle {
+                    visible: ops.inboxCount > 0
+                    implicitWidth: inboxRow.implicitWidth + 24
+                    implicitHeight: 34
+                    color: inboxHover.hovered ? Qt.rgba(Style.danger.r, Style.danger.g, Style.danger.b, 0.16)
+                                              : Qt.rgba(Style.danger.r, Style.danger.g, Style.danger.b, 0.08)
+                    border.color: Style.danger
+                    radius: Math.min(2, theme.radius)
+                    RowLayout {
+                        id: inboxRow
+                        anchors.centerIn: parent
+                        spacing: 10
+                        Rectangle {
+                            implicitWidth: 7; implicitHeight: 7
+                            color: Style.danger
+                            SequentialAnimation on opacity {
+                                running: ops.inboxCount > 0 && !Prefs.reduceMotion
+                                loops: Animation.Infinite
+                                NumberAnimation { to: 0.2; duration: 500 }
+                                NumberAnimation { to: 1; duration: 500 }
+                            }
+                        }
+                        Text {
+                            text: qsTr("%n waiting on you", "", ops.inboxCount)
+                            color: Style.text
+                            font.family: Style.body
+                            font.pixelSize: 13
+                            font.weight: Font.Medium
+                        }
+                        KeyHint { key: "I"; label: "" }
+                    }
+                    HoverHandler { id: inboxHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: inboxPanel.open() }
+                }
 
                 ColumnLayout {
                     visible: win.width > 820
@@ -585,6 +701,7 @@ ApplicationWindow {
                         KeyHint { key: "R"; label: qsTr("Debrief") }
                     }
                 }
+                KeyHint { key: "Ctrl+K"; label: qsTr("Command") }
                 KeyHint { key: ","; label: qsTr("Options") }
                 KeyHint { key: "?"; label: qsTr("Controls") }
                 KeyHint { key: "Q"; label: qsTr("Quit") }
@@ -675,6 +792,27 @@ ApplicationWindow {
             anchors.fill: parent
             onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
         }
+        CommandPalette {
+            id: palette
+            anchors.fill: parent
+            actions: win.actions()
+            onVisibleChanged: if (!visible) board.forceActiveFocus()
+            onOperationPicked: (row) => { palette.close(); roster.currentIndex = row }
+            onQuickDeploy: (plan) => { palette.close(); win.quickDeploy(plan) }
+            onQuickRefine: (plan) => { palette.close(); briefing.prefill(plan) }
+        }
+        InboxPanel {
+            id: inboxPanel
+            anchors.fill: parent
+            onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
+            onOperationPicked: (row) => { inboxPanel.close(); roster.currentIndex = row }
+        }
+        SetupPanel {
+            id: setupPanel
+            anchors.fill: parent
+            onVisibleChanged: if (visible) Prefs.setupSeen = true; else board.forceActiveFocus()
+            onTerminalRequested: { setupPanel.close(); terminalPanel.open() }
+        }
         GraphPanel {
             id: graphPanel
             anchors.fill: parent
@@ -686,9 +824,47 @@ ApplicationWindow {
             onVisibleChanged: visible ? Sfx.play("open") : board.forceActiveFocus()
             onTerminalRequested: { optionsPanel.close(); terminalPanel.open() }
             onControlsRequested: { optionsPanel.close(); help.visible = true }
+            onSetupRequested: { optionsPanel.close(); setupPanel.open() }
         }
         HelpOverlay { id: help; anchors.fill: parent; onVisibleChanged: if (visible) Sfx.play("open") }
         ConfirmPanel { id: confirm; anchors.fill: parent }
+        // The undo toast for a stood-down operation.
+        Rectangle {
+            visible: win.pendingRemoval.length > 0
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 118
+            width: toastRow.implicitWidth + 32
+            height: 48
+            color: Style.panel
+            border.color: Style.lineStrong
+            radius: Math.min(4, theme.radius)
+            Brackets { anchors.fill: parent; anchors.margins: -1; size: 8 }
+            // How long is left to undo, as a draining rule along the foot.
+            Rectangle {
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                height: 2
+                color: theme.accent
+                width: parent.width
+                SequentialAnimation on width {
+                    running: removalTimer.running
+                    NumberAnimation { from: toastRow.implicitWidth + 32; to: 0; duration: 8000 }
+                }
+            }
+            RowLayout {
+                id: toastRow
+                anchors.centerIn: parent
+                spacing: 14
+                Text {
+                    text: qsTr("Stood down %1").arg(win.pendingCodename)
+                    color: Style.text
+                    font.family: Style.body
+                    font.pixelSize: 13
+                }
+                TacticalButton { text: qsTr("Undo"); key: "Ctrl+Z"; implicitHeight: 32; onClicked: win.undoRemoval() }
+            }
+        }
         DeploySequence {
             id: insertion
             anchors.fill: parent

@@ -58,7 +58,8 @@ QJsonObject Operation::toJson() const {
             {"sessionDir", sessionDir}, {"overwatch", overwatch}, {"reviews", QJsonArray::fromVariantList(reviews)},
             {"campaign", campaign}, {"campaignKey", campaignKey}, {"dependsOn", QJsonArray::fromStringList(dependsOn)},
             {"gates", QJsonArray::fromVariantList(gates)}, {"criteria", QJsonArray::fromVariantList(criteria)},
-            {"preview", QJsonObject::fromVariantMap(preview)}, {"gateFixes", gateFixes}, {"archived", archived}};
+            {"preview", QJsonObject::fromVariantMap(preview)}, {"gateFixes", gateFixes}, {"archived", archived},
+            {"controls", QJsonObject::fromVariantMap(controls)}};
 }
 
 Operation Operation::fromJson(const QJsonObject &o) {
@@ -116,6 +117,7 @@ Operation Operation::fromJson(const QJsonObject &o) {
     op.preview = o.value("preview").toObject().toVariantMap();
     op.gateFixes = o.value("gateFixes").toInt();
     op.archived = o.value("archived").toBool();
+    op.controls = o.value("controls").toObject().toVariantMap();
     return op;
 }
 
@@ -142,6 +144,13 @@ Operations::Operations(const QString &dataDirectory, const QString &claude, QObj
     QDir().mkpath(m_dataDirectory);
     loadSettings();
     load();
+    // Scheduled operations are looked at twice a minute, and whenever an
+    // operation finishes (one may be waiting for it).
+    m_scheduleTimer = new QTimer(this);
+    m_scheduleTimer->setInterval(20000);
+    connect(m_scheduleTimer, &QTimer::timeout, this, &Operations::checkSchedules);
+    m_scheduleTimer->start();
+    connect(this, &Operations::operationFinished, this, [this] { QTimer::singleShot(0, this, &Operations::checkSchedules); });
     m_pinTimer = new QTimer(this);
     m_pinTimer->setSingleShot(true);
     connect(m_pinTimer, &QTimer::timeout, this, &Operations::schedulePinned);
@@ -212,6 +221,7 @@ void Operations::loadSettings() {
     m_maxDeployed = qBound(0, settings.value("maxDeployed").toInt(3), 12);
     m_afterAction = settings.value("afterAction").toBool(true);
     m_graphsAuto = settings.value("graphsAuto").toBool(true);
+    m_recipes = settings.value("recipes").toArray().toVariantList();
     m_loadouts = settings.contains("loadouts") ? settings.value("loadouts").toArray().toVariantList() : defaultLoadouts();
 }
 
@@ -219,7 +229,7 @@ void Operations::saveSettings() const {
     QSaveFile file(m_dataDirectory + "/settings.json");
     if (!file.open(QIODevice::WriteOnly))
         return;
-    file.write(QJsonDocument(QJsonObject{{"maxDeployed", m_maxDeployed}, {"afterAction", m_afterAction}, {"graphsAuto", m_graphsAuto},
+    file.write(QJsonDocument(QJsonObject{{"maxDeployed", m_maxDeployed}, {"afterAction", m_afterAction}, {"graphsAuto", m_graphsAuto}, {"recipes", QJsonArray::fromVariantList(m_recipes)},
                                          {"loadouts", QJsonArray::fromVariantList(m_loadouts)}}).toJson());
     file.commit();
 }
@@ -348,7 +358,8 @@ QHash<int, QByteArray> Operations::roleNames() const {
             {OverwatchRole, "overwatch"}, {ReviewsRole, "reviews"}, {ProgressRole, "progress"},
             {ProgressNoteRole, "progressNote"}, {QuestionsRole, "questions"}, {PromptsRole, "prompts"},
             {CampaignRole, "campaign"}, {GatesRole, "gates"}, {CriteriaRole, "criteria"}, {PreviewRole, "preview"},
-            {LastGatesRole, "lastGates"}, {ArchivedRole, "archived"}};
+            {LastGatesRole, "lastGates"}, {ArchivedRole, "archived"},
+            {ControlsRole, "controls"}};
 }
 
 QVariant Operations::data(const QModelIndex &index, int role) const {
@@ -399,6 +410,7 @@ QVariant Operations::data(const QModelIndex &index, int role) const {
     case QuestionsRole: return op.questions;
     case PromptsRole: return op.prompts;
     case ArchivedRole: return op.archived;
+    case ControlsRole: return op.controls;
     case GatesRole: return op.gates;
     case CriteriaRole: return op.criteria;
     case PreviewRole: return op.preview;
@@ -461,6 +473,7 @@ void Operations::changed(int row) {
     if (row < 0)
         return;
     emit dataChanged(index(row), index(row));
+    emit inboxChanged();
 }
 
 QString Operations::suggestCodename() const {
@@ -1284,6 +1297,9 @@ void Operations::afterCycle(const QString &id, int cycle) {
             }
         }
     }
+    // A budget reached holds the operation once this cycle is done.
+    if (op.status == "deployed" && op.cyclesDone < op.cycles && overBudget(op))
+        op.hold = true;
     const bool more = op.status == "deployed" && op.cyclesDone < op.cycles;
     // The last cycle is done: overwatch looks the work over before it counts.
     if (op.status == "deployed" && !more && op.overwatch != "off") {
@@ -2059,7 +2075,7 @@ void Operations::save() const {
 // Campaigns ------------------------------------------------------------------
 
 QJsonObject Operations::Campaign::toJson() const {
-    return {{"id", id}, {"name", name}, {"objective", objective}, {"directory", directory}, {"model", model},
+    return {{"budgetUsd", budgetUsd}, {"id", id}, {"name", name}, {"objective", objective}, {"directory", directory}, {"model", model},
             {"status", status}, {"summary", summary}, {"error", error}, {"plan", QJsonArray::fromVariantList(plan)},
             {"created", created.toString(Qt::ISODate)}, {"costUsd", costUsd}};
 }
@@ -2067,6 +2083,7 @@ QJsonObject Operations::Campaign::toJson() const {
 Operations::Campaign Operations::Campaign::fromJson(const QJsonObject &o) {
     Campaign campaign;
     campaign.id = o.value("id").toString();
+    campaign.budgetUsd = o.value("budgetUsd").toDouble();
     campaign.name = o.value("name").toString();
     campaign.objective = o.value("objective").toString();
     campaign.directory = o.value("directory").toString();
@@ -2852,4 +2869,314 @@ QVariantMap Operations::graphLive(const QString &directory) const {
                                                 {"at", double(file.value())}});
     }
     return live;
+}
+
+// Streamlining -----------------------------------------------------------------
+
+int Operations::inboxCount() const {
+    int count = 0;
+    for (const Operation &op : m_ops)
+        count += op.questions.size() + op.prompts.size() + op.requests.size();
+    return count;
+}
+
+QVariantList Operations::inbox() const {
+    QVariantList items;
+    for (int row = 0; row < m_ops.size(); ++row) {
+        const Operation &op = m_ops.at(row);
+        auto add = [&](const QString &kind, const QVariantMap &entry, int index) {
+            items << QVariantMap{{"row", row}, {"opId", op.id}, {"codename", op.codename}, {"kind", kind},
+                                 {"id", entry.value("id")}, {"index", index},
+                                 {"text", entry.value(kind == "question" ? "question" : "summary")},
+                                 {"tool", entry.value("tool")}, {"options", entry.value("options")},
+                                 {"choices", entry.value("choices")}, {"time", entry.value("time")}};
+        };
+        // The agent is stopped on questions and live permissions; refused
+        // commands can wait for the next cycle, so they come after.
+        for (int i = 0; i < op.questions.size(); ++i)
+            add("question", op.questions.at(i).toMap(), i);
+        for (int i = 0; i < op.prompts.size(); ++i)
+            add("prompt", op.prompts.at(i).toMap(), i);
+        for (int i = 0; i < op.requests.size(); ++i)
+            add("request", op.requests.at(i).toMap(), i);
+    }
+    std::stable_sort(items.begin(), items.end(), [](const QVariant &a, const QVariant &b) {
+        auto rank = [](const QString &kind) { return kind == "request" ? 1 : 0; };
+        const int ra = rank(a.toMap().value("kind").toString()), rb = rank(b.toMap().value("kind").toString());
+        if (ra != rb)
+            return ra < rb;
+        return a.toMap().value("time").toString() > b.toMap().value("time").toString();
+    });
+    return items;
+}
+
+QVariantMap Operations::quickPlan(const QString &text, const QString &fallbackDirectory) const {
+    QString objective = text.trimmed();
+    QString directory;
+    // A path in the text: ~/..., /..., or ./... (quoted or not).
+    static const QRegularExpression path(R"((?:^|\s)(?:in\s+|at\s+|for\s+)?("[^"]+"|'[^']+'|(?:~|/|\./)[^\s,;]+))");
+    const auto match = path.match(objective);
+    if (match.hasMatch()) {
+        QString candidate = match.captured(1);
+        if (candidate.size() > 1 && (candidate.startsWith('"') || candidate.startsWith('\'')))
+            candidate = candidate.mid(1, candidate.size() - 2);
+        if (candidate.startsWith("~"))
+            candidate = QDir::homePath() + candidate.mid(1);
+        if (QFileInfo(candidate).isDir()) {
+            directory = QDir::cleanPath(QFileInfo(candidate).absoluteFilePath());
+            objective.remove(match.capturedStart(0), match.capturedLength(0));
+        }
+    }
+    // A known project named in the text ("logbook", "test app").
+    if (directory.isEmpty()) {
+        QStringList known;
+        for (const Operation &op : m_ops)
+            if (!known.contains(QDir::cleanPath(op.directory)))
+                known << QDir::cleanPath(op.directory);
+        // The longest name first, so "test app" wins over "app".
+        std::sort(known.begin(), known.end(), [](const QString &a, const QString &b) {
+            return QFileInfo(a).fileName().size() > QFileInfo(b).fileName().size();
+        });
+        for (const QString &candidate : known) {
+            const QString name = QFileInfo(candidate).fileName();
+            const QRegularExpression word("(?:\\b(?:in|to|for|on)\\s+)?\\b" + QRegularExpression::escape(name) + "\\b",
+                                          QRegularExpression::CaseInsensitiveOption);
+            const auto found = word.match(objective);
+            if (name.size() >= 3 && found.hasMatch() && QFileInfo(candidate).isDir()) {
+                directory = candidate;
+                objective.remove(found.capturedStart(0), found.capturedLength(0));
+                break;
+            }
+        }
+    }
+    const bool known = !directory.isEmpty();
+    if (directory.isEmpty() && QFileInfo(fallbackDirectory).isDir())
+        directory = QDir::cleanPath(fallbackDirectory);
+    objective = objective.simplified();
+    static const QRegularExpression trailing(R"(^[,;:\-\s]+|[,;:\-\s]+$)");
+    objective.remove(trailing);
+    if (!objective.isEmpty())
+        objective[0] = objective.at(0).toUpper();
+    return {{"directory", directory}, {"objective", objective}, {"codename", suggestCodename()}, {"known", known}};
+}
+
+QVariantMap Operations::environment() const {
+    auto find = [](const char *name) { return QStandardPaths::findExecutable(QLatin1String(name)); };
+    QString chromium;
+    for (const char *name : {"chromium", "chromium-browser", "google-chrome-stable", "google-chrome", "brave"})
+        if (chromium.isEmpty())
+            chromium = find(name);
+    return {{"claude", QFileInfo(m_claude).isExecutable() ? m_claude : QString()}, {"git", find("git")}, {"graphify", graphify()}, {"chromium", chromium},
+            {"qrencode", find("qrencode")}, {"python", find("python3")}};
+}
+
+static QVariantList builtinRecipes() {
+    auto recipe = [](const QString &name, const QString &objective, const QString &criteria, const QString &loadout) {
+        return QVariantMap{{"name", name}, {"objective", objective}, {"criteria", criteria}, {"loadout", loadout}, {"builtin", true}};
+    };
+    return {
+        recipe(QObject::tr("Upgrade dependencies"),
+               QObject::tr("Upgrade the project's dependencies to their latest compatible versions, one group at a time, "
+                           "fixing whatever breaks. Note anything held back and why."),
+               QObject::tr("Every dependency is current or noted as held back\nThe build and tests pass"), "Standard"),
+        recipe(QObject::tr("Add tests"),
+               QObject::tr("Find the most important untested code and add focused tests for it, starting with the riskiest "
+                           "logic. Don't change behaviour; report bugs the tests reveal."),
+               QObject::tr("New tests cover the riskiest untested code\nThe tests pass"), "Standard"),
+        recipe(QObject::tr("Fix the build"),
+               QObject::tr("Get the build and the test suite passing again. Find the root cause of each failure and fix it "
+                           "rather than skipping or loosening tests."),
+               QObject::tr("The build passes\nThe tests pass\nNo test was skipped or weakened"), "Standard"),
+        recipe(QObject::tr("Refresh the README"),
+               QObject::tr("Bring the README up to date with the code: what the project does, how to install, build, run and "
+                           "test it, and its configuration. Check every command works."),
+               QObject::tr("Every command in the README works\nThe README matches the code"), "Recon"),
+        recipe(QObject::tr("Security pass"),
+               QObject::tr("Review the project for security problems (injection, secrets in the repo, unsafe deserialisation, "
+                           "missing authorisation, vulnerable dependencies) and fix what's clearly safe to fix. List the rest."),
+               QObject::tr("Each finding is fixed or listed with its risk"), "Heavy"),
+        recipe(QObject::tr("Tidy up"),
+               QObject::tr("Remove dead code, unused dependencies and stale files, and simplify what's needlessly complicated, "
+                           "without changing behaviour."),
+               QObject::tr("Behaviour is unchanged\nThe tests pass"), "Standard"),
+    };
+}
+
+QVariantList Operations::recipes() const { return builtinRecipes() + m_recipes; }
+
+void Operations::saveRecipe(const QVariantMap &recipe) {
+    const QString name = recipe.value("name").toString().trimmed();
+    if (name.isEmpty() || recipe.value("objective").toString().trimmed().isEmpty())
+        return;
+    QVariantMap entry{{"name", name}, {"objective", recipe.value("objective")}, {"criteria", recipe.value("criteria")},
+                      {"loadout", recipe.value("loadout")}};
+    for (int i = 0; i < m_recipes.size(); ++i)
+        if (m_recipes.at(i).toMap().value("name").toString().compare(name, Qt::CaseInsensitive) == 0) {
+            m_recipes[i] = entry;
+            saveSettings();
+            emit recipesChanged();
+            return;
+        }
+    m_recipes << entry;
+    saveSettings();
+    emit recipesChanged();
+}
+
+void Operations::removeRecipe(const QString &name) {
+    for (int i = 0; i < m_recipes.size(); ++i)
+        if (m_recipes.at(i).toMap().value("name").toString() == name) {
+            m_recipes.removeAt(i);
+            saveSettings();
+            emit recipesChanged();
+            return;
+        }
+}
+
+// Budgets and scheduling ---------------------------------------------------------
+
+void Operations::setBudget(int row, double usd, int planPercent) {
+    if (row < 0 || row >= m_ops.size())
+        return;
+    Operation &op = m_ops[row];
+    op.controls.insert("budgetUsd", std::max(0.0, usd));
+    op.controls.insert("budgetPlan", qBound(0, planPercent, 100));
+    op.controls.remove("warned");
+    if (usd > 0 || planPercent > 0)
+        log(op, "cmd", usd > 0 && planPercent > 0
+                           ? tr("Budget set: ≈$%1 of API value, or %2% of the plan's 5-hour window.").arg(usd, 0, 'f', 2).arg(planPercent)
+                       : usd > 0 ? tr("Budget set: ≈$%1 of API value.").arg(usd, 0, 'f', 2)
+                                 : tr("Budget set: %1% of the plan's 5-hour window.").arg(planPercent));
+    else
+        log(op, "cmd", tr("Budget removed."));
+    changed(row);
+    save();
+}
+
+void Operations::setCampaignBudget(const QString &id, double usd) {
+    const int c = campaignIndex(id);
+    if (c < 0)
+        return;
+    m_campaigns[c].budgetUsd = std::max(0.0, usd);
+    saveCampaigns();
+    emit campaignsChanged();
+}
+
+bool Operations::overBudget(Operation &op) {
+    const double budget = op.controls.value("budgetUsd").toDouble();
+    if (budget > 0 && op.costUsd >= budget) {
+        log(op, "sys", tr("Budget reached: ≈$%1 of ≈$%2. Holding; raise the budget to go on.")
+                           .arg(op.costUsd, 0, 'f', 2).arg(budget, 0, 'f', 2));
+        emit alert(op.id, tr("%1 reached its budget").arg(op.codename), tr("≈$%1 of API value spent.").arg(op.costUsd, 0, 'f', 2));
+        return true;
+    }
+    if (budget > 0 && op.costUsd >= budget * 0.8 && !op.controls.value("warned").toBool()) {
+        op.controls.insert("warned", true);
+        log(op, "sys", tr("80% of the budget spent: ≈$%1 of ≈$%2.").arg(op.costUsd, 0, 'f', 2).arg(budget, 0, 'f', 2));
+        emit alert(op.id, tr("%1 is near its budget").arg(op.codename), tr("≈$%1 of ≈$%2.").arg(op.costUsd, 0, 'f', 2).arg(budget, 0, 'f', 2));
+    }
+    const int plan = op.controls.value("budgetPlan").toInt();
+    const double used = m_usage.value("windows").toMap().value("five_hour").toMap().value("utilization").toDouble() * 100;
+    if (plan > 0 && used >= plan) {
+        log(op, "sys", tr("The plan's 5-hour window is %1% used, past this operation's %2%. Holding.").arg(qRound(used)).arg(plan));
+        emit alert(op.id, tr("%1 reached its share of the plan").arg(op.codename), tr("%1% of the 5-hour window used.").arg(qRound(used)));
+        return true;
+    }
+    if (!op.campaign.isEmpty()) {
+        const int c = campaignIndex(op.campaign);
+        if (c >= 0 && m_campaigns.at(c).budgetUsd > 0) {
+            double total = m_campaigns.at(c).costUsd;
+            for (const Operation &other : m_ops)
+                if (other.campaign == op.campaign)
+                    total += other.costUsd;
+            if (total >= m_campaigns.at(c).budgetUsd) {
+                log(op, "sys", tr("Campaign %1 reached its budget: ≈$%2. Holding.").arg(m_campaigns.at(c).name).arg(total, 0, 'f', 2));
+                emit alert(op.id, tr("Campaign %1 reached its budget").arg(m_campaigns.at(c).name), tr("≈$%1 of API value spent.").arg(total, 0, 'f', 2));
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void Operations::setSchedule(int row, const QString &mode, double at, const QString &afterId) {
+    if (row < 0 || row >= m_ops.size())
+        return;
+    Operation &op = m_ops[row];
+    if (op.status == "deployed" || op.status == "staged" || op.status == "pinned")
+        return;
+    if (mode == "after" && (afterId == op.id || rowOf(afterId) < 0))
+        return;
+    op.controls.insert("schedule", QVariantMap{{"mode", mode}, {"at", at}, {"after", afterId}});
+    op.status = "scheduled";
+    if (mode == "time")
+        log(op, "cmd", tr("Scheduled: deploys at %1.").arg(QDateTime::fromSecsSinceEpoch(qint64(at)).toString("ddd HH:mm")));
+    else if (mode == "reset")
+        log(op, "cmd", tr("Scheduled: deploys when the plan's usage window resets."));
+    else
+        log(op, "cmd", tr("Scheduled: deploys when %1 completes.").arg(m_ops.at(rowOf(afterId)).codename));
+    changed(row);
+    save();
+    checkSchedules();
+}
+
+void Operations::clearSchedule(int row) {
+    if (row < 0 || row >= m_ops.size() || !m_ops.at(row).controls.contains("schedule"))
+        return;
+    Operation &op = m_ops[row];
+    op.controls.remove("schedule");
+    if (op.status == "scheduled")
+        op.status = "standby";
+    log(op, "cmd", tr("Schedule cleared."));
+    changed(row);
+    save();
+}
+
+void Operations::checkSchedules() {
+    const double now = QDateTime::currentSecsSinceEpoch();
+    QStringList due;
+    for (const Operation &op : m_ops) {
+        if (op.status != "scheduled")
+            continue;
+        const QVariantMap schedule = op.controls.value("schedule").toMap();
+        const QString mode = schedule.value("mode").toString();
+        bool ready = false;
+        if (mode == "time")
+            ready = now >= schedule.value("at").toDouble();
+        else if (mode == "reset")
+            // When the window resets, or at once if the plan hasn't said when.
+            ready = now >= m_usage.value("resetsAt").toDouble() && now >= m_limitedUntil;
+        else if (mode == "after") {
+            const int target = rowOf(schedule.value("after").toString());
+            ready = target < 0 || m_ops.at(target).status == "complete";
+        }
+        if (ready)
+            due << op.id;
+    }
+    for (const QString &id : due) {
+        const int row = rowOf(id);
+        if (row < 0)
+            continue;
+        Operation &op = m_ops[row];
+        op.controls.remove("schedule");
+        op.status = "standby";
+        log(op, "sys", tr("Scheduled time reached; deploying."));
+        deploy(row);
+        changed(row);
+    }
+    if (!due.isEmpty())
+        save();
+}
+
+QVariantMap Operations::readReport(const QString &path) const {
+    const QString real = QFileInfo(path).canonicalFilePath();
+    const QString root = QFileInfo(m_dataDirectory).canonicalFilePath();
+    if (real.isEmpty() || root.isEmpty() || !real.startsWith(root + "/"))
+        return {};
+    QFile file(real);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    const QString text = QString::fromUtf8(file.read(2 * 1024 * 1024));
+    const QString suffix = QFileInfo(real).suffix().toLower();
+    return {{"text", text}, {"format", suffix == "md" || suffix == "markdown" ? "markdown" : suffix == "html" || suffix == "htm" ? "html" : "text"},
+            {"path", real}};
 }

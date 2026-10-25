@@ -17,4 +17,8 @@ Settings {
     // The knowledge graph in three dimensions, turning slowly when left alone.
     property bool graph3d: false
     property bool graphSpin: true
+    // Whether the first-run setup checklist has been seen.
+    property bool setupSeen: false
+    // Calmer: no pulsing, sweeping or turning (Phase 14 widens this).
+    property bool reduceMotion: false
 }

@@ -184,6 +184,8 @@ own.
 
 | Key | Action |
 | --- | --- |
+| `Ctrl+K` | Command palette (actions, operations, quick deploy) |
+| `I` | Inbox: everything waiting on you |
 | `N` | Plan a new operation |
 | `Space` | Deploy, resume, or redeploy (+1 cycle) the selected operation |
 | `T` | Send orders to the selected operation |
@@ -207,7 +209,7 @@ own.
 | `R` | Open the latest debrief |
 | `D` | Open the dossier |
 | `O` | Open the project directory |
-| `Del` | Stand down (remove) the operation |
+| `Del` | Stand down (remove) the operation; `Ctrl+Z` undoes it for a few seconds |
 | `Ctrl+Enter` | Deploy from the briefing |
 | `Esc` | Close a panel |
 | `,` | Options and About |
@@ -334,6 +336,26 @@ it against the objective, and grades it **pass**, **needs work**, or **fail**
 with findings. The review goes in the dossier and on the operation's chip.
 *Review and fix* sends a short-of-the-mark operation back for one more cycle
 with the findings as orders, then reviews it again.
+
+## Quick work
+
+- **Command palette** (`Ctrl+K`): type to find any action, operation, or
+  setting, with its key shown beside it. Type a request instead ("add CSV
+  export to logbook") and the first result deploys it: Fireteam finds the
+  project from a path or a project's name in the text, picks a codename, and
+  uses your default loadout. `Shift+Enter` opens it in the briefing first.
+- **Inbox** (`I`): every question, live permission and refused command across
+  all operations in one list, triaged from the keyboard: `J`/`K` to move,
+  `Enter` for the main action, `A` always, `D` deny, `O` to open the
+  operation. The header shows how many are waiting.
+- **Recipes**: ready-made objectives in the briefing (upgrade dependencies, add
+  tests, fix the build, refresh the README, security pass, tidy up), each with
+  acceptance criteria and a loadout. Save your own with *Save as recipe*.
+- **Setup checklist**: on first launch, and from Options, Fireteam checks
+  claude, git, graphify, Chromium, qrencode and the field terminal, with each
+  fix in place.
+- **Undo**: standing down an operation leaves the board with an Undo toast;
+  nothing is deleted for eight seconds.
 
 ## Knowledge graphs
 

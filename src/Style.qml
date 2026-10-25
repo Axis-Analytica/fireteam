@@ -44,7 +44,8 @@ QtObject {
         case "interrupted":
         case "held":
         case "pinned": return amber
-        case "staged": return Qt.lighter(dim, 1.3)
+        case "staged":
+        case "scheduled": return Qt.lighter(dim, 1.3)
         }
         return dim
     }
@@ -59,6 +60,7 @@ QtObject {
         case "held": return qsTr("Holding")
         case "staged": return qsTr("Staged")
         case "pinned": return qsTr("Pinned down")
+        case "scheduled": return qsTr("Scheduled")
         }
         return qsTr("Standby")
     }

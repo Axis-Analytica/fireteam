@@ -10,6 +10,9 @@
         <file alias="Sfx.qml">Sfx.qml</file>
         <file alias="Prefs.qml">Prefs.qml</file>
         <file alias="OptionsPanel.qml">OptionsPanel.qml</file>
+        <file alias="SetupPanel.qml">SetupPanel.qml</file>
+        <file alias="InboxPanel.qml">InboxPanel.qml</file>
+        <file alias="CommandPalette.qml">CommandPalette.qml</file>
         <file alias="GraphPanel.qml">GraphPanel.qml</file>
         <file alias="graphsim.js">graphsim.js</file>
         <file alias="ServiceRecord.qml">ServiceRecord.qml</file>

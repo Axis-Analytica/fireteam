@@ -88,6 +88,11 @@ struct Operation {
     int gateFixes = 0;
     // Kept, but off the board.
     bool archived = false;
+    // The operator's limits and timing: {budgetUsd (0 none), budgetPlan
+    // (share of the plan's 5-hour window, 0 none), warned, schedule: {mode:
+    // "time" | "reset" | "after", at (seconds since the epoch), after (an
+    // operation's id)}}.
+    QVariantMap controls;
     // The campaign this operation belongs to, its key in the campaign's plan,
     // and the operations (by id) it waits for.
     QString campaign;
@@ -143,6 +148,12 @@ class Operations : public QAbstractListModel {
     Q_PROPERTY(QString graphify READ graphify NOTIFY graphsChanged)
     Q_PROPERTY(bool graphsAuto READ graphsAuto WRITE setGraphsAuto NOTIFY graphsChanged)
     Q_PROPERTY(QString graphifyInstall READ graphifyInstall NOTIFY graphsChanged)
+    // How many questions, permissions and refused commands wait on the
+    // operator, across every operation.
+    Q_PROPERTY(int inboxCount READ inboxCount NOTIFY inboxChanged)
+    // Built-in recipes and the operator's own: [{name, objective, criteria,
+    // loadout, builtin}].
+    Q_PROPERTY(QVariantList recipes READ recipes NOTIFY recipesChanged)
 
 public:
     enum Role {
@@ -152,7 +163,7 @@ public:
         SessionRole, HandoffBriefRole, OrdersRole, HoldRole, CeilingRole, HistoryRole, CanUndoRollbackRole,
         EventsRole, RequestsRole, AllowedRole, StandingRole, WorktreeRole, WorkdirRole, BranchRole,
         BaseBranchRole, ResumeAtRole, QueueRole, OverwatchRole, ReviewsRole, ProgressRole, ProgressNoteRole,
-        QuestionsRole, PromptsRole, CampaignRole, GatesRole, CriteriaRole, PreviewRole, LastGatesRole, ArchivedRole
+        QuestionsRole, PromptsRole, CampaignRole, GatesRole, CriteriaRole, PreviewRole, LastGatesRole, ArchivedRole, ControlsRole
     };
 
     // Both arguments exist for tests: a temp data directory and a fake claude.
@@ -257,6 +268,30 @@ public:
     // [{directory, state, files}].
     Q_INVOKABLE QVariantList graphProjects() const;
     Q_INVOKABLE void installGraphify();
+    // Budgets and scheduling (Phase 14). A budget of 0 is none. A scheduled
+    // operation waits (status "scheduled") until its time, until the plan's
+    // usage window resets, or until another operation completes.
+    Q_INVOKABLE void setBudget(int row, double usd, int planPercent);
+    Q_INVOKABLE void setSchedule(int row, const QString &mode, double at, const QString &afterId);
+    Q_INVOKABLE void clearSchedule(int row);
+    Q_INVOKABLE void setCampaignBudget(const QString &id, double usd);
+    // A debrief, review or brief for the in-app reader: {text, format: html
+    // or markdown, path}. Only files in Fireteam's data folder are read.
+    Q_INVOKABLE QVariantMap readReport(const QString &path) const;
+    // Streamlining.
+    int inboxCount() const;
+    // Everything waiting on the operator, newest first: [{row, opId, codename,
+    // kind: question|prompt|request, id, index, text, options, choices, time}].
+    Q_INVOKABLE QVariantList inbox() const;
+    // A one-line request read as a briefing: {directory, objective, codename,
+    // loadout, known}; directory is empty when no project could be found.
+    Q_INVOKABLE QVariantMap quickPlan(const QString &text, const QString &fallbackDirectory) const;
+    // What Fireteam leans on, for the setup checklist: {claude, git, graphify,
+    // chromium, qrencode, python} as paths (empty when missing).
+    Q_INVOKABLE QVariantMap environment() const;
+    QVariantList recipes() const;
+    Q_INVOKABLE void saveRecipe(const QVariantMap &recipe);
+    Q_INVOKABLE void removeRecipe(const QString &name);
     Q_INVOKABLE void deploy(int row);
     Q_INVOKABLE void sendOrders(int row, const QString &text, bool deployNow);
     Q_INVOKABLE void clearOrders(int row);
@@ -322,6 +357,8 @@ signals:
     void lessonsChanged(const QString &directory);
     void graphChanged(const QString &directory);
     void liveWorkChanged(const QString &directory);
+    void inboxChanged();
+    void recipesChanged();
     void graphsChanged();
     // Something worth telling someone who isn't looking at the board.
     void alert(const QString &opId, const QString &title, const QString &body);
@@ -382,6 +419,8 @@ private:
         QVariantList plan;
         QDateTime created;
         double costUsd = 0;
+        // Holds the campaign's operations once their API value reaches it.
+        double budgetUsd = 0;
         QJsonObject toJson() const;
         static Campaign fromJson(const QJsonObject &object);
     };
@@ -434,6 +473,11 @@ private:
     QHash<QString, QPointer<Gates>> m_gateRunners;
     bool m_afterAction = true;
     bool m_graphsAuto = true;
+    QVariantList m_recipes;
+    QTimer *m_scheduleTimer = nullptr;
+    void checkSchedules();
+    // True when the operation is at or past a budget, which it then explains.
+    bool overBudget(Operation &op);
     QString m_graphifyInstall;
     QHash<QString, QPointer<QProcess>> m_graphBuilds;
     QSet<QString> m_graphPending;

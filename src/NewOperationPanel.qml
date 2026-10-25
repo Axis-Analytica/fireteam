@@ -67,6 +67,15 @@ Item {
         standingField.text = loadout.standing || ""
         overwatchBox.currentIndex = Math.max(0, overwatchBox.keys.indexOf(loadout.overwatch || "off"))
     }
+    // A recipe fills the objective and criteria, and brings its loadout.
+    function applyRecipe(recipe) {
+        objective.text = recipe.objective || ""
+        criteriaField.text = recipe.criteria || ""
+        const loadout = ops.loadouts.find(l => l.name === recipe.loadout)
+        if (loadout)
+            applyLoadout(loadout)
+    }
+    property bool savingRecipe: false
     function currentLoadout(name) {
         return { name: name, model: model.currentIndex === 0 ? "" : model.currentText, roe: roe, cycles: cycles,
                  handoffAt: handoff.limits[handoff.currentIndex], worktree: useWorktree, standing: standingField.text,
@@ -74,6 +83,15 @@ Item {
     }
     Timer { id: repoCheck; interval: 300; onTriggered: panel.refreshRepo() }
 
+    // A new briefing filled from a one-line request (the command palette).
+    function prefill(plan) {
+        open()
+        if (plan.directory) directory.text = plan.directory
+        if (plan.codename) codename.text = plan.codename
+        objective.text = plan.objective || ""
+        refreshRepo()
+        objective.forceActiveFocus()
+    }
     function open() {
         editing = -1
         minimumCycles = 1
@@ -346,6 +364,90 @@ Item {
                             panel.savingLoadout = false
                         }
                         Keys.onEscapePressed: { text = ""; panel.savingLoadout = false }
+                    }
+                }
+
+                // Recipes: ready-made objectives with their criteria and loadout.
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    visible: panel.editing < 0
+                    FieldLabel {
+                        height: 28
+                        verticalAlignment: Text.AlignVCenter
+                        rightPadding: 6
+                        text: qsTr("Recipe")
+                    }
+                    Repeater {
+                        model: ops.recipes
+                        delegate: Rectangle {
+                            id: recipeChip
+                            required property var modelData
+                            width: recipeLabel.implicitWidth + 20 + (recipeChip.modelData.builtin ? 0 : 16)
+                            height: 28
+                            color: recipeHover.hovered ? Style.raised : "transparent"
+                            border.color: recipeHover.hovered ? Style.lineStrong : Style.line
+                            radius: Math.min(2, theme.radius)
+                            Text {
+                                id: recipeLabel
+                                anchors.left: parent.left
+                                anchors.leftMargin: 10
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: recipeChip.modelData.name
+                                color: Style.text2
+                                font.family: Style.body
+                                font.pixelSize: 12
+                                font.weight: Font.Medium
+                            }
+                            Text {
+                                visible: !recipeChip.modelData.builtin && recipeHover.hovered
+                                anchors.right: parent.right
+                                anchors.rightMargin: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "✕"
+                                color: recipeRemove.hovered ? Style.danger : Style.dim
+                                font.pixelSize: 11
+                                HoverHandler { id: recipeRemove }
+                                TapHandler { onTapped: ops.removeRecipe(recipeChip.modelData.name) }
+                            }
+                            HoverHandler { id: recipeHover; cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: panel.applyRecipe(recipeChip.modelData) }
+                            ToolTip.visible: recipeHover.hovered
+                            ToolTip.delay: 500
+                            ToolTip.text: recipeChip.modelData.objective
+                        }
+                    }
+                    Text {
+                        height: 28
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: 6
+                        visible: !panel.savingRecipe && objective.text.trim().length > 0
+                        text: qsTr("+ Save as recipe")
+                        color: recipeSaveHover.hovered ? theme.accent : Style.dim
+                        font.family: Style.body
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
+                        HoverHandler { id: recipeSaveHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: { panel.savingRecipe = true; recipeName.forceActiveFocus() } }
+                    }
+                    TextField {
+                        id: recipeName
+                        visible: panel.savingRecipe
+                        width: 180
+                        height: 34
+                        topPadding: 4
+                        bottomPadding: 4
+                        placeholderText: qsTr("Recipe name")
+                        font.family: Style.body
+                        font.pixelSize: 12
+                        onAccepted: {
+                            if (text.trim().length > 0)
+                                ops.saveRecipe({ name: text, objective: objective.text, criteria: criteriaField.text,
+                                                 loadout: Prefs.defaultLoadout })
+                            text = ""
+                            panel.savingRecipe = false
+                        }
+                        Keys.onEscapePressed: { text = ""; panel.savingRecipe = false }
                     }
                 }
 

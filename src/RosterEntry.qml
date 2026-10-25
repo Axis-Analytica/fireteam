@@ -57,7 +57,7 @@ Item {
     required property var lastGates
     required property bool archived
     // Archived operations stay in the model but off the board, unless asked.
-    readonly property bool hidden: archived && !win.showArchived
+    readonly property bool hidden: (archived && !win.showArchived) || win.pendingRemoval === opId
     readonly property int waitingOn: questions.length + prompts.length
 
     readonly property bool selected: ListView.isCurrentItem

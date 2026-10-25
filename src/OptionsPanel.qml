@@ -11,6 +11,7 @@ Item {
     property string tab: "options"
     signal terminalRequested()
     signal controlsRequested()
+    signal setupRequested()
 
     Material.theme: Material.Dark
     Material.accent: theme.accent
@@ -334,6 +335,11 @@ Item {
                             label: qsTr("Data folder")
                             hint: ops.dataDirectory
                             TacticalButton { text: qsTr("Open"); onClicked: Qt.openUrlExternally("file://" + ops.dataDirectory) }
+                        }
+                        OptionRow {
+                            label: qsTr("Setup checklist")
+                            hint: qsTr("Check what Fireteam leans on: claude, git, graphify, Chromium and the field terminal.")
+                            TacticalButton { text: qsTr("Open"); onClicked: panel.setupRequested() }
                         }
                         Text {
                             Layout.fillWidth: true

@@ -1318,6 +1318,114 @@ private slots:
         qunsetenv("FIRETEAM_TEST_EDIT");
     }
 
+    void readsQuickPlans()
+    {
+        QTemporaryDir data, home, bin;
+        const QString claude = fakeClaude(bin);
+        QDir(home.path()).mkpath("logbook");
+        QDir(home.path()).mkpath("test app");
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", home.filePath("logbook"), "One", 1, "restricted", ""), 0);
+        QCOMPARE(ops.create("", home.filePath("test app"), "Two", 1, "restricted", ""), 0);
+
+        // A path in the text wins, and leaves the objective.
+        QVariantMap plan = ops.quickPlan("add CSV export in " + home.filePath("logbook"), "");
+        QCOMPARE(plan.value("directory").toString(), home.filePath("logbook"));
+        QCOMPARE(plan.value("objective").toString(), QString("Add CSV export"));
+        QVERIFY(plan.value("known").toBool());
+        // A known project by name, the longest name first.
+        plan = ops.quickPlan("fix the build in test app", "");
+        QCOMPARE(plan.value("directory").toString(), home.filePath("test app"));
+        QCOMPARE(plan.value("objective").toString(), QString("Fix the build"));
+        // Nothing named: the fallback, and it says so.
+        plan = ops.quickPlan("tidy up", home.filePath("logbook"));
+        QCOMPARE(plan.value("directory").toString(), home.filePath("logbook"));
+        QVERIFY(!plan.value("known").toBool());
+        QVERIFY(!plan.value("codename").toString().isEmpty());
+
+        // Recipes: built in, plus your own, saved and removed.
+        const int builtin = ops.recipes().size();
+        QVERIFY(builtin >= 5);
+        ops.saveRecipe({{"name", "Port to Qt 7"}, {"objective", "Port it."}, {"criteria", "Builds"}, {"loadout", "Heavy"}});
+        QCOMPARE(ops.recipes().size(), builtin + 1);
+        Operations reloaded(data.path(), claude);
+        QCOMPARE(reloaded.recipes().last().toMap().value("name").toString(), QString("Port to Qt 7"));
+        reloaded.removeRecipe("Port to Qt 7");
+        QCOMPARE(reloaded.recipes().size(), builtin);
+        QVERIFY(!ops.environment().value("git").toString().isEmpty());
+    }
+
+    void gathersTheInbox()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        qputenv("FIRETEAM_TEST_DENY", "1");
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 1, "restricted", ""), 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QVERIFY(finished.wait(10000));
+        qunsetenv("FIRETEAM_TEST_DENY");
+        QCOMPARE(ops.inboxCount(), 1);
+        const QVariantMap item = ops.inbox().first().toMap();
+        QCOMPARE(item.value("kind").toString(), QString("request"));
+        QCOMPARE(item.value("row").toInt(), 0);
+        QVERIFY(item.value("text").toString().contains("npm test"));
+        QSignalSpy changed(&ops, &Operations::inboxChanged);
+        ops.deny(0, 0);
+        QCOMPARE(ops.inboxCount(), 0);
+        QVERIFY(changed.count() > 0);
+    }
+
+    void holdsAtTheBudget()
+    {
+        // Each fake cycle costs $0.25: a $0.30 budget warns after the first
+        // (past 80%) and holds after the second.
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "Build", 4, "restricted", ""), 0);
+        ops.setBudget(0, 0.30, 0);
+        QSignalSpy finished(&ops, &Operations::operationFinished);
+        ops.deploy(0);
+        QTRY_COMPARE_WITH_TIMEOUT(ops.at(0).status, QString("held"), 15000);
+        QCOMPARE(ops.at(0).cyclesDone, 2);
+        QVERIFY(ops.at(0).controls.value("warned").toBool());
+        bool said = false;
+        for (const QVariant &line : ops.at(0).comms)
+            said = said || line.toMap().value("text").toString().startsWith("Budget reached");
+        QVERIFY(said);
+    }
+
+    void deploysOnSchedule()
+    {
+        QTemporaryDir data, project, bin;
+        const QString claude = fakeClaude(bin);
+        qputenv("FIRETEAM_TEST_LOG", bin.filePath("args.log").toUtf8());
+        Operations ops(data.path(), claude);
+        QCOMPARE(ops.create("", project.path(), "First", 1, "restricted", ""), 0);
+        QCOMPARE(ops.create("", project.path(), "Second", 1, "restricted", ""), 0);
+        // Rows: 0 is Second (newest first), 1 is First.
+        const QString first = ops.at(1).id;
+        // After another operation: waits, then goes when that one completes.
+        ops.setSchedule(0, "after", 0, first);
+        QCOMPARE(ops.at(0).status, QString("scheduled"));
+        // A time already past deploys at once.
+        ops.setSchedule(1, "time", QDateTime::currentSecsSinceEpoch() - 5, QString());
+        QCOMPARE(ops.at(ops.rowOfId(first)).status, QString("deployed"));
+        QTRY_COMPARE_WITH_TIMEOUT(ops.at(ops.rowOfId(first)).status, QString("complete"), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(ops.at(0).status == "deployed" || ops.at(0).status == "complete", 5000);
+        QVERIFY(!ops.at(0).controls.contains("schedule"));
+        // A schedule can be cleared back to standby.
+        QCOMPARE(ops.create("", project.path(), "Third", 1, "restricted", ""), 0);
+        ops.setSchedule(0, "time", QDateTime::currentSecsSinceEpoch() + 3600, QString());
+        QCOMPARE(ops.at(0).status, QString("scheduled"));
+        ops.clearSchedule(0);
+        QCOMPARE(ops.at(0).status, QString("standby"));
+    }
+
     void themeTintsTheGroundTowardTheAccent()
     {
         QTemporaryDir dir;

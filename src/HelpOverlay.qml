@@ -10,6 +10,8 @@ Item {
     onVisibleChanged: if (visible) { enter.restart(); list.contentY = 0 }
 
     readonly property var controls: [
+        ["Ctrl+K", qsTr("Command palette: any action or operation, or type a request to deploy it")],
+        ["I", qsTr("Inbox: everything waiting on you, across every operation")],
         ["N", qsTr("Plan a new operation")],
         [qsTr("Space"), qsTr("Deploy, resume, or redeploy the selected operation")],
         ["T", qsTr("Send orders to the selected operation")],
@@ -34,6 +36,7 @@ Item {
         ["D", qsTr("Open the operation dossier")],
         ["O", qsTr("Open the project directory")],
         [qsTr("Del"), qsTr("Stand down (remove) the selected operation")],
+        ["Ctrl+Z", qsTr("Undo standing down, for a few seconds after")],
         ["Ctrl+Enter", qsTr("Deploy from the briefing")],
         [",", qsTr("Options and About")],
         ["Esc", qsTr("Close a panel")],
