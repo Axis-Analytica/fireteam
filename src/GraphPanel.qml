@@ -346,15 +346,17 @@ Item {
 
                 Item {
                     id: stage
-                    // The graph's own square, in which positions are 0..1.
-                    readonly property real side: Math.max(200, Math.min(frame.width, frame.height) - 80)
-                    width: side
-                    height: side
+                    // The graph's own field, in which positions are 0..1: as tall as
+                    // the frame, and wider on a wide screen (up to twice as wide),
+                    // so a cluster spreads into the room rather than sitting in a
+                    // square in the middle.
+                    height: Math.max(200, frame.height - 80)
+                    width: Math.max(200, Math.min(frame.width - 120, height * 2))
                     transformOrigin: Item.TopLeft
                     function fit() {
                         scale = 1
-                        x = (frame.width - side) / 2
-                        y = (frame.height - side) / 2
+                        x = (frame.width - width) / 2
+                        y = (frame.height - height) / 2
                     }
                     function zoom(factor, px, py) {
                         const next = Math.max(0.4, Math.min(5, scale * factor))
@@ -374,6 +376,7 @@ Item {
                         onInkChanged: requestPaint()
                         onAccentChanged: requestPaint()
                         onWidthChanged: requestPaint()
+                        onHeightChanged: requestPaint()
                         onPaint: {
                             const ctx = getContext("2d")
                             ctx.reset()
