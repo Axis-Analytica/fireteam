@@ -358,6 +358,9 @@ Item {
                         font.variableAxes: Style.wide
                         font.pixelSize: 16
                         font.letterSpacing: -0.3
+                        // A callsign, so it's typed in capitals; the field's own
+                        // label stays in sentence case.
+                        onTextEdited: { const at = cursorPosition; const upper = text.toUpperCase(); if (upper !== text) { text = upper; cursorPosition = at } }
                     }
                     TacticalButton { text: qsTr("Reroll"); onClicked: codename.text = ops.suggestCodename() }
                 }

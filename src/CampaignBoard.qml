@@ -301,10 +301,11 @@ Item {
                     id: nameField
                     Layout.fillWidth: true
                     placeholderText: qsTr("Campaign name")
-                    // A callsign: stored in capitals.
                     font.family: Style.mono
                     font.variableAxes: Style.wide
-                    font.capitalization: Font.AllUppercase
+                    // A callsign, so it's typed in capitals; the field's own
+                    // label stays in sentence case.
+                    onTextEdited: { const at = cursorPosition; const upper = text.toUpperCase(); if (upper !== text) { text = upper; cursorPosition = at } }
                 }
                 RowLayout {
                     Layout.fillWidth: true
@@ -481,22 +482,39 @@ Item {
                             columns[d] = (columns[d] || []).concat([op.key])
                         }
                         const columnCount = Math.max(1, columns.length)
-                        // Spread to fit the frame, but never closer than a card
-                        // and its arrow; past that the graph scrolls.
-                        const step = columnCount < 2 ? 0 : Math.max(245, Math.min(360, (graphFrame.width - 260) / (columnCount - 1)))
+                        // Cards narrow (down to 170) before the graph scrolls, and
+                        // the columns spread to fit the frame up to a comfortable gap.
+                        const gap = 48
+                        const card = Math.max(170, Math.min(220, (graphFrame.width - 40 - (columnCount - 1) * gap) / columnCount))
+                        const step = columnCount < 2 ? 0 : Math.max(card + gap, Math.min(card + 140, (graphFrame.width - 40 - card) / (columnCount - 1)))
+                        // Within a column, each operation sits near the average row
+                        // of what it depends on, so supply lines cross less.
+                        const row = {}
+                        for (let c = 0; c < columns.length; ++c) {
+                            const keys = columns[c] || []
+                            if (c > 0) {
+                                const weight = key => {
+                                    const deps = byKey[key].depends.filter(d => row[d] !== undefined)
+                                    return deps.length === 0 ? 1e9 : deps.reduce((sum, d) => sum + row[d], 0) / deps.length
+                                }
+                                keys.sort((a, b) => weight(a) - weight(b))
+                            }
+                            keys.forEach((key, r) => row[key] = (r + 0.5) / keys.length)
+                        }
                         let tallest = 0
                         for (let c = 0; c < columns.length; ++c)
                             tallest = Math.max(tallest, (columns[c] || []).length)
                         const height = Math.max(graphFrame.height, 40 + tallest * 110)
                         for (let c = 0; c < columns.length; ++c) {
                             const keys = columns[c] || []
-                            const top = Math.max(20, (height - keys.length * 110) / 2)
+                            const top = Math.max(24, (height - keys.length * 110) / 2)
                             for (let r = 0; r < keys.length; ++r)
-                                result[keys[r]] = { x: 20 + c * step, y: top + r * 110 }
+                                result[keys[r]] = { x: 20 + c * step, y: top + r * 110, column: c }
                         }
-                        result["__size"] = { width: 40 + (columnCount - 1) * step + 220, height: height }
+                        result["__size"] = { width: 40 + (columnCount - 1) * step + card, height: height }
                         result["__columns"] = columnCount
                         result["__step"] = step
+                        result["__card"] = card
                         return result
                     }
                     onLayoutChanged: lines.requestPaint()
@@ -517,7 +535,7 @@ Item {
                         delegate: Text {
                             required property int index
                             x: 20 + index * (graphFrame.layout.__step || 0)
-                            y: 5
+                            y: 6
                             text: "# " + Style.pad(index + 1)
                             color: Style.faint
                             font.family: Style.mono
@@ -547,10 +565,26 @@ Item {
                                     ctx.strokeStyle = done ? board.css(theme.accent, 1) : board.css(Style.dim, 0.7)
                                     ctx.lineWidth = done ? 1.5 : 1
                                     ctx.setLineDash(done ? [] : [4, 4])
-                                    const x1 = from.x + 220, y1 = from.y + 44, x2 = to.x, y2 = to.y + 44
+                                    const card = places.__card
+                                    const x1 = from.x + card, y1 = from.y + 44, x2 = to.x, y2 = to.y + 44
                                     ctx.beginPath()
                                     ctx.moveTo(x1, y1)
-                                    ctx.bezierCurveTo(x1 + 40, y1, x2 - 40, y2, x2 - 6, y2)
+                                    if (to.column - from.column > 1) {
+                                        // A line that skips columns runs along a lane
+                                        // between their cards rather than behind them.
+                                        const between = Object.keys(places).filter(k => !k.startsWith("__")
+                                            && places[k].column > from.column && places[k].column < to.column).map(k => places[k])
+                                        const clear = y => between.every(p => y < p.y - 6 || y > p.y + 94)
+                                        const lanes = [y1, y2].concat(between.map(p => p.y - 11), between.map(p => p.y + 99))
+                                        const middle = (y1 + y2) / 2
+                                        const lane = lanes.filter(clear).sort((a, b) => Math.abs(a - middle) - Math.abs(b - middle))[0]
+                                        const xa = from.x + places.__step - 14, xb = to.x - places.__step + card + 14
+                                        ctx.bezierCurveTo(x1 + 24, y1, xa - 24, lane, xa, lane)
+                                        ctx.lineTo(xb, lane)
+                                        ctx.bezierCurveTo(xb + 24, lane, x2 - 30, y2, x2 - 6, y2)
+                                    } else {
+                                        ctx.bezierCurveTo(x1 + 40, y1, x2 - 40, y2, x2 - 6, y2)
+                                    }
                                     ctx.stroke()
                                     // A square tick where the line leaves, an arrowhead where it lands.
                                     ctx.setLineDash([])
@@ -578,7 +612,7 @@ Item {
                             readonly property bool live: modelData.status === "deployed"
                             x: place.x
                             y: place.y
-                            width: 220
+                            width: graphFrame.layout.__card || 220
                             height: 88
                             Behavior on x { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
                             Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
@@ -741,7 +775,9 @@ Item {
                                 // A callsign: stored in capitals.
                                 font.family: Style.mono
                                 font.variableAxes: Style.wide
-                                font.capitalization: Font.AllUppercase
+                                // A callsign, so it's typed in capitals; the field's own
+                                // label stays in sentence case.
+                                onTextEdited: { const at = cursorPosition; const upper = text.toUpperCase(); if (upper !== text) { text = upper; cursorPosition = at } }
                                 onEditingFinished: if (editor.op) board.planWith(editor.op.key, { codename: text.toUpperCase() })
                             }
                             TextField {
